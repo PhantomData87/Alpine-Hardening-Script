@@ -1,0 +1,5 @@
+Accepted risk of: config_kcmp=y, config_modules=y, IPV6=y
+Fighting: CONFIG_ARM64_BTI_KERNEL, CONFIG_CFI_CLANG, CONFIG_CFI_PERMISSIVE
+Outside of development: config_security_selinux_develop=n
+
+Dam firewall: https://wiki.nftables.org/wiki-nftables/index.php/Building_and_installing_nftables_from_sources
