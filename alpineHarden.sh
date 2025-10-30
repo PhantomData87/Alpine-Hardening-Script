@@ -10,22 +10,12 @@
 # Alpine tested on: 3.22.1, 3.22.2
 
 # Missing features:
-#fail2ban: Missing more configuration 
-#chkrootkit, 
-#Password quality?, 
-#revist crontab, 
-#restrict busybox, 
+#fail2ban: Configure it more once all services are ready
+#restrict busybox?
 #what is busybox-paths.d/busybox?, 
-#harden /etc directory, 
-#mdev umask settings in /etc/mdev.conf, 
-#reimplement umask 037 in /etc/profile.d/ or /etc/profile, 
-#carefully set profile's $PATH, 
 #set ulimit in sysctl via fs.file and alike, 
 #redo filesystem disable, 
-#selinux, landlock, lockdown, yama, safesetid, loadpin?, 
-#where to install: doas doas-doc doasedit@se, 
-#chroot $mountPoint /bin/sed -i 's/# permit/permit/1' /etc/doas.conf, 
-#passwd -l root, 
+#selinux, landlock, lockdown, yama, safesetid, loadpin?
 #self kernel upgrading, 
 #AIDE, 
 #DNS check, 
@@ -34,21 +24,28 @@
 #cron auto-purges, 
 #apt-show-versions for patch management, 
 #automatic apply upgrades, 
-#did not create /etc/issue or /etc/issue.net banner, or /etc/motd
 #process accounting, 
-#sysstat, 
 #auditd, 
 #file integrity monitor, 
 #automation tools, 
 #malware scanning, 
 #DO NOT OVERWRITE EXISTING PARTITIONS
-#Change public incoming facing ports (ssh) to non-standard number
 #Skip device check if mountpoint is set to root ("/") directory
 #Network monitoring? ARP requests, DHCP requestss
 #Awall firewall
 #Firewall; Filter arp and other network requests
-#Execute certain services as a dedicated limited user in openrc
 #Obtain current time without installing anything
+#Make configAutostart() function to add in the following scripts: set kernel.modules_disabled = 1, turning on and off firewall for timed ntp, dns, or apk updates, ...
+#Change overall directroy permissions in every /etc folder (eg: ssh main folder)
+#chkrootkit, RKHunter, aide, lynis periodic scan
+#User accounting: sysstat
+#SSH multi-factor authentication
+#Study more of /etc/ssh/moduli file for ssh modification: https://www.decodednode.com/2023/12/diving-too-deeply-into-dh-moduli-and.html
+#Find a way to permit pings from LAN, but not WAN. Finally, let these pings contain no data.
+#Think about ARP packets, filtering DHCP packets away, minimal DNS packets, and further restrictions on NTP packets.
+#Further explore possible firewall configurations after everything else has been set.
+# Using linux `tc` to limit bandwidth and througput of specific packets
+# Switch over to nftables by ditching UFW
 
 # Log meanings in this script:
 # INFO: States what is currently happening in the script.
@@ -56,36 +53,40 @@
 # CRITICAL: A command hasn't executed, and may leave a large quantity of UNEXPECTED log messages.
 # BAD FORMAT: A verification test found unproper formatting
 # SYSTEM TEST MISMATCH: A verification test has not encounter an expected output
-# WARNING: Does not belong to this script, but instead belongs from another program that tries to warn about possible errors
+# WARNING: Does not belong to this script, but instead belongs from another program that tries to warn about possible errors, but was not filtered
+
+# Expensive operations:
+export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires a lot of space (~3.6Gb) and time (significantly more on embedded devices).
 
 # Alpine configuration variables (CHANGE THESE)
 export logFile="/tmp/hardeningAlpine.log"
-export logIP="127.0.0.1"
-export buildUsername="maintain"
-export username="entry"
-export sshUsernameKey="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGI2gky5QxWhi4pNX7dUFhR+VkgurRaZkGrPrt2+E/RN entry@lepotato"
-export rootSize="2G"
-export homeSize="4M"
-export varSize="2G"
-export varTmpSize="1G"
-export varLogSize="5G"
-export localhostName="localhost"
-export lvmName="vgcore"
+export logIP="REPLACEME"
+export buildUsername="REPLACEME"
+export username="REPLACEME"
+export sshUsernameKey="REPLACEME"
+export rootSize="REPLACEME"
+export homeSize="REPLACEME"
+export varSize="REPLACEME"
+export varTmpSize="REPLACEME"
+export varLogSize="REPLACEME"
+export localhostName="REPLACEME"
+export lvmName="REPLACEME"
 export keyboardLayout="us"
-export timezone="US/Pacific"
-export dnsList="1.1.1.1 9.9.9.9"
-export apkRepoList="https://mirror.math.princeton.edu/pub/alpinelinux/edge https://mirrors.ocf.berkeley.edu/alpine/edge"
-export devDevice="mdev"
-export rootPass="Core&soul!Beetle=hound"
+export timezone="REPLACEME"
+export dnsList="REPLACEME"
+export apkRepoList="REPLACEME"
+export devDevice="REPLACEME"
+export rootPass="REPLACEME"
 export mountPoint="/mnt/alpine"
 export partitionStart=2 # Leave this as 1 to assume we can make the first partition
 export kernelPartitionStart=1 # Leave this as 1 to assume we can make the first partition
-export partitionSector="6144" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
-export kernelPartitionSector="2048" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
-export kernelVersion="6.12.43" # Could not have this reliable
-export gitPackageCommitHash="286b542594d5b89dbe3f49f9faf4ba9e9f34f8d3" # Scroll through original aports git repo to set the desired hash
-export localNetwork="192.168.0.0"
-export localNetmask="24"
+export partitionSector="REPLACEME" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
+export kernelPartitionSector="REPLACEME" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
+export kernelVersion="REPLACEME" # Could not have this reliable
+export gitPackageCommitHash="REPLACEME" # Scroll through original aports git repo to set the desired hash
+export localNetwork="REPLACEME"
+export localNetmask="REPLACEME"
+export sshPort="REPLACEME"
 
 # Variables that can be prefilled, but are automatically asked when needed
 export packageDevice="" # Write /dev/devicePath
@@ -123,7 +124,7 @@ p="p" # Partition letter. Increases readability by avoiding "$(echo p)" into $p
 # Additional logging variables
 export ufwLogging="full" # "low"="on", "medium", "high", "full" : https://thelinuxcode.com/check-my-ufw-log/ : /var/log/ufw.log
 export fail2banLogging="INFO" # "CRITICAL", "ERROR", "WARNING", "NOTICE", "INFO", "DEBUG" : /var/log/fail2ban.log
-#sshLogging= Cannot find configuration file : /var/log/auth.log
+export sshLogging="VERBOSE" # "QUIET", "FATAL", "ERROR", "INFO", "VERBOSE", "DEBUG", "DEBUG1", "DEBUG2", "DEBUG3" : /etc/ssh/sshd_config
 
 # Log function
 log() {
@@ -276,6 +277,7 @@ interpretArgs() {
     if [ -z "$gitPackageCommitHash" ]; then echo "BAD FORMAT: Must indicate the git branch hash that is expected to be used!"; exit; fi
     if [ -z "$localNetwork" ]; then echo "BAD FORMAT: Must provide a IPv4 base address for the local network!"; exit; fi
     if [ -z "$localNetmask" ]; then echo "BAD FORMAT: Must provide a IPv4 local network netmask!"; exit; fi
+    if [ -z "$sshPort" ]; then echo "BAD FORMAT: Must provide a valid port number that is in range of 1-1023, and is not 22!"; exit; fi
 
     # Format check
     if ! (echo $logIP | grep -Eq ^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}$); then echo "BAD FORMAT: Not a valid IPv4 format IP address for logging capabilities! Edit: logIP"; exit; fi
@@ -292,6 +294,7 @@ interpretArgs() {
     if (! echo $varTmpSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in varTmpSize: $varTmpSize" 2>/dev/null; exit; fi
     if (! echo $varLogSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in varLogSize: $varLogSize" 2>/dev/null; exit; fi
     if (! echo $timezone | grep -Eq [A-z]+/[A-z]); then echo "BAD FORMAT: Not a valid timezone declaration! $timezone" 2>/dev/null; exit; fi
+    if [ ! echo $sshPort | grep -Eq ^[0-9] ] && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number that is in range of 1-1023, and is not 22!"; exit; fi
 
     # Behavior check
     if [ "$mountPoint" = "/" ] && $pre; then echo "SYSTEM TEST MISMATCH: Cannot have pre-installation declared on / point. Specify elsewhere."; exit; fi
@@ -535,7 +538,7 @@ removeAlpine() {
 # Date command format: MMDDhhmmCCYY
 setupAlpine() {
     log "INFO: Started default alpine installation"
-    date -s "10200000"
+    date -s "10280000"
     setup-hostname "$localhostName" 2>/dev/null || log "UNEXPECTED: Could not declare device's hostname"
     rc-service --quiet networking stop 2>/dev/null || log "UNEXPECTED: Could not stop networking services"
     rc-service --quiet hostname restart 2>/dev/null || log "UNEXPECTED: Could not restart hostname services"
@@ -567,6 +570,7 @@ setupAlpine() {
     log "INFO: Almost finished default alpine installation!"
 }
 
+# Inspired by: https://techgirlkb.guru/2019/08/how-to-create-cis-compliant-partitions-on-aws/
 setupDisks() {
     # Find where to find mounted devices
     mountFind
@@ -633,18 +637,9 @@ setupDisks() {
     chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
     chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
 
-    # Disable TTY interfaces from inittab to limit root access
-    log "INFO: Disabling root login via serial consoles"
-    chroot $mountPoint /bin/sed -i 's/^tty/#tty/g' /etc/inittab || log "UNEXPECTED: Could not stop the creation of getty instances"
-    chroot $mountPoint /bin/echo > /etc/securetty || log "UNEXPECTED: Could not modify which interfaces a root user can login from"
-    chroot $mountPoint /bin/chmod 400 /etc/securetty || log "UNEXPECTED: Could not set to 400 permission on /etc/securetty file"
-
-    # Configure grub
-    log "INFO: Modifying grub"
+    # Ensure grub has no timeout when booting into it's menu
     chroot $mountPoint /bin/sed -i 's/GRUB_TIMEOUT=\(.*\)/GRUB_TIMEOUT=0/g' /etc/default/grub || log "UNEXPECTED: Could not lower timeout for grub configuration"
-    chroot $mountPoint /bin/sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="modules=sd=mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100"/g' /etc/default/grub || log "UNEXPECTED: Could not implement kernel parameters that enforce security"
     chroot $mountPoint /bin/chmod 400 /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
-    chroot $mountPoint /usr/sbin/update-grub || log "UNEXPECTED: Could not implement changes for grub"
 
     # Confirmation message
     log "INFO: Finished partitioning disk on $mountDevice" /dev/"$lvmName"/"$localhostName"
@@ -670,28 +665,123 @@ formatKernel() {
     configKernel
 }
 
+
+# SSHD resources that are worth keeping:
+# SSH audit tool: https://github.com/jtesta/ssh-audit
+# All cryptogrpahic functions supported by sshd: https://superuser.com/questions/1763269/how-to-disable-rsa-and-ecdsa-keys-in-openssh-server-on-fedora-linux
+# Hardening guide: https://medium.com/@jasonrigden/hardening-ssh-1bcb99cd4cef
+# Simplified hardening guide: https://www.sshaudit.com/hardening_guides.html
 configSSHD() {
     log "INFO: Affecting sshd_config"
     chroot $mountPoint /bin/chmod 600 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config permissions to writable"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}PermitRootLogin\(.*\)/PermitRootLogin no/g' /etc/ssh/sshd_config || log "UNEXPECTED: PermitRootLogin is not properely configured"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}X11Forwarding\(.*\)/X11Forwarding no/g' /etc/ssh/sshd_config || log "UNEXPECTED: X11Forwarding is not properely configured"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}PasswordAuthentication\(.*\)/PasswordAuthentication no/g' /etc/ssh/sshd_config || log "UNEXPECTED: PasswordAuthentication not properely configured"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}PubkeyAuthentication\(.*\)/PubkeyAuthentication yes/g' /etc/ssh/sshd_config || log "UNEXPECTED: PubkeyAuthentication not properely configured"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}IgnoreRhosts \(.*\)/IgnoreRhosts yes/g' /etc/ssh/sshd_config || log "UNEXPECTED: IgnoreRhosts not properely configured"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}PermitEmptyPasswords\(.*\)/PermitEmptyPasswords no/g' /etc/ssh/sshd_config || log "UNEXPECTED: PermitEmptyPasswords not properely configured"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}TCPKeepAlive\(.*\)/TCPKeepAlive yes/g' /etc/ssh/sshd_config || log "UNEXPECTED: TCPKeepAlive not been properely configured"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}ClientAliveInterval\(.*\)/ClientAliveInterval 150/g' /etc/ssh/sshd_config || log "UNEXPECTED: ClientAliveInterval not configured for after 150 in sshd"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}ClientAliveCountMax\(.*\)/ClientAliveCountMax 2/g' /etc/ssh/sshd_config || log "UNEXPECTED: ClientAliveCountMax not configured for a maximum of 2 clients"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Port\(.*\)/Port $sshPort/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Port could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}AddressFamily\(.*\)/AddressFamily inet/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: AddressFamily could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}RekeyLimit\(.*\)/RekeyLimit 256M 1h/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: RekeyLimit could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}SyslogFacility\(.*\)/SyslogFacility AUTH/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: SyslogFacility could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}LogLevel\(.*\)/LogLevel $sshLogging/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: LogLevel could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}LoginGraceTime\(.*\)/LoginGraceTime 30/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: LoginGraceTime could not be configured"
+    chroot $mountPoint /bin/sed -i 's/^#\{0,2\}PermitRootLogin\(.*\)/PermitRootLogin no/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PermitRootLogin could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}StrictModes\(.*\)/StrictModes yes/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: StrictModes could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}MaxAuthTries\(.*\)/MaxAuthTries 2/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: MaxAuthTries could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}MaxSessions\(.*\)/MaxSessions 2/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: MaxSessions could not be configured"
+    chroot $mountPoint /bin/sed -i 's/^#\{0,2\}PubkeyAuthentication\(.*\)/PubkeyAuthentication yes/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PubkeyAuthentication could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}HostbasedAuthentication\(.*\)/HostbasedAuthentication no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: HostbasedAuthentication could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}IgnoreUserKnownHosts\(.*\)/IgnoreUserKnownHosts no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: IgnoreUserKnownHosts could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}IgnoreRhosts\(.*\)/IgnoreRhosts yes/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: IgnoreRhosts could not be configured"
+    chroot $mountPoint /bin/sed -i 's/^#\{0,2\}PasswordAuthentication\(.*\)/PasswordAuthentication no/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PasswordAuthentication could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}PermitEmptyPasswords\(.*\)/PermitEmptyPasswords no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PermitEmptyPasswords could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}AllowTcpForwarding\(.*\)/AllowTcpForwarding no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: AllowTcpForwarding could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}GatewayPorts\(.*\)/GatewayPorts no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: GatewayPorts could not be configured"
+    chroot $mountPoint /bin/sed -i 's/^#\{0,2\}X11Forwarding\(.*\)/X11Forwarding no/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: X11Forwarding could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}PermitTTY\(.*\)/PermitTTY yes/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PermitTTY could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}PrintMotd\(.*\)/PrintMotd yes/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PrintMotd could not be configured"
+    chroot $mountPoint /bin/sed -i 's/^#\{0,2\}TCPKeepAlive\(.*\)/TCPKeepAlive yes/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: TCPKeepAlive could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}PermitUserEnvironment\(.*\)/PermitUserEnvironment no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PermitUserEnvironment could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Compression\(.*\)/Compression yes/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Compression could not be configured"
+    chroot $mountPoint /bin/sed -i 's/^#\{0,2\}ClientAliveInterval\(.*\)/ClientAliveInterval 150/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: ClientAliveInterval could not be configured for after 150 seconds in sshd"
+    chroot $mountPoint /bin/sed -i 's/^#\{0,2\}ClientAliveCountMax\(.*\)/ClientAliveCountMax 2/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: ClientAliveCountMax is not configured for a maximum of 2 clients"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}UseDNS\(.*\)/UseDNS no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: UseDNS could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}PermitTunnel\(.*\)/PermitTunnel no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PermitTunnel could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Subsystem\(.*\)/#Subsystem/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Subsystem could not be configured"
+    if [ -z "$(chroot $mountPoint /bin/grep "^DisableForwarding" /etc/ssh/sshd_config)" ]; then echo "DisableForwarding yes" >> $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not insert DisableForwarding option"; else chroot $mountPoint /bin/sed -i "s/^#\{0,2\}DisableForwarding\(.*\)/DisableForwarding yes/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: DisableForwarding could not be configured"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep '^FingerprintHash' /etc/ssh/sshd_config)" ]; then echo "FingerprintHash sha256" >> $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not insert FingerprintHash option"; else chroot $mountPoint /bin/sed -i "s/^#\{0,2\}FingerprintHash\(.*\)/FingerprintHash sha256/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: FingerprintHash could not be configured"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep '^ChannelTimeout' /etc/ssh/sshd_config)" ]; then echo "ChannelTimeout session=20m" >> $mountPoint/etc/ssh/sshd_config 2>/dev/null 2>/dev/null || log "UNEXPECTED: Could not insert ChannelTimeout option"; else chroot $mountPoint /bin/sed -i "s/^#\{0,2\}ChannelTimeout\(.*\)/ChannelTimeout session=20m/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: ChannelTimeout could not be configured"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep '^Ciphers' /etc/ssh/sshd_config)" ]; then echo "Ciphers aes256-gcm@openssh.com,aes256-ctr" >> $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not insert Ciphers option"; else chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Ciphers\(.*\)/Ciphers aes256-gcm@openssh.com,aes256-ctr/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Ciphers could not be configured"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep '^KexAlgorithms' /etc/ssh/sshd_config)" ]; then echo "KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com" >> $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not insert KexAlgorithms option"; else chroot $mountPoint /bin/sed -i "s/^#\{0,2\}KexAlgorithms\(.*\)/KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: KexAlgorithms could not be configured"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep '^MACs' /etc/ssh/sshd_config)" ]; then echo "MACs hmac-sha2-512-etm@openssh.com" >> $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not insert MACs option"; else chroot $mountPoint /bin/sed -i "s/^#\{0,2\}MACs\(.*\)/MACs hmac-sha2-512-etm@openssh.com/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: MACs could not be configured"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep '^PubkeyAcceptedKeyTypes' /etc/ssh/sshd_config)" ]; then echo "PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com" >> $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not insert PubkeyAcceptedKeyTypes option"; else chroot $mountPoint /bin/sed -i "s/^#\{0,2\}PubkeyAcceptedKeyTypes\(.*\)/PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PubkeyAcceptedKeyTypes could not be configured"; fi
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}HostKey\(.*\)\/etc\/ssh\/ssh_host_rsa_key/#HostKey \/etc\/ssh\/ssh_host_rsa_key/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: HostKey could not be configured to remove RSA"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}HostKey\(.*\)\/etc\/ssh\/ssh_host_ecdsa_key/#HostKey \/etc\/ssh\/ssh_host_ecdsa_key/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: HostKey could not be configured to remove ecdsa"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}HostKey\(.*\)\/etc\/ssh\/ssh_host_ed25519_key/HostKey \/etc\/ssh\/ssh_host_ed25519_key/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: HostKey could not be configured to include ed25519"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Include\(.*\)\/etc\/ssh\(.*\)/#Include/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Include could not be configured"
     chroot $mountPoint /bin/chmod 400 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config permissions to readable"
+
+    log "INFO: Locking down ssh_config"
+    chroot $mountPoint /bin/chmod 600 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/ssh_config permissions to writable"
+    echo "Host *" > $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not empty out /etc/ssh/ssh_config file"
+    echo "    AddressFamily inet" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    BatchMode no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    ChallengeResponseAuthentication yes" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    CheckHostIP yes" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    Compression yes" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    CompressionLevel 9" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    ConnectTimeout 99999" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    ForwardAgent no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    ForwardX11 no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    GatewayPorts no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    HashKnownHosts yes" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    LogLevel $sshLogging" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    PasswordAuthentication no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    PermitLocalCommand no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    PreferredAuthentications publickey" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    TCPKeepAlive yes" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    Tunnel no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    UsePrivilegedPort no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    echo "    PubkeyAuthentication yes" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
+    chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/ssh_config permissions to readable"    
+
+    # Too expensive to be done correctly and efficiently on embedded devices (or live iso). This will have a skip option
+    if $sshExpensiveOperation; then
+        log "INFO: Re-generating sshd moduli file for unique prime numbers"
+        chroot $mountPoint /usr/bin/ssh-keygen -M generate -O bits=8192 /etc/ssh/8192.candidates 2>/dev/null || log "UNEXPECTED: Could not generate prime number canadites"
+        chroot $mountPoint /usr/bin/ssh-keygen -M screen -f /etc/ssh/8192.candidates /etc/ssh/8192.screened 2>/dev/null || log "UNEXPECTED: Could not screen prime number canadites appropriately"
+        chroot $mountPoint /bin/rm /etc/ssh/8192.candidates 2>/dev/null || log "UNEXPECTED: Could not remove 8192.candidates"
+        chroot $mountPoint /bin/chmod 600 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to writable"
+        chroot $mountPoint /bin/mv /etc/ssh/8192.screened /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not replace /etc/ssh/moduli with 8192.screened's prime numbers"
+    fi
+
+    if [ ! -z "$(chroot $mountPoint /usr/bin/awk '$5 < 3071' /etc/ssh/moduli)" ]; then
+        log "INFO: Removing small Diffie-Hellman moduli that are less than 3071 bits"
+        chroot $mountPoint /usr/bin/awk '$5 >= 3071' /etc/ssh/moduli > $mountPoint/etc/ssh/moduli.safer 2>/dev/null || log "UNEXPECTED: Could not filter out bits less than 3071 in /etc/ssh/moduli"
+        chroot $mountPoint /bin/chmod 600 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to writable"
+        chroot $mountPoint /bin/mv /etc/ssh/moduli.safer /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not override /etc/ssh/moduli with less vulnerable bits"
+    fi
+
+    log "INFO: Enforcing remaining file permissions"
+    chroot $mountPoint /bin/chmod 400 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to readable"
+    chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_ed25519_key 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_ed25519_key in ssh directory permissions"
+    chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_ed25519_key.pub in ssh directory permissions"
+    chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_ecdsa_key 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_ecdsa_key in ssh directory permissions"
+    chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_ecdsa_key.pub in ssh directory permissions"
+    chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_rsa_key 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_rsa_key in ssh directory permissions"
+    chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_rsa_key.pub in ssh directory permissions"
+    chroot $mountPoint /bin/chmod 000 /etc/ssh/ssh_config.d 2>/dev/null || log "UNEXPECTED: Could not change ssh_config.d in ssh directory permissions"
+    chroot $mountPoint /bin/chmod 000 /etc/ssh/sshd_config.d 2>/dev/null || log "UNEXPECTED: Could not change sshd_config.d in ssh directory permissions"
+    chroot $mountPoint /bin/chmod 700 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh directory permissions"
 
     log "INFO: Restarting sshd service"
     chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
 }
 
-# Check if /usr/sbin/iptables links to xtables-nft-multi
 # Prevent ufw from logging into dmesg via rsyslog
-# Resources: https://codelucky.com/ufw-advanced-linux-firewall/
 # Awall? Shorewall?
+# Resources worth keeping: 
+# https://codelucky.com/ufw-advanced-linux-firewall/
+# https://wiki.alpinelinux.org/wiki/Nftables
+# https://wiki.alpinelinux.org/wiki/Category:Firewall
+# https://dev.to/caffinecoder54/creating-a-lightweight-linux-firewall-with-ufw-and-fail2ban-35po
+# https://www.linode.com/community/questions/11143/top-tip-firewalld-and-ipset-country-blacklist
+# https://wiki.nftables.org/wiki-nftables/index.php/Matching_packet_headers & https://home.regit.org/netfilter-en/nftables-quick-howto/ (minimum packet size is 28 - 36 bytes)
 configFirewall() {
     log "INFO: Installing nftables and ufw"
     chroot $mountPoint /sbin/apk add ufw@additional nftables || log "CRITICAL: Could not install all software for firewall"
@@ -713,13 +803,14 @@ configFirewall() {
     chroot $mountPoint /usr/sbin/ufw default deny outgoing 2>/dev/null || log "CRITICAL: Failed to set default deny outgoing to ufw firewall"
     chroot $mountPoint /usr/sbin/ufw default deny incoming 2>/dev/null || log "CRITICAL: Failed to set default deny incoming to ufw firewall"
     chroot $mountPoint /usr/sbin/ufw default deny routed 2>/dev/null || log "CRITICAL: Failed to set default deny routing packets to ufw firewall"
+    chroot $mountPoint /bin/chmod 700 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change /etc/default permissions to writable"
     chroot $mountPoint /bin/chmod 600 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to writable"
     chroot $mountPoint /bin/sed -i 's/#\{0,2\}IPV6\(.*\)=\(.*\)yes/IPV6=no/g' /etc/default/ufw 2>/dev/null || log "UNEXPECTED: No pattern to remove IPV6 from UFW has worked"
     chroot $mountPoint /bin/chmod 400 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to readable"
 
     log "INFO: Setting up UFW firewall profiles for ssh, ntp, apk, and dns"
     chroot $mountPoint /usr/sbin/ufw app default allow 2>/dev/null || log "UNEXPECTED: Failed to guarantee ufw firewall accept newly made profiles"
-    chroot $mountPoint /bin/echo -e "[SSHServer]\ntitle=SSH network listener\ndescription=For remote management of server via ssh\nports=22/tcp" > $mountPoint/etc/ufw/applications.d/ssh || log "UNEXPECTED: Failed to permit DNS port 22 through firewall"
+    chroot $mountPoint /bin/echo -e "[SSHServer]\ntitle=SSH network listener\ndescription=For remote management of server via ssh\nports=$sshPort/tcp" > $mountPoint/etc/ufw/applications.d/ssh || log "UNEXPECTED: Failed to permit DNS port $sshPort through firewall"
     chroot $mountPoint /bin/echo -e "[APKUpdate]\ntitle=APK tool\ndescription=When this computer needs to update packages, then this will be enabled\nports=80/tcp|443/tcp" > $mountPoint/etc/ufw/applications.d/apk || log "UNEXPECTED: Failed to permit APK ports 80 and 443 through firewall"
     chroot $mountPoint /bin/echo -e "[NTPListener]\ntitle=Chronyd network listener\ndescription=For chronyd service running in background\nports=123/udp|323/udp" > $mountPoint/etc/ufw/applications.d/ntp || log "UNEXPECTED: Failed to permit NTP ports 123 and 323 through firewall"
     chroot $mountPoint /bin/echo -e "[DNSListener]\ntitle=DNS network listener\ndescription=For a dns service running in background\nports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to permit DNS port 53 through firewall"
@@ -735,9 +826,11 @@ configFirewall() {
     chroot $mountPoint /usr/sbin/ufw allow out log from any to any app NTPListener 2>/dev/null || log "UNEXPECTED: Failed to permit NTP port 123 esgress through firewall"
 
     log "INFO: Opening a rate-limited specific firewall ports"
-    chroot $mountPoint /usr/sbin/ufw limit in log from "$localNetwork"/"$localNetmask" to "$localNetwork"/"$localNetmask" app SSHServer 2>/dev/null || log "CRITICAL: Failed to limit port 22 for ingress traffic for ufw firewall"
+    chroot $mountPoint /usr/sbin/ufw limit in log from "$localNetwork"/"$localNetmask" to "$localNetwork"/"$localNetmask" app SSHServer 2>/dev/null || log "CRITICAL: Failed to limit port $sshPort for ingress traffic for ufw firewall"
 
     log "INFO: Changing file permissions for UFW application profiles created"
+    chroot $mountPoint /bin/chmod 700 /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw permissions"
+    chroot $mountPoint /bin/chmod 700 /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/applications.d permissions"
     chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh profile permissions"
     chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change apk profile permissions"
     chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ntp profile permissions"
@@ -765,6 +858,7 @@ configFirewall() {
 configFail2Ban() {
     log "INFO: Installing fail2ban"
     chroot $mountPoint /sbin/apk add fail2ban || log "CRITICAL: Could not install all software for limiting unwanted connections"
+    chroot $mountPoint /bin/chmod 700 /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban permissions"
 
     log "INFO: Defaulting unchanged files to readonly"
     chroot $mountPoint /bin/chmod 400 /etc/fail2ban/jail.conf 2>/dev/null || log "UNEXPECTED: Could not change original jail permissions"
@@ -809,7 +903,6 @@ configFail2Ban() {
 # https://wiki.alpinelinux.org/wiki/How_to_get_regular_stuff_working
 # Found executables via: find /usr/bin ! -perm 777 -and ! -perm 0500
 configExecutables() {
-    # Packages included in Util-linux: agetty, blkid, cfdisk & libfdisk & libmount & libsmartcols, dmesg, findmnt & libsmartcols & libmount, flock, fstrim & libmount, hexdump, logger, losetup & libsmartcols, lsblk & libsmartcols & libmount, lscpu & libsmartcols, mcookie, mount & libmount, partx & libsmartcols, runuser & linux-pam, setpriv & libcap-ng, sfdisk & libfdisk & libsmartcols, umount & libmount, uuidgen, util-linux-openrc, util-linux-misc & setarch & & libfdisk & libmount & wipefs & libsmartcols, setarch, wipefs & libsmartcols, linux-pam
     # Other packages and commands of interest: agetty (agetty), lsof & lsfd (util-linux-misc)
     log "INFO: Installing GNU CoreUtils, very small part of Util-Linux, and Findutils"
     chroot $mountPoint /sbin/apk add coreutils findutils || log "UNEXPECTED: Could not install full feature basic tools: Coreutils or Findutils"
@@ -911,11 +1004,29 @@ configExecutables() {
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/setup-alpine 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setup-alpine"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/setup-acf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setup-acf"
 
+    # Declaring last set of permissions
+    chroot $mountPoint /bin/chmod 701 /bin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /bin"
+    chroot $mountPoint /bin/chmod 700 /sbin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /sbin"
+    chroot $mountPoint /bin/chmod 701 /usr/bin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/bin"
+    chroot $mountPoint /bin/chmod 700 /usr/sbin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/sbin"
+
     log "INFO: Finished modifying default executables!"
 }
 
-# Obtain some commands from setupDisks()
+
+#mdev umask settings in /etc/mdev.conf, 
+#reimplement umask 037 in /etc/profile.d/ or /etc/profile, 
+#carefully set profile's $PATH, 
+#revist crontab, 
+#did not create /etc/issue or /etc/issue.net banner, or /etc/motd
+# Proper /etc/limits.conf
 configPermissions() {
+    # Disable TTY interfaces from inittab to limit root access
+    log "INFO: Disabling root login via serial consoles"
+    chroot $mountPoint /bin/sed -i 's/^tty/#tty/g' /etc/inittab || log "UNEXPECTED: Could not stop the creation of getty instances"
+    chroot $mountPoint /bin/echo > /etc/securetty || log "UNEXPECTED: Could not modify which interfaces a root user can login from"
+    chroot $mountPoint /bin/chmod 400 /etc/securetty || log "UNEXPECTED: Could not set to 400 permission on /etc/securetty file"
+
     log "INFO: Changing file permissions"
     #chroot $mountPoint /bin/touch /etc/modprobe.d/alpine.conf || log "INFO: File already exists"
     #chroot $mountPoint /bin/chmod 600 /etc/modprobe.d/alpine.conf || log "UNEXPECTED: Could not change permission of alpine.conf for kernel filesystem recognition"
@@ -935,6 +1046,10 @@ configPermissions() {
     #chroot $mountPoint /bin/chmod u-s /usr/bin/umount || log "UNEXPECTED: Could not remove SUID bit from umount" # Managed by bbsuid
     #chroot $mountPoint /bin/chmod 700 /etc/rc.local || log "UNEXPECTED: Could not change permission of rc.local" # Changed to /etc/local.d/
 
+    # General permission changes
+    log "INFO: Changing file permissions found in /etc directory"
+    chroot $mountPoint /bin/chmod 400 /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
+
     log "INFO: Restarting service & Enabling"
     chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
     chroot $mountPoint /sbin/rc-service crond restart || log "UNEXPECTED: Could not restart crond daemon"
@@ -944,6 +1059,12 @@ configPermissions() {
 
 # User accounts to keep: root, daemon, cron, sshd, ntp, nobody, klogd
 # User accounts to remove: bin, lp, sync, shutdown, halt, mail, news, uucp, ftp, games, guest
+# Install: doas doas-doc doasedit@se
+# SSH server: ChrootDirectory, DenyUsers, DenyGroups, AllowUsers, AllowGroups
+#chroot $mountPoint /bin/sed -i 's/# permit/permit/1' /etc/doas.conf, 
+#passwd -l root, 
+#Password quality?,
+#Execute certain services as a dedicated limited user in openrc
 configLimitedUsers() {
     log "INFO: Making things less accessible to $username"
     echo -e "AllowUsers ${username}" >> /etc/ssh/sshd_config || log "UNEXPECTED: Failed to restrict ssh to $username"
@@ -962,6 +1083,7 @@ configKernel() {
 #chroot $mountPoint /bin/echo "permit nopass root" >> $mountPoint/etc/doas.d/kernelBuild.conf || log "UNEXPECTED: Could not provide doas permissions towards root user"    
 # Started with version
     if [ "$choiceAports" = 'skip' ]; then log "BAD FORMAT: Skipping kernel configuration due to lacking a kernel storage device"; return 0; fi
+    if [ ! -f "$mountPoint/home/maintain/linuxConfig.config" ]; then log "BAD FORMAT: There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/maintain/"; echo "There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/maintain/"; return 0; fi
 
     log "INFO: Installing required tools for this section"
     chroot $mountPoint /sbin/apk add alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "CRITICAL: Could not install required packages"
@@ -979,6 +1101,12 @@ configKernel() {
         chroot $mountPoint /bin/chown "$buildUsername:root" /home/maintain 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
         chroot $mountPoint /usr/bin/git -C /home/maintain clone git://git.alpinelinux.org/aports.git || log "CRITICAL: Could not obtain github repo to install kernel"
     fi
+
+    log "INFO: Restricting directories"
+    chroot $mountPoint /bin/chmod 760 /home/maintain 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain directory"
+    chroot $mountPoint /bin/chmod 760 /home/maintain/aports 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports directory"
+    chroot $mountPoint /bin/chmod 760 /home/maintain/aports/main 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports/main directory"
+    chroot $mountPoint /bin/chmod 760 /home/maintain/aports/main/linux-lts 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports/main/linux-lts directory"
 
     log "INFO: Synchronizing github repo"
     if [ -f "$mountPoint/home/maintain/aports/.git/index.lock" ]; then chroot $mountPoint /bin/rm /home/maintain/aports/.git/index.lock 2>/dev/null || log "INFO: Unable to remove git lock"; fi
@@ -1035,7 +1163,8 @@ configKernel() {
     	    if [ -z "$(chroot $mountPoint /bin/ls /home/maintain/packages/main/"$archType" | grep -v linux-lts)" ]; then
     		log "INFO: Compiling kernel at; $(date)"
     		time -o /tmp/compileTime chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C /home/maintain/aports/main/linux-lts -crK 2>&1 | tee /tmp/kernelLog || log "CRITICAL: Could not finish compiling kernel"
-    		log "INFO: The kernel took to compile: $(cat /tmp/compileTime)"
+    		
+                log "INFO: The kernel took to compile: $(cat /tmp/compileTime)"
     		rm /tmp/compileTime || log "UNEXPECTED: Could not remove temporary file to keep track the length of time it took the kernel to compile"
     	    fi
         fi
@@ -1045,10 +1174,18 @@ configKernel() {
     	chroot $mountPoint /sbin/apk add --repository "/home/maintain/packages/main/" linux-lts="$kernelVersion-r0" || log "CRITICAL: Could not install kernel $kernelVersion to local system"
     fi
 
-    log "INFO: Cleaning up"
+    log "INFO: Cleaning up kernel files and modifications"
     chroot $mountPoint /bin/rm /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Permission doas file has not been deleted to enforce principle of least priviledge"
     if [ -f "$mountPoint/home/maintain/aports/.git/index.lock" ]; then chroot $mountPoint /bin/rm /home/maintain/aports/.git/index.lock 2>/dev/null || log "INFO: Unable to remove git lock"; fi
     chroot $mountPoint /sbin/apk del alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "UNEXPECTED: Could not remove development build packages"
+
+    log "INFO: Modifying grub with new kernel parameters"
+    chroot $mountPoint /bin/chmod 600 /etc/default/grub || log "UNEXPECTED: Could not set to 600 permission on /etc/default/grub"
+    chroot $mountPoint /bin/sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="modules=sd=mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100"/g' /etc/default/grub || log "UNEXPECTED: Could not implement kernel parameters that enforce security"
+    chroot $mountPoint /bin/chmod 400 /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
+    chroot $mountPoint /usr/sbin/update-grub || log "UNEXPECTED: Could not implement changes for grub"
+
+    log "INFO: Kernel modifications have been succesfully configured!"
 }
 
 # Packages installed: policycoreutils@se libselinux@additional libsepol@additional libselinux-utils@additional
@@ -1056,7 +1193,7 @@ configSELinux() {
     return 0
     log "INFO: Configurating SELinux"
 
-    log "INFO: Succesfully configured SELinux"
+    log "INFO: Succesfully configured SELinux!"
 }
 
 verifyInstallSetup() {
@@ -1103,16 +1240,8 @@ verifyInstallSetup() {
     if [ -z "$(chroot $mountPoint /bin/grep "\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: var.log partition in fstab is not harden"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: var.tmp partition in fstab is not harden"; fi
 
-    # TTY interfaces for setupDisks()
-    if [ ! -z "$(chroot $mountPoint /bin/grep "^tty" /etc/inittab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There is atleast one tty interface enabled"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/cat /etc/securetty 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There is atleast a tty interface enabled for login"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/inittab -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/inittab"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/securetty -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/securetty"; fi
-
-    # Grub for setupDisks()
+    # Grub has a small timeout
     if [ -z "$(chroot $mountPoint /bin/grep 'GRUB_TIMEOUT=0' /etc/default/grub 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: The grub menu appears when booting! Possibly interactable"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep 'modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100' /etc/default/grub | grep 'GRUB_CMDLINE_LINUX_DEFAULT' 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Linux kernel command line has not been properely set in grub"; fi    
-   if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/grub -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default/grub"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for initial installation: $missing"; else echo "INFO: Not a single missed test for initial installation!"; fi
@@ -1121,17 +1250,88 @@ verifyInstallSetup() {
 verifySSHD() {
     local missing=0
 
-    # Check the ssh() function
-    if [ -z "$(chroot $mountPoint /bin/ls /etc/ssh/ssh_host_* 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Host keys for SSH identification does not exist!"; fi
-    if [ "$(chroot $mountPoint /bin/grep '^PermitRootLogin no' /etc/ssh/sshd_config 2>/dev/null)" != "PermitRootLogin no" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PermitRootLogin!"; fi
-    if [ "$(chroot $mountPoint /bin/grep '^X11Forwarding no' /etc/ssh/sshd_config 2>/dev/null)" != "X11Forwarding no" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; X11Forwarding!"; fi
-    if [ "$(chroot $mountPoint /bin/grep '^PasswordAuthentication no' /etc/ssh/sshd_config 2>/dev/null)" != "PasswordAuthentication no" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PasswordAuthentication!"; fi
-    if [ "$(chroot $mountPoint /bin/grep '^IgnoreRhosts yes' /etc/ssh/sshd_config 2>/dev/null)" != "IgnoreRhosts yes" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; IgnoreRhosts!"; fi
-    if [ "$(chroot $mountPoint /bin/grep '^PermitEmptyPasswords no' /etc/ssh/sshd_config 2>/dev/null)" != "PermitEmptyPasswords no" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PermitEmptyPasswords!"; fi
-    if [ "$(chroot $mountPoint /bin/grep '^PubkeyAuthentication yes' /etc/ssh/sshd_config 2>/dev/null)" != "PubkeyAuthentication yes" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PubkeyAuthentication!"; fi
-    if [ "$(chroot $mountPoint /bin/grep '^TCPKeepAlive yes' /etc/ssh/sshd_config 2>/dev/null)" != "TCPKeepAlive yes" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; TCPKeepAlive!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep '^ClientAliveInterval' /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ClientAliveInterval!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep '^ClientAliveCountMax' /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ClientAliveCountMax!"; fi
+    # Check sshd_config configuration
+    if [ -z "$(chroot $mountPoint /bin/grep "^Port $sshPort" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; Port number!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^AddressFamily inet" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; AddressFamily!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^RekeyLimit 256M 1h" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; RekeyLimit!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^SyslogFacility AUTH" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; SyslogFacility!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^LogLevel $sshLogging" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; LogLevel!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^LoginGraceTime 30" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; LoginGraceTime!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PermitRootLogin!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^StrictModes yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; StrictModes!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^MaxAuthTries 2" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; MaxAuthTries!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^MaxSessions 2" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; MaxSessions!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PubkeyAuthentication yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PubkeyAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^HostbasedAuthentication no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; HostbasedAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^IgnoreUserKnownHosts no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; IgnoreUserKnownHosts!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^IgnoreRhosts yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; IgnoreRhosts!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PasswordAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PermitEmptyPasswords no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PermitEmptyPasswords!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^AllowTcpForwarding no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; AllowTcpForwarding!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^GatewayPorts no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; GatewayPorts!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^X11Forwarding no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; X11Forwarding!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PermitTTY yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PermitTTY!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PrintMotd yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PrintMotd!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^TCPKeepAlive yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; TCPKeepAlive!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PermitUserEnvironment no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PermitUserEnvironment!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^Compression yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; Compression!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^ClientAliveInterval 150" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; ClientAliveInterval!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^ClientAliveCountMax 2" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; ClientAliveCountMax!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^UseDNS no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; UseDNS!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PermitTunnel no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PermitTunnel!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#Subsystem" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; Subsystem!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^DisableForwarding yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; DisableForwarding!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^FingerprintHash sha256" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; FingerprintHash!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^ChannelTimeout session=20m" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; ChannelTimeout!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^Ciphers aes256-gcm@openssh.com,aes256-ctr" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; Ciphers!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; KexAlgorithms!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^MACs hmac-sha2-512-etm@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; MACs!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PubkeyAcceptedKeyTypes!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#HostKey /etc/ssh/ssh_host_rsa_key" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; HostKey rsa!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#HostKey /etc/ssh/ssh_host_ecdsa_key" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; HostKey ecdsa!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^HostKey /etc/ssh/ssh_host_ed25519_key" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; HostKey ed25519!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#Include" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; Include!"; fi
+
+    # Check ssh_config configuration
+    if [ -z "$(chroot $mountPoint /bin/grep "^    AddressFamily inet" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; AddressFamily!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    BatchMode no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; BatchMode!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    ChallengeResponseAuthentication yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ChallengeResponseAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    CheckHostIP yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; CheckHostIP!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    Compression yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; Compression!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    CompressionLevel 9" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; CompressionLevel!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    ConnectTimeout 99999" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ConnectTimeout!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    ForwardAgent no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ForwardAgent!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    ForwardX11 no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ForwardX11!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    GatewayPorts no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; GatewayPorts!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    HashKnownHosts yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; HashKnownHosts!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    LogLevel $sshLogging" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; LogLevel!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    PasswordAuthentication no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PasswordAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    PermitLocalCommand no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PermitLocalCommand!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    PreferredAuthentications publickey" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PreferredAuthentications!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    TCPKeepAlive yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; TCPKeepAlive!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    Tunnel no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; Tunnel!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    UsePrivilegedPort no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; UsePrivilegedPort!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^    PubkeyAuthentication yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PubkeyAuthentication!"; fi
+
+    # Check if sshd moduli file is common moduli file
+    if [ "$(chroot $mountPoint /usr/bin/md5sum /etc/ssh/moduli 2>/dev/null)" == "122e215edb179637f7506c53898e8d03" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for moduli; Relying on default moduli file! This will not be solved by the script unless \$sshExpensiveOperation is enabled!"; fi
+
+    # Check if sshd moduli file contains unsafe bits
+    if [ ! -z "$(chroot $mountPoint /usr/bin/awk '$5 < 3071' /etc/ssh/moduli)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There are still unsafe bits in /etc/ssh/moduli!"; fi
+
+    # File permissions
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/moduli -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/moduli"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_config"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ed25519_key -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_ed25519_key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ed25519_key.pub -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_ed25519_key.pub"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ecdsa_key -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_ecdsa_key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ecdsa_key.pub -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_ecdsa_key.pub"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_rsa_key -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_rsa_key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_rsa_key.pub -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_rsa_key.pub"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_config.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for sshd: $missing"; else echo "INFO: Not a single missed test for sshd!"; fi
@@ -1178,13 +1378,13 @@ verifyFirewall() {
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p udp --dport 323 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port 323"; fi
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p udp --dport 323 -j ufw-user-logging-output' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port 323"; fi
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p udp --dport 323 -j ACCEPT -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port 323"; fi
-        # Port 22
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-input -p tcp -d 192.168.0.0/24 --dport 22 -s 192.168.0.0/24 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port 22"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-input -p tcp -d 192.168.0.0/24 --dport 22 -s 192.168.0.0/24 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port 22"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport 22 -s 192.168.0.0/24 -j ufw-user-logging-input' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port 22"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport 22 -s 192.168.0.0/24 -m conntrack --ctstate NEW -m recent --set -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port 22"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport 22 -s 192.168.0.0/24 -m conntrack --ctstate NEW -m recent --update --seconds 30 --hitcount 6 -j ufw-user-limit -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 5 for port 22"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport 22 -s 192.168.0.0/24 -j ufw-user-limit-accept -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 6 for port 22"; fi
+        # Port ssh
+    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port $sshPort"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port $sshPort"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -j ufw-user-logging-input' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port $sshPort"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -m conntrack --ctstate NEW -m recent --set -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port $sshPort"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -m conntrack --ctstate NEW -m recent --update --seconds 30 --hitcount 6 -j ufw-user-limit -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 5 for port $sshPort"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -j ufw-user-limit-accept -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 6 for port $sshPort"; fi
 
     # Checking for general logging
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-after-logging-input -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for logging"; fi
@@ -1202,7 +1402,9 @@ verifyFirewall() {
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-limit -j REJECT' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for rate limiting"; fi
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-limit-accept -j ACCEPT' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for rate limiting"; fi
 
-    # Checking file permissions
+    # Checking file permissions and directories
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ssh -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/ssh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/apk -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/apk"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ntp -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/ntp"; fi
@@ -1242,7 +1444,8 @@ verifyFail2Ban() {
     # Remove the bottom test?
     if [ -z "$(chroot $mountPoint /bin/grep "^allowipv6 = no" /etc/fail2ban/fail2ban.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban still uses IPv6"; fi
 
-    # Checking file permissions
+    # Checking file permissions and directories
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/jail.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/jail.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/paths-common.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/paths-common.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/paths-debian.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/paths-debian.conf"; fi
@@ -1356,6 +1559,12 @@ verifyExecutable() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/setup-apkcache -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/setup-apkcache"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/setup-alpine -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/setup-alpine"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/setup-acf -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/setup-acf"; fi
+
+    # Final permission check
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin"; fi
     
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for common executables: $missing"; else echo "INFO: Not a single missed test for common executables!"; fi
@@ -1363,6 +1572,16 @@ verifyExecutable() {
 
 verifyPermissions() {
     local missing=0
+    # Verifying one-shot changes    
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/grub -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default/grub"; fi
+
+    # TTY interfaces disablement
+    if [ ! -z "$(chroot $mountPoint /bin/grep "^tty" /etc/inittab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There is atleast one tty interface enabled"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/cat /etc/securetty 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There is atleast a tty interface enabled for login"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/inittab -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/inittab"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/securetty -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/securetty"; fi
+
+    # ...
     #if [ "$(chroot $mountPoint /bin/ls /etc/modprobe.d/alpine.conf -n 2>/dev/null | awk '{print $1}' 2>/dev/null)" != '-rw-r-----' ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for alpine.conf"; fi
     #if [ "$(chroot $mountPoint /bin/ls /etc/gshadow -n 2>/dev/null | awk '{print $1}' 2>/dev/null)" != '-rw-------' ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for gshadow"; fi
     #if [ "$(chroot $mountPoint /bin/ls /etc/shadow -n 2>/dev/null | awk '{print $1}' 2>/dev/null)" != '-rw-------' ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for shadow"; fi
@@ -1394,11 +1613,39 @@ verifyLimitedUsers() {
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for limiting users: $missing"; else echo "INFO: Not a single missed test for limiting users!"; fi
 }
 
+# Needs scripting; kernel.yama.ptrace_scope, kernel.modules_disabled, user.max_user_namespaces?, kernel.warn_limit
 verifyKernel() {
     local missing=0
-    if [ "$(chroot $mountPoint /bin/grep 'unpriviledged_userns_clone = 0' /etc/sysctl.conf 2>/dev/null)" != '#kernel.unpriviledged_userns_clone = 0' ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Kernel not restricted /etc/sysctl.conf"; fi
-    if [ "$(chroot $mountPoint /bin/grep '^# Disable kernel module loading' /etc/rc.local 2>/dev/null)" != '# Disable kernel module loading' ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Kernel modules are not being disabled after boot in rc.local"; fi
-    if [ "$(chroot $mountPoint /usr/bin/md5sum /etc/modprobe.d/alpine.conf 2>/dev/null)" != '09c21d6e87416529fcfe8dfca57aa8d8  /etc/modprobe.d/alpine.conf' ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Hash of /etc/modprobe.d/alpine.conf does not match expected hash to disable unused filesystems"; fi
+    # Directory permission verification
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports/main -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports/main"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports/main/linux-lts -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports/main/linux-lts"; fi
+
+    # Checking for sysctls based on KSPP (Kernel Self Protection Project): https://kspp.github.io/Recommended_Settings#kernel-command-line-options
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.kptr_restrict 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.kptr_restrict 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.kptr_restrict is not greater or equal to 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.dmesg_restrict 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.dmesg_restrict 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.dmesg_restrict != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.modules_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.modules_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.modules_disabled != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.perf_event_paranoid 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.perf_event_paranoid 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.perf_event_paranoid is not greater or equal to 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.kexec_load_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.kexec_load_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.kexec_load_disabled != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.randomize_va_space 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.randomize_va_space 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.randomize_va_space != 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.yama.ptrace_scope 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "3" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.yama.ptrace_scope 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.yama.ptrace_scope != 3"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl user.max_user_namespaces 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl user.max_user_namespaces 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; user.max_user_namespaces != 0"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl dev.tty.ldisc_autoload 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl dev.tty.ldisc_autoload 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; dev.tty.ldisc_autoload != 0"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl dev.tty.legacy_tiocsti 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl dev.tty.legacy_tiocsti 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; dev.tty.legacy_tiocsti != 0"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.unprivileged_bpf_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.unprivileged_bpf_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.unprivileged_bpf_disabled != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.warn_limit 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.warn_limit 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.warn_limit is not greater or equal to 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.oops_limit 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.oops_limit 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.oops_limit is not greater or equal to 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl net.core.bpf_jit_harden 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl net.core.bpf_jit_harden 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; net.core.bpf_jit_harden != 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl vm.unprivileged_userfaultfd 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl vm.unprivileged_userfaultfd 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; vm.unprivileged_userfaultfd != 0"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_symlinks 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_symlinks 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_symlinks != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_hardlinks 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_hardlinks 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_hardlinks != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_fifos 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_fifos 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_fifos != 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_regular 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_regular 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_regular != 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.suid_dumpable 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.suid_dumpable 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.suid_dumpable != 0"; fi
+
+    # Grub linux cmdline based on KSSP
+    if [ -z "$(chroot $mountPoint /bin/grep 'modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100' /etc/default/grub | grep 'GRUB_CMDLINE_LINUX_DEFAULT' 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Linux kernel command line has not been properely set in grub"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for kernel: $missing"; else echo "INFO: Not a single missed test for kernel!"; fi
@@ -1472,15 +1719,10 @@ main() {
 
 main "$@"
 
-# Inspiring links:
-# - https://github.com/captainzero93/security_harden_linux/blob/main/improved_harden_linux.sh
-# - https://github.com/peass-ng/PEASS-ng
-# - https://cisofy.com/lynis/
-# Cool legacy bash script code
-#    if $pre; then log "INFO: Applying script modifications!"; if [ -x alpinePre.sh ]; then . ./alpinePre.sh; else retrieveScripts alpinePre.sh; fi; fi
-#    if $post; then log "INFO: Applying script modifications!"; if [ -x alpinePost.sh ]; then . ./alpinePost.sh; else retrieveScripts alpinePost.sh; fi; fi
-#    if $verify; then log "INFO: Verifying script modifications..."; if [ -x alpineVerify.sh ]; then . ./alpineVerify.sh; else retrieveScripts alpineVerify.sh; fi; fi
-#    # Are we in a live-iso, or somewhere else?
-#    if [ -z "$(df ~ | grep -i tmpfs | awk '{print $1}')" ]; then chrootPoint="/"; else chrootPoint=$mountPoint; mountAlpine; fi
-# chroot $mountPoint /bin/exec arg 2>/dev/null | grep something
-# chroot / /bin/cat /etc/passwd 2>/dev/null | grep root
+# Loose resources that impacted the development of the script overall:
+# https://wiki.alpinelinux.org/wiki/Securing_Alpine_Linux
+# https://tldp.org/LDP/lame/lame.pdf
+# https://alpinelinuxsupport.com/securing-alpine-linux-in-high-security-environments/
+# https://github.com/captainzero93/security_harden_linux/blob/main/improved_harden_linux.sh
+# https://github.com/peass-ng/PEASS-ng
+# https://cisofy.com/lynis
