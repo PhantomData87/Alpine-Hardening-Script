@@ -56,7 +56,7 @@
 # WARNING: Does not belong to this script, but instead belongs from another program that tries to warn about possible errors, but was not filtered
 
 # Expensive operations:
-export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires a lot of space (~3.6Gb) and time (significantly more on embedded devices).
+export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires a lot of space (~3.6Gb), and time (significantly more on embedded devices).
 
 # Alpine configuration variables (CHANGE THESE)
 export logFile="/tmp/hardeningAlpine.log"
