@@ -45,7 +45,7 @@
 #Think about ARP packets, filtering DHCP packets away, minimal DNS packets, and further restrictions on NTP packets.
 #Further explore possible firewall configurations after everything else has been set.
 # Using linux `tc` to limit bandwidth and througput of specific packets
-# Switch over to nftables by ditching UFW
+# Switch over to nftables by ditching UFW at some point
 
 # Log meanings in this script:
 # INFO: States what is currently happening in the script.
@@ -136,68 +136,72 @@ log() {
 
 # Display help
 printHelp() {
-    echo "A script to be run within a fresh alpine environment"
-    echo "Usage: ./alpineHarden.sh [ACTIONS] [CONFIGURATIONS]"
-    echo "Version: $version"
-    echo ""
-    echo "Actions: User must specify atleast one action"
-    echo "	-h, --help	Display this help message"
-    echo "	-v, --verbose	Enable verbose logging or display more help information"
-    echo "	--pre		Run pre-setup environment alpine installation in fresh live iso"
-    echo "	--post		Run post-setup environment alpine installation, and apply hardening techniques"
-    echo "	--verify	Verifies if all configurations have been applied"
-    echo "	--formatKernel	Prepare block device to contain a valid alpine kernel to be locally managed. Calls --kernel at the end"
-    echo "	--uninstall	Remove alpine installation"
-    echo "	--all		Shorthand for --pre, --post and --verify"
+echo "A script to be run within a fresh alpine environment
+Usage: ./alpineHarden.sh [ACTIONS] [CONFIGURATIONS]
+Version: $version
+
+Actions: User must specify atleast one action
+	-h, --help	Display this help message
+	-v, --verbose	Enable verbose logging or display more help information
+	--pre		Run pre-setup environment alpine installation in fresh live iso
+	--post		Run post-setup environment alpine installation, and apply hardening techniques
+	--verify	Verifies if all configurations have been applied
+	--formatKernel	Prepare block device to contain a valid alpine kernel to be locally managed. Calls --kernel at the end
+	--uninstall	Remove alpine installation
+	--all		Shorthand for --pre, --post and --verify"
     if $verbose; then echo ""; else return 0; fi
-    echo "Configuration: If not specified, then assume user wants everything below enabled"
-    echo "Found in --pre;"
-    echo "	--alpineConfig	Use the existing commands and scripts derived from setup-alpine"
-    echo "	--partition	Setup the custom expected partitions for this system"
-    echo "Found in --post and --verify;"
-    echo "	--kernel	Configure the kernel"
-    echo "	--sshd		Configure the sshd service"
-    echo "	--firewall	Configure the firewall"
-    echo "	--fail2ban	Configure fail2ban"
-    echo "	--executable	Configure executables found in /bin /sbin /usr/bin and /usr/sbin"
-    echo "	--perm		Configure doas, configuration files found in /etc, and system defaults"
-    echo "	--users		Configure and create new users under the principal of least priviledge"
-    echo "	--selinux	Configure SELinux"
-    echo ""
-    echo "Internal variables:"
-    echo "version:		Version of the script (required)"
-    echo "logFile:		Where to save log messages (required)"
-    echo "logIP:			IP address that is a logging server"
-    echo "buildUsername:		Username for the account responsible to compile the kernel"
-    echo "username:		Username that is the entrypoint of the machine"
-    echo "sshUsernameKey:		Public key of trusted username (ssh required)"
-    echo "rootSize:		Declare the size of the root partition for lvm"
-    echo "homeSize:		Declare the size of the home partition for lvm"
-    echo "varSize:		Declare the size of the var partition for lvm"
-    echo "varTmpSize:		Declare the size of the tmp partition for lvm"
-    echo "varLogSize:		Declare the size of the log partition for lvm"
-    echo "localhostName:		Default local host name to be applied on local machine and lvm partitions"
-    echo "lvmName:		Name of the lvm group to be used with device"
-    echo "keyboardLayout:		Declare the layout keyboard configuration"
-    echo "timezone:		Declare the timezone in Country/Origin format"
-    echo "dnsList:		Declare the resolv.conf list"
-    echo "apkRepoList:		Declare the repository(-ies) to obtain packages for main, community, and testing"
-    echo "devDevice:		Declare the udev device type"
-    echo "rootPass:		Declare the temporary default root pass"
-    echo "mountPoint:		Declare the directory to make a new mount point for a later chroot environment"
-    echo "mountDevice:		Declare the block device to install alpine system to"
-    echo "packageDevice:		Declare the block device that contains a valid kernel"
-    echo "namingJustNum:		Declare that the block device uses a naming scheme that uses only numbers and does not include 'p'"
-    echo "packageNamingJustNum:	Declare that the block device uses a naming scheme that uses only numbers and does not include 'p'"
-    echo "partitionStart:		Declare the partition from the Alpine stored device to tamper with"
-    echo "kernelPartitionStart:	Declare the partition from the Kernel storage device to tamper with"
-    echo "partitionSector: 	Declare the beginning sector to use within the Alpine stored device"
-    echo "kernelPartitionSector:	Declare the beginning sector to use within the kernel storage device"
-    echo "kernelVersion:		Declare which kernel edition we will be using"
-    echo "gitPackageCommitHash:	Declare where in the git repository we will interact with based on prior history"
-    echo "localNetwork:		Declare the local LAN network this machine is connect to by providing a base IPv4 address"
-    echo "localNetmask:		Declare the local LAN network's netmask that will be appeneded to localNetwork"
-    echo 'Note: $logFile will be set if the variable is empty upon execution.'
+echo "Configuration: If not specified, then assume user wants everything below enabled
+Found in --pre;
+	--alpineConfig	Use the existing commands and scripts derived from setup-alpine
+	--partition	Setup the custom expected partitions for this system
+Found in --post and --verify;
+	--kernel	Configure the kernel
+	--sshd		Configure the sshd service
+	--firewall	Configure the firewall
+	--fail2ban	Configure fail2ban
+	--executable	Configure executables found in /bin /sbin /usr/bin and /usr/sbin
+	--perm		Configure doas, configuration files found in /etc, and system defaults
+	--users		Configure and create new users under the principal of least priviledge
+	--selinux	Configure SELinux
+
+Expensive operations, controlled via variable:
+sshExpensiveOperation:	Generates a new moduli file that filters out weaker bits. This takes a significant amount of space and time when run with; --post --sshd
+
+Internal variables:
+version:		Version of the script (required)
+logFile:		Where to save log messages (required)
+logIP:			IP address that is a logging server
+buildUsername:		Username for the account responsible to compile the kernel
+username:		Username that is the entrypoint of the machine
+sshUsernameKey:		Public key of trusted username (ssh required)
+rootSize:		Declare the size of the root partition for lvm
+homeSize:		Declare the size of the home partition for lvm
+varSize:		Declare the size of the var partition for lvm
+varTmpSize:		Declare the size of the tmp partition for lvm
+varLogSize:		Declare the size of the log partition for lvm
+localhostName:		Default local host name to be applied on local machine and lvm partitions
+lvmName:		Name of the lvm group to be used with device
+keyboardLayout:		Declare the layout keyboard configuration
+timezone:		Declare the timezone in Country/Origin format
+dnsList:		Declare the resolv.conf list
+apkRepoList:		Declare the repository(-ies) to obtain packages for main, community, and testing
+devDevice:		Declare the udev device type
+rootPass:		Declare the temporary default root pass
+mountPoint:		Declare the directory to make a new mount point for a later chroot environment
+mountDevice:		Declare the block device to install alpine system to
+packageDevice:		Declare the block device that contains a valid kernel
+namingJustNum:		Declare that the block device uses a naming scheme that uses only numbers and does not include 'p'
+packageNamingJustNum:	Declare that the block device uses a naming scheme that uses only numbers and does not include 'p'
+partitionStart:		Declare the partition from the Alpine stored device to tamper with
+kernelPartitionStart:	Declare the partition from the Kernel storage device to tamper with
+partitionSector: 	Declare the beginning sector to use within the Alpine stored device
+kernelPartitionSector:	Declare the beginning sector to use within the kernel storage device
+kernelVersion:		Declare which kernel edition we will be using
+gitPackageCommitHash:	Declare where in the git repository we will interact with based on prior history
+localNetwork:		Declare the local LAN network this machine is connect to by providing a base IPv4 address
+localNetmask:		Declare the local LAN network's netmask that will be appeneded to localNetwork
+sshPort:		Declare the default port for ssh servers. Will not tolerate port 22, and must be a system port (0-1023).
+Note: $logFile will be set if the variable is empty upon execution."
     exit;
 }
 
@@ -835,6 +839,8 @@ configFirewall() {
     chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change apk profile permissions"
     chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ntp profile permissions"
     chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change dns profile permissions"
+    chroot $mountPoint /bin/chmod 400 /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/user.rules"
+    chroot $mountPoint /bin/chmod 400 /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/user6.rules"
 
     log "INFO: Setting permissions on UFW executables"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; python3.12"
@@ -849,6 +855,7 @@ configFirewall() {
     chroot $mountPoint /usr/sbin/ufw enable 2>/dev/null || log "UNEXPECTED: ufw could not be enabled"
     chroot $mountPoint /sbin/rc-update add ufw 2>/dev/null || log "UNEXPECTED: Could not add ufw to launch automatically"
     chroot $mountPoint /sbin/rc-service ufw restart 2>/dev/null || log "UNEXPECTED: Could not restart ufw daemon"
+    chroot $mountPoint /bin/chmod 400 /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/ufw.conf"
 
     log "INFO: Simple firewall succesfully configured!"
 }
@@ -1349,42 +1356,17 @@ verifyFirewall() {
 
     # Checking for expected open ports
         # Port 80
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p tcp --dport 80 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port 80"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p tcp --dport 80 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port 80"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p tcp --dport 80 -j ufw-user-logging-output' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port 80"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p tcp --dport 80 -j ACCEPT -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port 80"; fi
+    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep 80 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $sshPort"; fi
         # Port 443
-    if [ -z "$(chroot $mountPoint /bin/grep -- '' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port 443"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p tcp --dport 443 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port 443"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p tcp --dport 443 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port 443"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p tcp --dport 443 -j ufw-user-logging-output' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port 443"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p tcp --dport 443 -j ACCEPT -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port"; fi
+    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep 443 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $sshPort"; fi
         # Port 53
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p tcp --dport 53 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port 53"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p tcp --dport 53 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port 53"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p tcp --dport 53 -j ufw-user-logging-output' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port 53"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p tcp --dport 53 -j ACCEPT -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port 53"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p udp --dport 53 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 5 for port 53"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p udp --dport 53 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 6 for port"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p udp --dport 53 -j ufw-user-logging-output' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 7 for port 53"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p udp --dport 53 -j ACCEPT -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 8 for port 53"; fi
+    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep 53 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $sshPort"; fi
         # Port 123
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p udp --dport 123 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port 123"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p udp --dport 123 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port 123"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p udp --dport 123 -j ufw-user-logging-output' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port 123"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p udp --dport 123 -j ACCEPT -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port 123"; fi
+    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep 123 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $sshPort"; fi
         # Port 323
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p udp --dport 323 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port 323"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-output -p udp --dport 323 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port 323"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p udp --dport 323 -j ufw-user-logging-output' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port 323"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-output -p udp --dport 323 -j ACCEPT -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port 323"; fi
+    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep 323 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $sshPort"; fi
         # Port ssh
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -m conntrack --ctstate NEW -m limit --limit 3/min --limit-burst 10 -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for port $sshPort"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-logging-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -j RETURN' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for port $sshPort"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -j ufw-user-logging-input' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for port $sshPort"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -m conntrack --ctstate NEW -m recent --set -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for port $sshPort"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -m conntrack --ctstate NEW -m recent --update --seconds 30 --hitcount 6 -j ufw-user-limit -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 5 for port $sshPort"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-input -p tcp -d 192.168.0.0/24 --dport $sshPort -s 192.168.0.0/24 -j ufw-user-limit-accept -m comment --comment' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 6 for port $sshPort"; fi
+    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep $sshPort 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $sshPort"; fi
 
     # Checking for general logging
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-after-logging-input -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for logging"; fi
