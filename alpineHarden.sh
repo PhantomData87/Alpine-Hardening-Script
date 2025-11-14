@@ -34,6 +34,7 @@
 #Switch over to nftables by ditching UFW at some point
 #Look into /etc/lvm/lvm.conf & /etc/lvm/lvmlocal.conf
 #Figure out why chronyd is failing
+# Have a clean way to resolve hard or symbolic file links permissions (besides copying the file)
 
 # Log meanings in this script:
 # INFO: States what is currently happening in the script.
@@ -49,7 +50,6 @@ export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires 
 # Alpine configuration variables (CHANGE THESE)
 export logFile="/tmp/hardeningAlpine.log"
 export logIP="REPLACEME"
-export buildUsername="REPLACEME"
 export username="REPLACEME"
 export sshUsernameKey="REPLACEME"
 export rootSize="REPLACEME"
@@ -76,6 +76,17 @@ export localNetwork="REPLACEME"
 export localNetmask="REPLACEME"
 export sshPort="REPLACEME"
 export umask="077"
+
+# Usernames to be created. This does not include chrony and sshd, since they are already created
+export buildUsername="REPLACEME" # Username that can build the linux kernel, and install it
+export monitorUsername="REPLACEME" # Username that can read and send logs across the network. !!! Highest privledge !!!
+export collectorUsername="REPLACEME" # Username that can inspect nearly the entire system for logs.
+export previewUsername="REPLACEME" # Username that only receives a simple output, and leaves
+export serverCommandUsername="REPLACEME" # Username with restricted commands to execute
+export backupUsername="REPLACEME" # Username made to backup select files
+export firewallUsername="REPLACEME" # Only user authorized for firewall stuff
+export updateUsername="REPLACEME" # Only user authorized for apk update
+export denierUsername="REPLACEME" # Only user authorized for blocking network packets
 
 # For all Banners. Remove symbol: ` and add a space after symbol if at the end of the line it has: \
 export bannerIssue="###############################################################
@@ -183,7 +194,6 @@ Found in --pre;
 	--alpineConfig	Use the existing commands and scripts derived from setup-alpine
 	--partition	Setup the custom expected partitions for this system
 Found in --post and --verify;
-	--kernel	Configure the kernel
 	--sshd		Configure the sshd service
 	--firewall	Configure the firewall
 	--fail2ban	Configure fail2ban
@@ -191,18 +201,16 @@ Found in --post and --verify;
 	--etc		Configure configuration files found in /etc, and some system defaults
 	--logging	Configure scripts for system startup, logging capabilities, and monitoring
 	--users		Configure and create new users under the principal of least priviledge, and configure doas
+	--kernel	Configure the kernel
 	--selinux	Configure SELinux
 
 Expensive operations, controlled via variable:
 sshExpensiveOperation:	Generates a new moduli file that filters out weaker bits. This takes a significant amount of space and time when run with; --post --sshd
 
-Internal variables:
+Internal variables to configure script:
 version:		Version of the script (required)
 logFile:		Where to save log messages (required)
 logIP:			IP address that is a logging server
-buildUsername:		Username for the account responsible to compile the kernel
-username:		Username that is the entrypoint of the machine
-sshUsernameKey:		Public key of trusted username (ssh required)
 rootSize:		Declare the size of the root partition for lvm
 homeSize:		Declare the size of the home partition for lvm
 varSize:		Declare the size of the var partition for lvm
@@ -233,7 +241,20 @@ sshPort:		Declare the default port for ssh servers. Will not tolerate port 22, a
 umaks:			Declare the standard umask when creating a new file. Determines the default file permissions assigned to a newly created file.
 bannerIssue:		Declare the message displayed to most unauthenticated users
 bannerMotd:		Decalre the message displayed to most authenticated users
-Note: $logFile will be set if the variable is empty upon execution."
+Note: $logFile will be set if the variable is empty upon execution.
+
+Internal variables for created usernames
+sshUsernameKey:		Public key of trusted username (ssh required)
+monitorUsername:	A username that can read log files, send them through the network, and can login by ssh
+previewUsername:	A username that is severely restricted to see status information, and can login by ssh
+serverCommandUsername:  A username that is severely restricted to execute very few binaries, and can login by ssh
+backupUsername:		A username with limited capabilities to explore the system to backup important files, and can login by ssh
+collectorUsername:      A username that is permitted to explore the rest of the system
+firewallUsername:	A system user that is meant to run firewall related applications
+updateUsername:		A system user that is meant to occasionally update the system
+denierUsername:		A system user meant to handle applications like fail2ban
+buildUsername:		A system user meant to build a linux kernel
+Note: Most of these usernames are only applied if --users is executed, or --kernel"
     exit;
 }
 
@@ -289,8 +310,15 @@ interpretArgs() {
     if [ -z "$version" ]; then echo "BAD FORMAT: Provide any number to indicate the version of this script!"; exit; fi
     if [ -z "$logFile" ]; then echo "BAD FORMAT: Will default to /tmp/hardeningAlpine.log due to this being empty!"; fi
     if [ -z "$logIP" ]; then echo "BAD FORMAT: No ip to indicate a remote logging server!"; exit; fi
-    if [ -z "$buildUsername" ]; then echo "BAD FORMAT: Declare username that will be used to build the kernel! Edit: \$buildUsername and include a name!"; exit; fi
-    if [ -z "$username" ]; then echo "BAD FORMAT: Declare username that will be seperated from root permissions! Edit: \$username and include a name!"; exit; fi
+    if [ -z "$buildUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$buildUsername and include a name!"; exit; fi
+    if [ -z "$monitorUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$monitorUsername and include a name!"; exit; fi
+    if [ -z "$collectorUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$collectorUsername and include a name!"; exit; fi
+    if [ -z "$previewUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$previewUsername and include a name!"; exit; fi
+    if [ -z "$serverCommandUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$serverCommandUsername and include a name!"; exit; fi
+    if [ -z "$backupUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$backupUsername and include a name!"; exit; fi
+    if [ -z "$firewallUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$firewallUsername and include a name!"; exit; fi
+    if [ -z "$updateUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$updateUsername and include a name!"; exit; fi
+    if [ -z "$denierUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$denierUsername and include a name!"; exit; fi
     if [ -z "$sshUsernameKey" ]; then echo "BAD FORMAT: Public key variable must be configured before usage! Edit: \$sshUsernameKey and include a public key!"; exit; fi
     if [ -z "$rootSize" ]; then echo "BAD FORMAT: Missing required value in rootSize"; exit; fi
     if [ -z "$homeSize" ]; then echo "BAD FORMAT: Missing required value in homeSize"; exit; fi
@@ -349,7 +377,6 @@ printVariables() {
     echo "File related variables:"
 
     # Mention global variables
-    echo "SSH config; kernel_build: $buildUsername | Entrypoint username: $username | SSH public key: $sshUsernameKey"
     echo "Partition sizes; Root: $rootSize | Home: $homeSize | Var: $varSize | Var/Tmp: $varTmpSize | Var/Log: $varLogSize"
     echo "Time and resolv; Timezone: $timezone | Dns list: $dnsList"
     echo "File locations; Log: $logFile | Mount: $mountPoint"
@@ -606,7 +633,7 @@ setupAlpine() {
     setup-keymap "$keyboardLayout" "$keyboardLayout" 2>/dev/null || log "UNEXPECTED: Could not setup device's keyboard keymap"
     rc-update --quiet del loadkmap boot 2>/dev/null || log "UNEXPECTED: Could not remove unncessary service that fails on boot"
     echo "root:$rootPass" | chpasswd || log "UNEXPECTED: Did not change root password"
-    apk add parted lvm2 e2fsprogs xfsprogs || log "Unexpected: Could not install all software"
+    apk add parted lvm2 e2fsprogs xfsprogs tzdata || log "Unexpected: Could not install all required software"
     log "INFO: Almost finished default alpine installation!"
 }
 
@@ -891,12 +918,12 @@ configFirewall() {
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xtables-nft-multi"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/iptables-apply 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables-apply"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/nft 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nft"
+    chroot $mountPoint /bin/chmod 400 /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/ufw.conf"
 
     log "INFO: Restarting service & Enabling"
     chroot $mountPoint /usr/sbin/ufw enable 2>/dev/null || log "UNEXPECTED: ufw could not be enabled"
     chroot $mountPoint /sbin/rc-update add ufw 2>/dev/null || log "UNEXPECTED: Could not add ufw to launch automatically"
     chroot $mountPoint /sbin/rc-service ufw restart 2>/dev/null || log "UNEXPECTED: Could not restart ufw daemon"
-    chroot $mountPoint /bin/chmod 400 /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/ufw.conf"
 
     log "INFO: Simple firewall succesfully configured!"
 }
@@ -956,7 +983,7 @@ configExecutables() {
     log "INFO: Installing GNU CoreUtils, very small part of Util-Linux, and Findutils"
     chroot $mountPoint /sbin/apk add coreutils findutils || log "UNEXPECTED: Could not install full feature basic tools: Coreutils or Findutils"
     chroot $mountPoint /sbin/apk add dmesg logger setpriv || log "UNEXPECTED: Could not install util-linux related packages"
-
+    
     #log "Removing unncessary default packages"
     # Why is alpine-conf hooked to alpine-base..., and why does update-kernel and update-conf exist?
     #chroot $mountPoint /sbin/apk del -f alpine-conf || log "UNEXPECTED: Could not remove alpine-conf package"
@@ -1232,7 +1259,14 @@ configEtc() {
     chroot $mountPoint /bin/chmod 644 /etc/busybox-paths.d/busybox 2>/dev/null || log "UNEXPECTED: Could not change /etc/busybox-paths.d/busybox file permissions"
     chroot $mountPoint /bin/chmod 604 /etc/chrony/chrony.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/chrony/chrony.conf file permissions"
     chroot $mountPoint /bin/chmod 600 /etc/crontabs/root 2>/dev/null || log "UNEXPECTED: Could not change /etc/crontabs/root file permissions"
-    chroot $mountPoint /bin/chmod 750 /etc/grub.d/*_* 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/*_* file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/grub.d/00_header 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/00_header file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/grub.d/10_linux 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/10_linux file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/grub.d/20_linux_xen 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/20_linux_xen file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/grub.d/25_bli 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/25_bli file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/grub.d/30_os-prober 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/30_os-prober file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/grub.d/30_uefi-firmware 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/30_uefi-firmware file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/grub.d/40_custom 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/40_custom file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/grub.d/41_custom 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/41_custom file permissions"
     chroot $mountPoint /bin/chmod 600 /etc/keymap/us.bmap.gz 2>/dev/null || log "UNEXPECTED: Could not change /etc/keymap/us.bmap.gz file permissions"
     chroot $mountPoint /bin/chmod 600 /etc/lvm/lvm.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/lvm.conf file permissions"
     chroot $mountPoint /bin/chmod 600 /etc/lvm/lvmlocal.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/lvmlocal.conf file permissions"
@@ -1247,33 +1281,6 @@ configEtc() {
     log "INFO: Successfully reached end of configurating files found in /etc!"
 }
 
-# User accounts to keep: root, daemon, cron, sshd, ntp, nobody, klogd
-# User accounts to remove: bin, lp, sync, shutdown, halt, mail, news, uucp, ftp, games, guest
-# SSH server: ChrootDirectory, DenyUsers, DenyGroups, AllowUsers, AllowGroups
-#chroot $mountPoint /bin/sed -i 's/# permit/permit/1' /etc/doas.conf, 
-#passwd -l root, 
-#Password quality?,
-#Execute certain services as a dedicated limited user in openrc
-#rc.conf; change rc_shell to point to a limited user in rbash, consider looking into /rc.conf
-# Proper /etc/limits.conf
-#set ulimit in sysctl via fs.file and alike (find if this is related to exclusively PAM or not), 
-configLimitedUsers() {
-    # Installing doas
-    log "INFO: Installing corresponding packages for doas"
-    chroot $mountPoint /sbin/apk add doas doas-doc doasedit@se 2>/dev/null || log "CRITICAL: Could not install required packages for doas"
-
-    log "INFO: Making things less accessible to $username"
-    echo -e "AllowUsers ${username}" >> /etc/ssh/sshd_config || log "UNEXPECTED: Failed to restrict ssh to $username"
-    
-    log "INFO: Adding public sshkey to current host"
-    echo "${sshUsernameKey}" >> /home/"${username}"/.ssh/authorized_keys || log "CRITICAL: Failed to add ssh public key to /.ssh/authorized_keys of $username"
-
-    log "INFO: Restarting service"
-    chroot $mountPoint /sbin/rc-service sshd restart 2>/dev/null || log "UNEXPECTED: Could not restart sshd daemon"
-
-    log "INFO: Successfully reached end of configurating system users!"
-}
-
 # A function that enables proper logging and monitoring of a variety of different concerns
 # Log configuration: logrotate.conf
 # File system health monitoring: e2scrub.conf (lvm monitor)
@@ -1281,11 +1288,121 @@ configLimitedUsers() {
 # look into rc.conf; rc_logger & rc_log_path
 # add to /etc/chrony/chrony.conf the "log" option into the file
 # look into /etc/logrotate.d/*
+# utmp, btmp, and wtmp for recording user logging in
 configLogging() {
 
     # RC.conf configuration: rc.conf & /etc/conf.d
 
     log "INFO: Successfully reached end of configurating logging capabilities!"
+}
+
+# Resources:
+# Creating restricted shells if missing: https://unix.stackexchange.com/questions/605646/how-do-you-install-rbash-in-centos-7
+
+# Not resources: SSH server: ChrootDirectory, DenyUsers, DenyGroups, AllowUsers, AllowGroups
+#chroot $mountPoint /bin/sed -i 's/# permit/permit/1' /etc/doas.conf, 
+#passwd -l root, 
+#Password quality?,
+#Execute certain services as a dedicated limited user in openrc
+#rc.conf; change rc_shell to point to a limited user in rbash, consider looking into /rc.conf
+# Proper /etc/limits.conf
+#set ulimit in sysctl via fs.file and alike (find if this is related to exclusively PAM or not), 
+# Interesting ideas; https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#libpam-tmpdir, https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#sudo_password_sniffing, https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#su_restrictions, https://0xffsec.com/handbook/shells/restricted-shells/, https://security.stackexchange.com/questions/187901/what-can-an-attacker-do-in-this-scenario-unwritable-bashrc-profile-etc, https://krython.com/post/configuring-system-log-files-alpine-linux, https://dev.to/sebos/using-chroot-to-restrict-linux-applications-for-enhanced-security-33b3, https://thelinuxcode.com/setup-linux-chroot-jails/
+# Is removing dead usernames good practice?
+# Finishing setting up monitor/logging user(s)
+configLimitedUsers() {
+    log "INFO: Installing corresponding packages for doas, and configuring it in /etc and /usr/bin"
+    chroot $mountPoint /sbin/apk add doas doas-doc 2>/dev/null || log "CRITICAL: Could not install required packages to ensure root is rarely accessed"
+    chroot $mountPoint /bin/chmod 0510 /usr/bin/doas 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/doas file permissions"
+    chroot $mountPoint /bin/chmod 0440 /etc/doas.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.conf file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/doas.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d folder permissions"
+
+    log "INFO: Creating groups for certain executables, data files, and folders"
+    local expectedGroups="busybox coreutils lvm suid diskUtil doas apk shell firewall fail2ban backup logread"
+    for newGroup in $expectedGroups; do
+        if [ -z "$(chroot $mountPoint /bin/grep $newGroup /etc/group)" ]; then chroot $mountPoint /usr/sbin/addgroup -S $newGroup 2>/dev/null || log "CRITICAL: Could not create a $newGroup group"; else log "INFO: $newGroup has already been created"; fi
+    done
+
+    log "INFO: Installing rksh and configurating it properely"
+    chroot $mountPoint /sbin/apk add loksh@additional 2>/dev/null || log "CRITICAL: Could not install required packages to chroot jail certain users"
+    chroot $mountPoint /bin/cp /bin/ksh /bin/rksh 2>/dev/null || log "CRITICAL: Could not create rksh to facilitate restricted ksh shell when users login in"
+    chroot $mountPoint /bin/chmod 0000 /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/ksh file permissions"
+    chroot $mountPoint /bin/chmod 0110 /bin/rksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/rksh file permissions"
+    chroot $mountPoint /bin/chmod root:shell /bin/rksh 2>/dev/null || log "UNEXPECTED: Could not change ownership of /bin/rksh file"
+
+    echo "TEMP: Finished for now ..."
+    exit
+
+    log "INFO: Considering default system accounts"
+
+    # SSHD, and Chrony?
+
+    log "INFO: Considering new system accounts"
+    if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then
+        log "INFO: Creating $firewallUsername user for running firewall"
+        chroot $mountPoint /bin/mkdir -p /home/"$firewallUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $firewallUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$firewallUsername" -S -D -s /sbin/nologin $firewallUsername 2>/dev/null || log "CRITICAL: Could not create an account for running firewall"
+    fi
+
+    if [ -z "$(chroot $mountPoint /bin/grep $updateUsername /etc/passwd)" ]; then
+        log "INFO: Creating $updateUsername user for running apk"
+        chroot $mountPoint /bin/mkdir -p /home/"$updateUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $updateUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$updateUsername" -S -D -s /sbin/nologin $updateUsername 2>/dev/null || log "CRITICAL: Could not create an account for running apk"
+    fi
+
+    if [ -z "$(chroot $mountPoint /bin/grep $denierUsername /etc/passwd)" ]; then
+        log "INFO: Creating $denierUsername user for running fail2ban"
+        chroot $mountPoint /bin/mkdir -p /home/"$denierUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $denierUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$denierUsername" -S -D -s /sbin/nologin $denierUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"
+    fi
+
+    if [ -z "$(chroot $mountPoint /bin/grep $collectorUsername /etc/passwd)" ]; then
+        log "INFO: Creating $collectorUsername user for running fail2ban"
+        chroot $mountPoint /bin/mkdir -p /home/"$collectorUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $collectorUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$collectorUsername" -S -D -s /sbin/nologin $collectorUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"
+    fi
+
+    log "INFO: Considering limited user accounts"
+    if [ -z "$(chroot $mountPoint /bin/grep $monitorUsername /etc/passwd)" ]; then
+        log "INFO: Creating $monitorUsername user for monitoring the system"
+        chroot $mountPoint /bin/mkdir -p /home/"$monitorUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $monitorUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$monitorUsername" -s /bin/rksh -D $monitorUsername 2>/dev/null || log "CRITICAL: Could not create an account for monitoring the system"
+    fi
+
+    if [ -z "$(chroot $mountPoint /bin/grep $previewUsername /etc/passwd)" ]; then
+        log "INFO: Creating $previewUsername user for receiving status of system"
+        chroot $mountPoint /bin/mkdir -p /home/"$previewUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $previewUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$previewUsername" -s /bin/rksh -D $previewUsername 2>/dev/null || log "CRITICAL: Could not create an account for receiving status of system"
+    fi
+
+    if [ -z "$(chroot $mountPoint /bin/grep $serverCommandUsername /etc/passwd)" ]; then
+        log "INFO: Creating $serverCommandUsername user for issuing commands to server"
+        chroot $mountPoint /bin/mkdir -p /home/"$serverCommandUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $serverCommandUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$serverCommandUsername" -s /bin/rksh -D $serverCommandUsername 2>/dev/null || log "CRITICAL: Could not create an account for issuing commands to server"
+    fi
+
+    if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/passwd)" ]; then
+        log "INFO: Creating $backupUsername user for backing important data"
+        chroot $mountPoint /bin/mkdir -p /home/"$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $backupUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$backupUsername" -s /bin/rksh -D $backupUsername 2>/dev/null || log "CRITICAL: Could not create an account for backing up important data"
+    fi
+
+    log "INFO: Applying new groups across the entire system (if certian services exists)"
+
+    log "INFO: Enabling certain priviledges for certain users within doas"
+
+    log "INFO: Causing changes to sshd and enabling certain users for remote login"
+    echo "${sshUsernameKey}" >> /home/"${username}"/.ssh/authorized_keys || log "CRITICAL: Failed to add ssh public key to /.ssh/authorized_keys of $username"
+    echo -e "AllowUsers ${username}" >> /etc/ssh/sshd_config || log "UNEXPECTED: Failed to restrict ssh to $username"
+
+    log "INFO: Restarting services changed"
+    chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
+    chroot $mountPoint /sbin/rc-service fail2ban restart 2>/dev/null || log "UNEXPECTED: Could not restart fail2ban daemon"
+    chroot $mountPoint /sbin/rc-service ufw restart 2>/dev/null || log "UNEXPECTED: Could not restart ufw daemon"
+
+    log "INFO: Locking root account and making any password invalid as login"
+
+    log "INFO: Successfully reached end of configurating users!"
 }
 
 # Modify kernel with ncurses-dev; chroot /mnt/alpine /usr/bin/make menuconfig -C /home/maintain/aports/main/linux-lts/src/linux-6.12
@@ -2024,8 +2141,8 @@ main() {
 	    if $gFail2Ban; then configFail2Ban; fi
             if $gExecutable; then configExecutables; fi
 	    if $gEtc; then configEtc; fi
-	    if $gLimitedUsers; then configLimitedUsers; fi
 	    if $gLogging; then configLogging; fi
+	    if $gLimitedUsers; then configLimitedUsers; fi
 	    if $gSELinux; then configSELinux; fi
             log "INFO: Finished post-setup!"
     fi
@@ -2036,13 +2153,13 @@ main() {
             mountAlpine
 	    if $gAlpineSetup || $gPartition; then verifyInstallSetup; fi
 	    if $gSSHD; then verifySSHD; fi
-	    if $gKernel; then verifyKernel; fi
 	    if $gFirewall; then verifyFirewall; fi
 	    if $gFail2Ban; then verifyFail2Ban; fi
             if $gExecutable; then verifyExecutable; fi
 	    if $gEtc; then verifyEtc; fi
-	    if $gLimitedUsers; then verifyLimitedUsers; fi
 	    if $gLogging; then verifyLogging; fi
+	    if $gLimitedUsers; then verifyLimitedUsers; fi
+	    if $gKernel; then verifyKernel; fi
 	    if $gSELinux; then verifySELinux; fi
             log "INFO: Finished verifying changes!"
     fi
