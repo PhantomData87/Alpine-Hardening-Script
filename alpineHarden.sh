@@ -28,13 +28,19 @@
 #Develop a plan to manually perform security audits: chkrootkit, RKHunter, aide, lynis periodic scan
 #User accounting: sysstat
 #SSH multi-factor authentication
-#Find a way to permit pings from LAN, but not WAN. Finally, let these pings contain no data.
+#Find a way to permit pings from LAN, but not WAN. Finally, let these pings contain (nearly) no data.
 #Think about ARP packets, filtering DHCP packets away, minimal DNS packets, and further restrictions on NTP packets.
 #Using linux `tc` to limit bandwidth and througput of specific packets
 #Switch over to nftables by ditching UFW at some point
 #Look into /etc/lvm/lvm.conf & /etc/lvm/lvmlocal.conf
 #Figure out why chronyd is failing
 # Have a clean way to resolve hard or symbolic file links permissions (besides copying the file)
+# Fix logo variables?
+# Figure out why a seperate sshd user spawning in sshd service as non-root still has trouble reading shadow (despite being given priviledges to do so)
+# Chronyd sometimes fail from incorrect permissions on /var/run/chronyd/chronyd.pid file
+# Central or decentralized identity user account management
+# Restrict dns queires in /etc/resolv?
+# Add command_user or command_capabilities to all /etc/init.d service files. This limits/removes doas exposure, setcap & getcap, and guarantees service is ran in limited mode
 
 # Log meanings in this script:
 # INFO: States what is currently happening in the script.
@@ -79,6 +85,7 @@ export umask="077"
 
 # Usernames to be created. This does not include chrony and sshd, since they are already created
 export buildUsername="REPLACEME" # Username that can build the linux kernel, and install it
+export entryUsername="REPLACEME" # Username that will start the sshd service
 export monitorUsername="REPLACEME" # Username that can read and send logs across the network. !!! Highest privledge !!!
 export collectorUsername="REPLACEME" # Username that can inspect nearly the entire system for logs.
 export previewUsername="REPLACEME" # Username that only receives a simple output, and leaves
@@ -86,7 +93,7 @@ export serverCommandUsername="REPLACEME" # Username with restricted commands to 
 export backupUsername="REPLACEME" # Username made to backup select files
 export firewallUsername="REPLACEME" # Only user authorized for firewall stuff
 export updateUsername="REPLACEME" # Only user authorized for apk update
-export denierUsername="REPLACEME" # Only user authorized for blocking network packets
+export fail2banUsername="REPLACEME" # Only user authorized for blocking network packets
 
 # For all Banners. Remove symbol: ` and add a space after symbol if at the end of the line it has: \
 export bannerIssue="###############################################################
@@ -107,7 +114,8 @@ export bannerIssue="############################################################
 #  Unauthorized access will be fully investigated and         #
 #  reported to the appropriate law enforcement agencies.      #
 ###############################################################" # Obtained from: https://gist.github.com/hvmonteiro/7f897cd8ae3993195855040056f87dc6
-export bannerMotd=" ____                        _                       _____ _          
+export bannerMotd="
+ ____                        _                       _____ _          
 |  _ \ _   _ _ __ __ _  __ _| |_ ___  _ __ _   _ _  |_   _| |__   ___ 
 | |_) | | | | '__/ _  |/ _  | __/ _ \| '__| | | (_)   | | | '_ \ / _ \ 
 |  __/| |_| | | | (_| | (_| | || (_) | |  | |_| |_    | | | | | |  __/
@@ -140,7 +148,7 @@ gKernelSetup=false
 # Variables for post setup (Leave it alone)
 gEtc=false
 gLogging=false
-gLimitedUsers=false
+gRestrictedUsers=false
 gKernel=false
 gExecutable=false
 gSSHD=false
@@ -245,6 +253,7 @@ Note: $logFile will be set if the variable is empty upon execution.
 
 Internal variables for created usernames
 sshUsernameKey:		Public key of trusted username (ssh required)
+entryUsername:		A username that will spawn the sshd instance, that is seperate from the default sshd user account
 monitorUsername:	A username that can read log files, send them through the network, and can login by ssh
 previewUsername:	A username that is severely restricted to see status information, and can login by ssh
 serverCommandUsername:  A username that is severely restricted to execute very few binaries, and can login by ssh
@@ -252,7 +261,7 @@ backupUsername:		A username with limited capabilities to explore the system to b
 collectorUsername:      A username that is permitted to explore the rest of the system
 firewallUsername:	A system user that is meant to run firewall related applications
 updateUsername:		A system user that is meant to occasionally update the system
-denierUsername:		A system user meant to handle applications like fail2ban
+fail2banUsername:		A system user meant to handle applications like fail2ban
 buildUsername:		A system user meant to build a linux kernel
 Note: Most of these usernames are only applied if --users is executed, or --kernel"
     exit;
@@ -270,7 +279,7 @@ interpretArgs() {
         --formatKernel) gKernelSetup=true;;
         --etc) gEtc=true;;
         --logging) gLogging=true;;
-        --users) gLimitedUsers=true;;
+        --users) gRestrictedUsers=true;;
         --kernel) gKernel=true;;
         --executable) gExecutable=true;;
         --sshd) gSSHD=true;;
@@ -311,6 +320,7 @@ interpretArgs() {
     if [ -z "$logFile" ]; then echo "BAD FORMAT: Will default to /tmp/hardeningAlpine.log due to this being empty!"; fi
     if [ -z "$logIP" ]; then echo "BAD FORMAT: No ip to indicate a remote logging server!"; exit; fi
     if [ -z "$buildUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$buildUsername and include a name!"; exit; fi
+    if [ -z "$entryUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$entryUsername and include a name!"; exit; fi
     if [ -z "$monitorUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$monitorUsername and include a name!"; exit; fi
     if [ -z "$collectorUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$collectorUsername and include a name!"; exit; fi
     if [ -z "$previewUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$previewUsername and include a name!"; exit; fi
@@ -318,7 +328,7 @@ interpretArgs() {
     if [ -z "$backupUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$backupUsername and include a name!"; exit; fi
     if [ -z "$firewallUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$firewallUsername and include a name!"; exit; fi
     if [ -z "$updateUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$updateUsername and include a name!"; exit; fi
-    if [ -z "$denierUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$denierUsername and include a name!"; exit; fi
+    if [ -z "$fail2banUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$fail2banUsername and include a name!"; exit; fi
     if [ -z "$sshUsernameKey" ]; then echo "BAD FORMAT: Public key variable must be configured before usage! Edit: \$sshUsernameKey and include a public key!"; exit; fi
     if [ -z "$rootSize" ]; then echo "BAD FORMAT: Missing required value in rootSize"; exit; fi
     if [ -z "$homeSize" ]; then echo "BAD FORMAT: Missing required value in homeSize"; exit; fi
@@ -362,8 +372,8 @@ interpretArgs() {
     if (! echo $varTmpSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in varTmpSize: $varTmpSize" 2>/dev/null; exit; fi
     if (! echo $varLogSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in varLogSize: $varLogSize" 2>/dev/null; exit; fi
     if (! echo $timezone | grep -Eq [A-z]+/[A-z]); then echo "BAD FORMAT: Not a valid timezone declaration! $timezone" 2>/dev/null; exit; fi
-    if [ ! echo $sshPort | grep -Eq ^[0-9] ] && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number that is in range of 1-1023, and is not 22!"; exit; fi
-    if [ ! echo $umask | grep -Eq ^[0-9][0-9][0-9] ]; then echo "BAD FORMAT: Must provide a valid umask in 3 digit format; like 022 or 077!"; exit; fi
+    if (! echo $sshPort | grep -Eq ^[0-9]) && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number that is in range of 1-1023, and is not 22!"; exit; fi
+    if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format; like 022 or 077!"; exit; fi
 
     # Behavior check
     if [ "$mountPoint" = "/" ] && $pre; then echo "SYSTEM TEST MISMATCH: Cannot have pre-installation declared on / point. Specify elsewhere."; exit; fi
@@ -612,6 +622,7 @@ setupAlpine() {
     setup-devd -C "$devDevice" 2>/dev/null || log "UNEXPECTED: Could not set mdev for devd"
     setup-dns "$dnsList" 2>/dev/null || log "CRITICAL: Could not set up local dns"
     ntpd -q -p us.pool.ntp.org 2>/dev/null || log "CRITICAL: Could not set up local time with ntpd"
+    ntpd -q -p us.pool.ntp.org 2>/dev/null || log "CRITICAL: Could not set up local time with ntpd a second time"
     rc-update --quiet add networking boot 2>/dev/null || log "UNEXPECTED: Could not add networking and boot services to rc"
     rc-update --quiet add seedrng boot 2>/dev/null || rc-update --quiet add urandom boot 2>/dev/null || log "UNEXPECTED: Could not add seedrng and boot to rc"
     rc-update --quiet add crond 2>/dev/null || log "UNEXPECTED: Could not setup crond to rc"
@@ -633,7 +644,7 @@ setupAlpine() {
     setup-keymap "$keyboardLayout" "$keyboardLayout" 2>/dev/null || log "UNEXPECTED: Could not setup device's keyboard keymap"
     rc-update --quiet del loadkmap boot 2>/dev/null || log "UNEXPECTED: Could not remove unncessary service that fails on boot"
     echo "root:$rootPass" | chpasswd || log "UNEXPECTED: Did not change root password"
-    apk add parted lvm2 e2fsprogs xfsprogs tzdata || log "Unexpected: Could not install all required software"
+    apk add parted lvm2 e2fsprogs xfsprogs tzdata grub-efi grub || log "Unexpected: Could not install all required software"
     log "INFO: Almost finished default alpine installation!"
 }
 
@@ -732,7 +743,6 @@ formatKernel() {
     configKernel
 }
 
-
 # SSHD resources that are worth keeping:
 # SSH audit tool: https://github.com/jtesta/ssh-audit
 # All cryptogrpahic functions supported by sshd: https://superuser.com/questions/1763269/how-to-disable-rsa-and-ecdsa-keys-in-openssh-server-on-fedora-linux
@@ -740,7 +750,7 @@ formatKernel() {
 # Simplified hardening guide: https://www.sshaudit.com/hardening_guides.html
 configSSHD() {
     log "INFO: Affecting sshd_config"
-    chroot $mountPoint /bin/chmod 600 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config permissions to writable"
+    chroot $mountPoint /bin/chmod 640 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config permissions to writable"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Port\(.*\)/Port $sshPort/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Port could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}AddressFamily\(.*\)/AddressFamily inet/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: AddressFamily could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}RekeyLimit\(.*\)/RekeyLimit 256M 1h/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: RekeyLimit could not be configured"
@@ -782,10 +792,10 @@ configSSHD() {
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}HostKey\(.*\)\/etc\/ssh\/ssh_host_ecdsa_key/#HostKey \/etc\/ssh\/ssh_host_ecdsa_key/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: HostKey could not be configured to remove ecdsa"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}HostKey\(.*\)\/etc\/ssh\/ssh_host_ed25519_key/HostKey \/etc\/ssh\/ssh_host_ed25519_key/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: HostKey could not be configured to include ed25519"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Include\(.*\)\/etc\/ssh\(.*\)/#Include/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Include could not be configured"
-    chroot $mountPoint /bin/chmod 400 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config permissions to readable"
+    chroot $mountPoint /bin/chmod 440 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config permissions to readable"
 
     log "INFO: Locking down ssh_config"
-    chroot $mountPoint /bin/chmod 600 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/ssh_config permissions to writable"
+    chroot $mountPoint /bin/chmod 640 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/ssh_config permissions to writable"
     echo "Host *" > $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not empty out /etc/ssh/ssh_config file"
     echo "    AddressFamily inet" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
     echo "    BatchMode no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
@@ -806,7 +816,7 @@ configSSHD() {
     echo "    Tunnel no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
     echo "    UsePrivilegedPort no" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
     echo "    PubkeyAuthentication yes" >> $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not include a in /etc/ssh/ssh_config file"
-    chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/ssh_config permissions to readable"    
+    chroot $mountPoint /bin/chmod 440 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/ssh_config permissions to readable"    
 
     # Too expensive to be done correctly and efficiently on embedded devices (or live iso). This will have a skip option
     if $sshExpensiveOperation; then
@@ -821,12 +831,13 @@ configSSHD() {
     if [ ! -z "$(chroot $mountPoint /usr/bin/awk '$5 < 3071' /etc/ssh/moduli)" ]; then
         log "INFO: Removing small Diffie-Hellman moduli that are less than 3071 bits"
         chroot $mountPoint /usr/bin/awk '$5 >= 3071' /etc/ssh/moduli > $mountPoint/etc/ssh/moduli.safer 2>/dev/null || log "UNEXPECTED: Could not filter out bits less than 3071 in /etc/ssh/moduli"
-        chroot $mountPoint /bin/chmod 600 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to writable"
+        chroot $mountPoint /bin/chmod 640 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to writable"
         chroot $mountPoint /bin/mv /etc/ssh/moduli.safer /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not override /etc/ssh/moduli with less vulnerable bits"
     fi
 
+    # SSHD will complain if private key has permissions for groups or others.
     log "INFO: Enforcing remaining file permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to readable"
+    chroot $mountPoint /bin/chmod 440 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to readable"
     chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_ed25519_key 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_ed25519_key in ssh directory permissions"
     chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_ed25519_key.pub in ssh directory permissions"
     chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_ecdsa_key 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_ecdsa_key in ssh directory permissions"
@@ -835,7 +846,8 @@ configSSHD() {
     chroot $mountPoint /bin/chmod 400 /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ssh_host_rsa_key.pub in ssh directory permissions"
     chroot $mountPoint /bin/chmod 000 /etc/ssh/ssh_config.d 2>/dev/null || log "UNEXPECTED: Could not change ssh_config.d in ssh directory permissions"
     chroot $mountPoint /bin/chmod 000 /etc/ssh/sshd_config.d 2>/dev/null || log "UNEXPECTED: Could not change sshd_config.d in ssh directory permissions"
-    chroot $mountPoint /bin/chmod 700 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh directory permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sshd file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh directory permissions"
 
     log "INFO: Restarting sshd service"
     chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
@@ -896,7 +908,7 @@ configFirewall() {
     log "INFO: Opening a rate-limited specific firewall ports"
     chroot $mountPoint /usr/sbin/ufw limit in log from "$localNetwork"/"$localNetmask" to "$localNetwork"/"$localNetmask" app SSHServer 2>/dev/null || log "CRITICAL: Failed to limit port $sshPort for ingress traffic for ufw firewall"
 
-    log "INFO: Changing file permissions for UFW application profiles created"
+    log "INFO: Changing file permissions for UFW application profiles created and related files"
     chroot $mountPoint /bin/chmod 700 /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw permissions"
     chroot $mountPoint /bin/chmod 700 /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/applications.d permissions"
     chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh profile permissions"
@@ -909,6 +921,11 @@ configFirewall() {
     chroot $mountPoint /bin/chmod 460 /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not change nftables.nft file permissions"
     chroot $mountPoint /bin/chmod 000 /etc/iptables 2>/dev/null || log "UNEXPECTED: Could not change /etc/iptables folder permissions"
     chroot $mountPoint /bin/chmod 000 /etc/nftables.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/nftables.d folder permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ufw file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/nftables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/nftables file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/iptables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/iptables file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/ip6tables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ip6tables file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/ebtables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ebtables file permissions"
 
     log "INFO: Setting permissions on UFW executables"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; python3.12"
@@ -965,6 +982,12 @@ configFail2Ban() {
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xtables-nft-multi"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/iptables-apply 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables-apply"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logrotate"
+
+    log "INFO: Setting permissions on fail2ban configuration files"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/fail2ban file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/iptables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/iptables file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/ip6tables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ip6tables file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/ebtables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ebtables file permissions"
 
     log "INFO: Restarting service & Enabling"
     chroot $mountPoint /sbin/rc-update add fail2ban 2>/dev/null || log "INFO: Fail2ban was already added to boot"
@@ -1070,8 +1093,8 @@ configExecutables() {
     log "INFO: Setting permissions on /usr/sbin executables"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/partprobe 2>/dev/null || log "UNEXPECTED: Could not change permissions for; partprobe"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/parted 2>/dev/null || log "UNEXPECTED: Could not change permissions for; parted"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chronyd"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chronyd"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/copy-modloop 2>/dev/null || log "UNEXPECTED: Could not change permissions for; copy-modloop"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/update-grub 2>/dev/null || log "UNEXPECTED: Could not change permissions for; update-grub"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-sparc64-setup 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-sparc64-setup"
@@ -1113,9 +1136,9 @@ configExecutables() {
 
     # Declaring last set of permissions
     chroot $mountPoint /bin/chmod 701 /bin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /bin"
-    chroot $mountPoint /bin/chmod 700 /sbin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /sbin"
+    chroot $mountPoint /bin/chmod 701 /sbin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /sbin"
     chroot $mountPoint /bin/chmod 701 /usr/bin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/bin"
-    chroot $mountPoint /bin/chmod 700 /usr/sbin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/sbin"
+    chroot $mountPoint /bin/chmod 701 /usr/sbin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/sbin"
 
     log "INFO: Finished modifying default executables!"
 }
@@ -1170,7 +1193,7 @@ configEtc() {
     chroot $mountPoint /bin/chmod 0400 /etc/profile 2>/dev/null || log "UNEXPECTED: Could not change profile file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/protocols 2>/dev/null || log "UNEXPECTED: Could not change protocols file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/rc.conf 2>/dev/null || log "UNEXPECTED: Could not change rc.conf file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/resolv.conf 2>/dev/null || log "UNEXPECTED: Could not change resolv.conf file permissions"
+    chroot $mountPoint /bin/chmod 0404 /etc/resolv.conf 2>/dev/null || log "UNEXPECTED: Could not change resolv.conf file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/securetty 2>/dev/null || log "UNEXPECTED: Could not change /etc/securetty file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/services 2>/dev/null || log "UNEXPECTED: Could not change services file permissions"
     chroot $mountPoint /bin/chmod 0640 /etc/shadow 2>/dev/null || log "UNEXPECTED: Could not change shadow file permissions"
@@ -1229,7 +1252,7 @@ configEtc() {
     chroot $mountPoint /bin/chmod 705 /etc/runlevels/shutdown 2>/dev/null || log "UNEXPECTED: Could not change /etc/runlevels/shutdown folder permissions"
     chroot $mountPoint /bin/chmod 705 /etc/runlevels/sysinit 2>/dev/null || log "UNEXPECTED: Could not change /etc/runlevels/sysinit folder permissions"
     chroot $mountPoint /bin/chmod 700 /etc/secfixes.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/secfixes.d folder permissions"
-    chroot $mountPoint /bin/chmod 700 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh folder permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh folder permissions"
     chroot $mountPoint /bin/chmod 700 /etc/ssl 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssl folder permissions"
     chroot $mountPoint /bin/chmod 700 /etc/ssl1.1 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssl1.1 folder permissions"
     chroot $mountPoint /bin/chmod 500 /etc/sysctl.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/sysctl.d folder permissions"
@@ -1255,7 +1278,7 @@ configEtc() {
     chroot $mountPoint /bin/chmod 550 /etc/acpi/PWRF/00000080 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi/PWRF/00000080 file permissions"
     chroot $mountPoint /bin/chmod 600 /etc/apk/arch 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/arch file permissions"
     chroot $mountPoint /bin/chmod 400 /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/repositories file permissions"
-    chroot $mountPoint /bin/chmod 600 /etc/apk/world 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/world file permissions"
+    chroot $mountPoint /bin/chmod 644 /etc/apk/world 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/world file permissions to there default"
     chroot $mountPoint /bin/chmod 644 /etc/busybox-paths.d/busybox 2>/dev/null || log "UNEXPECTED: Could not change /etc/busybox-paths.d/busybox file permissions"
     chroot $mountPoint /bin/chmod 604 /etc/chrony/chrony.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/chrony/chrony.conf file permissions"
     chroot $mountPoint /bin/chmod 600 /etc/crontabs/root 2>/dev/null || log "UNEXPECTED: Could not change /etc/crontabs/root file permissions"
@@ -1273,6 +1296,59 @@ configEtc() {
     chroot $mountPoint /bin/chmod 750 /etc/network/if-pre-up.d/bridge 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-pre-up.d/bridge file permissions"
     chroot $mountPoint /bin/chmod 750 /etc/network/if-up.d/dad 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-up.d/dad file permissions"
     chroot $mountPoint /bin/chmod 600 /etc/secfixes.d/alpine 2>/dev/null || log "UNEXPECTED: Could not change /etc/secfixes.d/alpine file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/acpid 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/acpid file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/binfmt 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/binfmt file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/bootmisc 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/bootmisc file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/cgroups 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/cgroups file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/chronyd file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/consolefont 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/consolefont file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/crond 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/crond file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/devfs 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/devfs file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/dmesg 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/dmesg file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/firstboot 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/firstboot file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/fsck 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/fsck file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/hostname 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/hostname file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/hwclock 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/hwclock file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/hwdrivers 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/hwdrivers file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/killprocs 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/killprocs file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/klogd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/klogd file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/loadkmap 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/loadkmap file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/local 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/local file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/localmount 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/localmount file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/loopback 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/loopback file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/lvm 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/lvm file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/machine-id 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/machine-id file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/mdev 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/mdev file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/modloop 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/modloop file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/modules 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/modules file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/mount-ro 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/mount-ro file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/mtab 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/mtab file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/net-online 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/net-online file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/netmount 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/netmount file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/networking 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/networking file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/ntpd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ntpd file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/numlock 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/numlock file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/osclock 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/osclock file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/procfs 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/procfs file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/rdate 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/rdate file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/root 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/root file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/runsvdir 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/runsvdir file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/s6-svscan 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/s6-svscan file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/save-keymaps 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/save-keymaps file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/save-termencoding 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/save-termencoding file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/savecache 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/savecache file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/seedrng 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/seedrng file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sshd file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/staticroute 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/staticroute file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/swap 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/swap file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/swclock 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/swclock file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/sysctl 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sysctl file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/sysfs 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sysfs file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/sysfsconf 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sysfsconf file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/syslog 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/syslog file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/termencoding 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/termencoding file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/user 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/user file permissions"
+    chroot $mountPoint /bin/chmod 500 /etc/init.d/watchdog 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/watchdog file permissions"
 
     # General permission changes
     log "INFO: Making /etc harder to navigate"
@@ -1298,107 +1374,159 @@ configLogging() {
 
 # Resources:
 # Creating restricted shells if missing: https://unix.stackexchange.com/questions/605646/how-do-you-install-rbash-in-centos-7
-
-# Not resources: SSH server: ChrootDirectory, DenyUsers, DenyGroups, AllowUsers, AllowGroups
-#chroot $mountPoint /bin/sed -i 's/# permit/permit/1' /etc/doas.conf, 
+# Configurating rc.services: https://github.com/OpenRC/openrc/blob/master/service-script-guide.md
+# Introduction to linux capabilities: https://blog.container-solutions.com/linux-capabilities-in-practice
+# Not resources: 
+# SSH server: ChrootDirectory, DenyUsers, DenyGroups, AllowUsers, AllowGroups
 #passwd -l root, 
 #Password quality?,
 #Execute certain services as a dedicated limited user in openrc
-#rc.conf; change rc_shell to point to a limited user in rbash, consider looking into /rc.conf
 # Proper /etc/limits.conf
 #set ulimit in sysctl via fs.file and alike (find if this is related to exclusively PAM or not), 
 # Interesting ideas; https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#libpam-tmpdir, https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#sudo_password_sniffing, https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#su_restrictions, https://0xffsec.com/handbook/shells/restricted-shells/, https://security.stackexchange.com/questions/187901/what-can-an-attacker-do-in-this-scenario-unwritable-bashrc-profile-etc, https://krython.com/post/configuring-system-log-files-alpine-linux, https://dev.to/sebos/using-chroot-to-restrict-linux-applications-for-enhanced-security-33b3, https://thelinuxcode.com/setup-linux-chroot-jails/
 # Is removing dead usernames good practice?
 # Finishing setting up monitor/logging user(s)
-configLimitedUsers() {
-    log "INFO: Installing corresponding packages for doas, and configuring it in /etc and /usr/bin"
-    chroot $mountPoint /sbin/apk add doas doas-doc 2>/dev/null || log "CRITICAL: Could not install required packages to ensure root is rarely accessed"
+configRestrictedUsers() {
+    log "INFO: Installing corresponding packages for doas, and delegating superuser capabilities"
+    chroot $mountPoint /sbin/apk add doas doas-doc libcap-getcap libcap-setcap 2>/dev/null || log "CRITICAL: Could not install required packages to ensure root is rarely accessed"
     chroot $mountPoint /bin/chmod 0510 /usr/bin/doas 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/doas file permissions"
     chroot $mountPoint /bin/chmod 0440 /etc/doas.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.conf file permissions"
-    chroot $mountPoint /bin/chmod 500 /etc/doas.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d folder permissions"
+    chroot $mountPoint /bin/chmod 0510 /etc/doas.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d folder permissions"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/setcap 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/setcap file permissions"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/getcap 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/getcap file permissions"
 
     log "INFO: Creating groups for certain executables, data files, and folders"
-    local expectedGroups="busybox coreutils lvm suid diskUtil doas apk shell firewall fail2ban backup logread"
+    local expectedGroups="busybox coreutils lvm suid diskUtil cmdUtil doas apk rshell firewall fail2ban logread net"
     for newGroup in $expectedGroups; do
-        if [ -z "$(chroot $mountPoint /bin/grep $newGroup /etc/group)" ]; then chroot $mountPoint /usr/sbin/addgroup -S $newGroup 2>/dev/null || log "CRITICAL: Could not create a $newGroup group"; else log "INFO: $newGroup has already been created"; fi
+        if [ -z "$(chroot $mountPoint /bin/grep $newGroup: /etc/group)" ]; then chroot $mountPoint /usr/sbin/addgroup -S $newGroup 2>/dev/null || log "CRITICAL: Could not create a $newGroup group"; else log "INFO: Group $newGroup has already been created"; fi
     done
 
     log "INFO: Installing rksh and configurating it properely"
     chroot $mountPoint /sbin/apk add loksh@additional 2>/dev/null || log "CRITICAL: Could not install required packages to chroot jail certain users"
-    chroot $mountPoint /bin/cp /bin/ksh /bin/rksh 2>/dev/null || log "CRITICAL: Could not create rksh to facilitate restricted ksh shell when users login in"
-    chroot $mountPoint /bin/chmod 0000 /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/ksh file permissions"
+    chroot $mountPoint /bin/cp /bin/ksh /bin/rksh --update=none 2>/dev/null || log "CRITICAL: Could not create rksh to facilitate restricted ksh shell when users login in"
+    chroot $mountPoint /bin/chmod 0400 /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/ksh file permissions"
     chroot $mountPoint /bin/chmod 0110 /bin/rksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/rksh file permissions"
-    chroot $mountPoint /bin/chmod root:shell /bin/rksh 2>/dev/null || log "UNEXPECTED: Could not change ownership of /bin/rksh file"
+    chroot $mountPoint /bin/chown root:rshell /bin/rksh 2>/dev/null || log "UNEXPECTED: Could not change ownership of /bin/rksh file"
 
-    echo "TEMP: Finished for now ..."
-    exit
+    log "INFO: Re-purposing system account; chrony user for running chronyd"
+    chroot $mountPoint /usr/sbin/addgroup chrony net 2>/dev/null || log "UNEXPECTED: Could not add net group to chrony user"
+    chroot $mountPoint /bin/touch /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for chronyd service" 
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/chronyd file permissions"
+    chroot $mountPoint /bin/chmod 0240 /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/chronyd.log file permissions"
+    chroot $mountPoint /bin/chown root:chrony /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/chronyd"
+    chroot $mountPoint /bin/chown chrony:logread /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change ownership of /var/log/chronyd.log to chrony:logread"
+    chroot $mountPoint /usr/sbin/setcap "cap_sys_time=pe" /usr/sbin/chronyd 2>/dev/null || log "CRITICAL: Could not give chronyd executable the capability to set system time"
+    chroot $mountPoint /bin/chmod 0700 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/chronyd"
+    chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/chronyd to change starting command to be doas"
+    chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u chrony \/usr\/sbin\/chronyd -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log\"/g" /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/chronyd to change command_args for chronyd service"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/chronyd"
 
-    log "INFO: Considering default system accounts"
+# https://linux.die.net/man/7/capabilities
+# https://man.freebsd.org/cgi/man.cgi?query=doas.conf&sektion=5&format=html
+# Problem: https://www.spinics.net/lists/openssh-unix-dev/msg06335.html
+# make setcap use -n option to limit only sshd user id
+# To change services look into /etc/init.d/sshd, change command: "/usr/bin/doas", change command_args: "-u $entryUsername /usr/sbin/sshd -f "
+#    log "INFO: Considering system account; $entryUsername user for running sshd"
+#    if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $entryUsername 2>/dev/null || log "CRITICAL: Could not create an account for running sshd server"; fi
+#    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" net 2>/dev/null || log "UNEXPECTED: Could not add net group to "$entryUsername" user"
+#    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" suid 2>/dev/null || log "UNEXPECTED: Could not add suid group to "$entryUsername" user"
+#    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" shadow 2>/dev/null || log "UNEXPECTED: Could not add shadow group to "$entryUsername" user"
+#    chroot $mountPoint /bin/chmod 0510 /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/sshd file permissions"
+#    chroot $mountPoint /bin/chmod 0660 /run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could not change /run/sshd.pid file permissions"
+#    chroot $mountPoint /bin/chown "root:$entryUsername" /run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could not change ownership of /run/sshd.pid"
+#    chroot $mountPoint /bin/chown "root:$entryUsername" /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/sshd"
+#    chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_config"
+#    chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of sshd_config"
+#    chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change ownership of moduli"
+#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key"
+#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key.pub"
+#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key"
+#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key.pub"
+#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key"
+#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key.pub"
+#    chroot $mountPoint /usr/sbin/setcap "cap_net_bind_service,cap_setgid,cap_setuid=ep" /usr/sbin/sshd 2>/dev/null || log "CRITICAL: Could not give sshd executable the permission to bind to system ports, change UID, and change GID"
+#    chroot $mountPoint /bin/chmod 0700 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/sshd"
+#    chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change starting command to be doas"
+#    chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u $entryUsername \/usr\/sbin\/sshd \$\(command_args:-\$\(SSHD_OPTS:-\)\)\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change command_args for chronyd service"
+#    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/sshd"
 
-    # SSHD, and Chrony?
+    log "INFO: Considering system account; $firewallUsername user for running firewall"
+    if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $firewallUsername 2>/dev/null || log "CRITICAL: Could not create an account for running firewall"; fi
+    chroot $mountPoint /usr/sbin/addgroup $firewallUsername firewall 2>/dev/null || log "UNEXPECTED: Could not add firewall group to firewall user"
+    chroot $mountPoint /usr/sbin/addgroup $firewallUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to firewall user"
 
-    log "INFO: Considering new system accounts"
-    if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then
-        log "INFO: Creating $firewallUsername user for running firewall"
-        chroot $mountPoint /bin/mkdir -p /home/"$firewallUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $firewallUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$firewallUsername" -S -D -s /sbin/nologin $firewallUsername 2>/dev/null || log "CRITICAL: Could not create an account for running firewall"
-    fi
+    log "INFO: Considering system account; $updateUsername user for running apk"
+    if [ -z "$(chroot $mountPoint /bin/grep $updateUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $updateUsername 2>/dev/null || log "CRITICAL: Could not create an account for running apk"; fi
+    chroot $mountPoint /usr/sbin/addgroup $updateUsername apk 2>/dev/null || log "UNEXPECTED: Could not add apk group to apk updater user"
+    chroot $mountPoint /usr/sbin/addgroup $updateUsername doas 2>/dev/null || log "UNEXPECTED: Could not add doas group to apk updater user"
+    chroot $mountPoint /usr/sbin/addgroup $updateUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to apk updater user"
+    
+    log "INFO: Considering system account; $fail2banUsername user for running fail2ban"
+    if [ -z "$(chroot $mountPoint /bin/grep $fail2banUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $fail2banUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"; fi
+    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername fail2ban 2>/dev/null || log "UNEXPECTED: Could not add fail2ban group to fail2ban user"
+    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to fail2ban user"
 
-    if [ -z "$(chroot $mountPoint /bin/grep $updateUsername /etc/passwd)" ]; then
-        log "INFO: Creating $updateUsername user for running apk"
-        chroot $mountPoint /bin/mkdir -p /home/"$updateUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $updateUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$updateUsername" -S -D -s /sbin/nologin $updateUsername 2>/dev/null || log "CRITICAL: Could not create an account for running apk"
-    fi
-
-    if [ -z "$(chroot $mountPoint /bin/grep $denierUsername /etc/passwd)" ]; then
-        log "INFO: Creating $denierUsername user for running fail2ban"
-        chroot $mountPoint /bin/mkdir -p /home/"$denierUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $denierUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$denierUsername" -S -D -s /sbin/nologin $denierUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"
-    fi
-
-    if [ -z "$(chroot $mountPoint /bin/grep $collectorUsername /etc/passwd)" ]; then
-        log "INFO: Creating $collectorUsername user for running fail2ban"
-        chroot $mountPoint /bin/mkdir -p /home/"$collectorUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $collectorUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$collectorUsername" -S -D -s /sbin/nologin $collectorUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"
-    fi
-
-    log "INFO: Considering limited user accounts"
+    log "INFO: Considering system account; $collectorUsername user for running local log preservation tasks"
+    if [ -z "$(chroot $mountPoint /bin/grep $collectorUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $collectorUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"; fi
+    chroot $mountPoint /usr/sbin/addgroup $collectorUsername coreutils 2>/dev/null || log "UNEXPECTED: Could not add coreutils group to local archieve user"
+    chroot $mountPoint /usr/sbin/addgroup $collectorUsername busybox 2>/dev/null || log "UNEXPECTED: Could not add busybox group to local archieve user"
+    chroot $mountPoint /usr/sbin/addgroup $collectorUsername diskUtil 2>/dev/null || log "UNEXPECTED: Could not add diskUtil group to local archieve user"
+    chroot $mountPoint /usr/sbin/addgroup $collectorUsername lvm 2>/dev/null || log "UNEXPECTED: Could not add lvm group to local archieve user"
+    chroot $mountPoint /usr/sbin/addgroup $collectorUsername doas 2>/dev/null || log "UNEXPECTED: Could not add doas group to local archieve user"
+    
+    log "INFO: Considering limited user account; $monitorUsername user for monitoring the system"
     if [ -z "$(chroot $mountPoint /bin/grep $monitorUsername /etc/passwd)" ]; then
-        log "INFO: Creating $monitorUsername user for monitoring the system"
         chroot $mountPoint /bin/mkdir -p /home/"$monitorUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $monitorUsername"
         chroot $mountPoint /usr/sbin/adduser -h /home/"$monitorUsername" -s /bin/rksh -D $monitorUsername 2>/dev/null || log "CRITICAL: Could not create an account for monitoring the system"
     fi
+    chroot $mountPoint /usr/sbin/addgroup $monitorUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to remote reading logging user"
+    chroot $mountPoint /usr/sbin/addgroup $monitorUsername logread 2>/dev/null || log "UNEXPECTED: Could not add logread group to remote reading logging user"
+    chroot $mountPoint /usr/sbin/addgroup $monitorUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to reading logging user"
 
+    log "INFO: Considering limited user account; $previewUsername user for receiving status of system"
     if [ -z "$(chroot $mountPoint /bin/grep $previewUsername /etc/passwd)" ]; then
-        log "INFO: Creating $previewUsername user for receiving status of system"
         chroot $mountPoint /bin/mkdir -p /home/"$previewUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $previewUsername"
         chroot $mountPoint /usr/sbin/adduser -h /home/"$previewUsername" -s /bin/rksh -D $previewUsername 2>/dev/null || log "CRITICAL: Could not create an account for receiving status of system"
     fi
-
+    chroot $mountPoint /usr/sbin/addgroup $previewUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to output user"
+    
+    log "INFO: Considering limited user account; $serverCommandUsername user for issuing commands to server"
     if [ -z "$(chroot $mountPoint /bin/grep $serverCommandUsername /etc/passwd)" ]; then
-        log "INFO: Creating $serverCommandUsername user for issuing commands to server"
         chroot $mountPoint /bin/mkdir -p /home/"$serverCommandUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $serverCommandUsername"
         chroot $mountPoint /usr/sbin/adduser -h /home/"$serverCommandUsername" -s /bin/rksh -D $serverCommandUsername 2>/dev/null || log "CRITICAL: Could not create an account for issuing commands to server"
     fi
-
+    chroot $mountPoint /usr/sbin/addgroup $serverCommandUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to command user"
+    chroot $mountPoint /usr/sbin/addgroup $serverCommandUsername cmdUtil 2>/dev/null || log "UNEXPECTED: Could not add cmdUtil group to command user"
+    
+    log "INFO: Considering limited user account; $backupUsername user for backing important data"
     if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/passwd)" ]; then
-        log "INFO: Creating $backupUsername user for backing important data"
         chroot $mountPoint /bin/mkdir -p /home/"$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $backupUsername"
         chroot $mountPoint /usr/sbin/adduser -h /home/"$backupUsername" -s /bin/rksh -D $backupUsername 2>/dev/null || log "CRITICAL: Could not create an account for backing up important data"
     fi
+    chroot $mountPoint /usr/sbin/addgroup $backupUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to backup maintainer user"
+    chroot $mountPoint /usr/sbin/addgroup $backupUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to backup maintainer user"
 
-    log "INFO: Applying new groups across the entire system (if certian services exists)"
-
+# On doas.conf: permit nopass root as sshd cmd /usr/sbin/sshd args
     log "INFO: Enabling certain priviledges for certain users within doas"
+    if [ -f "$mountPoint/etc/doas.d/daemon.conf" ]; then chroot $mountPoint /bin/chmod 0600 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not reset /etc/doas.d/daemon.conf"; fi
+    chroot $mountPoint /bin/echo "permit nopass root as chrony cmd /usr/sbin/chronyd args -u chrony -U -F 1 -f /etc/chrony/chrony.conf -L 0 -l /var/log/chronyd.log" > $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure chronyd service is ran with chrony user"
+#    chroot $mountPoint /bin/echo "permit nopass root as $entryUsername cmd /usr/sbin/sshd args" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure sshd service is ran with $entryUsername user"
+    chroot $mountPoint /bin/chmod 0440 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/daemon.conf file permissions"
+
+    log "INFO: Restarting services"
+    chroot $mountPoint /sbin/rc-service chronyd restart || log "UNEXPECTED: Could not restart chronyd daemon"
+#    chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
+    chroot $mountPoint /usr/sbin/ufw enable 2>/dev/null || log "UNEXPECTED: ufw could not be enabled"
+    chroot $mountPoint /sbin/rc-service ufw restart 2>/dev/null || log "UNEXPECTED: Could not restart ufw daemon"
+    chroot $mountPoint /sbin/rc-service fail2ban restart 2>/dev/null || log "UNEXPECTED: Could not restart fail2ban daemon"
+
+    echo "TEMP: Finished for now ..."
+    return 0
+    log "INFO: Applying secondary new groups across the entire system (if certian services exists)"
 
     log "INFO: Causing changes to sshd and enabling certain users for remote login"
     echo "${sshUsernameKey}" >> /home/"${username}"/.ssh/authorized_keys || log "CRITICAL: Failed to add ssh public key to /.ssh/authorized_keys of $username"
     echo -e "AllowUsers ${username}" >> /etc/ssh/sshd_config || log "UNEXPECTED: Failed to restrict ssh to $username"
-
-    log "INFO: Restarting services changed"
-    chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
-    chroot $mountPoint /sbin/rc-service fail2ban restart 2>/dev/null || log "UNEXPECTED: Could not restart fail2ban daemon"
-    chroot $mountPoint /sbin/rc-service ufw restart 2>/dev/null || log "UNEXPECTED: Could not restart ufw daemon"
 
     log "INFO: Locking root account and making any password invalid as login"
 
@@ -1449,6 +1577,8 @@ configKernel() {
     chroot $mountPoint /bin/echo "permit nopass :wheel cmd cp" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide cp permissions to members apart of wheel group"
     chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/maintain/aports/main/linux-lts checksum" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild checksum permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/maintain/aports/main/linux-lts -crK" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild build permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/chmod 0400 /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/kernelBuild.conf file permissions"
+
 
     if [ ! -f "$mountPoint/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" ] || [ ! -f "$mountPoint/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" ]; then
         log "INFO: Obtaining kernel patches based on linux hardening alpine guide"
@@ -1531,8 +1661,8 @@ verifyInstallSetup() {
     if [ ! -f "$mountPoint/sbin/mdev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Device is not configured with mdev for lightweigth performance"; fi
     for i in $dnsList; do
         if [ "$(chroot $mountPoint /bin/cat /etc/resolv.conf 2>/dev/null | grep $i)" != "nameserver $i" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not find expected dns server in resolv.conf: $i"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/apk/repositories 2>/dev/null | grep https)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Not using a https repository"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/cat /etc/shadow 2>/dev/null | grep root:[*!])" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Root account has no password set, or accepts any password"; fi
+        if [ -z "$(chroot $mountPoint /bin/cat /etc/apk/repositories 2>/dev/null | grep https)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Not using a https repository"; fi
+        if [ ! -z "$(chroot $mountPoint /bin/cat /etc/shadow 2>/dev/null | grep root:[*!])" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Root account has no password set, or accepts any password"; fi
     done    
 
     # Verify that the correct services are listed for setupAlpine()
@@ -1544,9 +1674,11 @@ verifyInstallSetup() {
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep seedrng)" ] && [ "$(rc-chroot $mountPoint /sbin/service -l 2>/dev/null | grep urandom)" != 'urandom' ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: seedrng or urandom service is not managed currently by OpenRC"; fi
 
     # Verify mandatory packages for future installations for setupAlpine()
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep parted)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find parted package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep lvm)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find lvm package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep e2fsprogs)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find e2fsprogs package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep xfsprogs)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find xfsprogs package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep tzdata)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find tzdata package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep grub)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find grub package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep grub-efi)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find grub-efi package"; fi
 
@@ -1646,9 +1778,9 @@ verifySSHD() {
     if [ ! -z "$(chroot $mountPoint /usr/bin/awk '$5 < 3071' /etc/ssh/moduli)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There are still unsafe bits in /etc/ssh/moduli!"; fi
 
     # File permissions
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/moduli -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/moduli"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_config"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/moduli -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/moduli"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_config"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ed25519_key -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_ed25519_key"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ed25519_key.pub -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_ed25519_key.pub"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ecdsa_key -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_ecdsa_key"; fi
@@ -1657,7 +1789,8 @@ verifySSHD() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_rsa_key.pub -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_host_rsa_key.pub"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_config.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config.d"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sshd -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sshd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for sshd: $missing"; else echo "INFO: Not a single missed test for sshd!"; fi
@@ -1665,6 +1798,10 @@ verifySSHD() {
 
 verifyFirewall() {
     local missing=0
+    # Package check
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep ufw)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find ufw package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep nftables)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find nftables package"; fi
+
     # Default policy and configurations
     if [ -z "$(chroot $mountPoint /bin/grep 'DEFAULT_INPUT_POLICY="DROP"' /etc/default/ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall does not drop packets that are incoming \(ingress\)"; fi
     if [ -z "$(chroot $mountPoint /bin/grep 'DEFAULT_OUTPUT_POLICY="DROP"' /etc/default/ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall does not drop packets that are outgoing \(egress\)"; fi
@@ -1725,6 +1862,11 @@ verifyFirewall() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/iptables-apply -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/iptables-apply"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/ufw -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/ufw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/nft -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/nft"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ufw -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/nftables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/nftables"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/iptables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/iptables"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ip6tables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ip6tables"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ebtables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ebtables"; fi
 
     # Is ufw enabled on start up?
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Ufw is yet to be added to rc list"; fi
@@ -1735,6 +1877,9 @@ verifyFirewall() {
 
 verifyFail2Ban() {
     local missing=0
+    # Package check
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep fail2ban)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find fail2ban package"; fi
+
     # Fail2ban configuration
     if [ -z "$(chroot $mountPoint /bin/grep "^bantime = 1h" /etc/fail2ban/jail.local 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban bantime does not match"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^findtime = 1h" /etc/fail2ban/jail.local 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban findtime does not match"; fi
@@ -1765,6 +1910,10 @@ verifyFail2Ban() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/xtables-nft-multi -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/xtables-nft-multi"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/iptables-apply -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/iptables-apply"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/logrotate -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/logrotate"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/fail2ban -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/fail2ban"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/iptables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/iptables"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ip6tables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ip6tables"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ebtables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ebtables"; fi
 
     # Is fail2ban enabled on start up?
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i fail2ban 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is yet to be added to rc list"; fi
@@ -1775,6 +1924,13 @@ verifyFail2Ban() {
 
 verifyExecutable() {
     local missing=0
+    # Package check
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep coreutils)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find coreutils package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep findutils)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find findutils package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep dmesg)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find dmesg package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep logger)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find logger package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep setpriv)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find setpriv package"; fi
+
     # Checking /bin executables
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/busybox -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/busybox"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/coreutils -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/coreutils"; fi
@@ -1857,8 +2013,8 @@ verifyExecutable() {
     # Checking /sbin/executables
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/partprobe -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/partprobe"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/parted -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/parted"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/sshd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/sshd"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/chronyd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/chronyd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/sshd -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/sshd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/chronyd -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/chronyd"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/copy-modloop -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/copy-modloop"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/lbu -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/lbu"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/update-kernel -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/update-kernel"; fi
@@ -1898,9 +2054,9 @@ verifyExecutable() {
 
     # Final permission check
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin"; fi
     
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for common executables: $missing"; else echo "INFO: Not a single missed test for common executables!"; fi
@@ -1921,7 +2077,6 @@ verifyEtc() {
     if [ -z "$(chroot $mountPoint /bin/grep "^random  root:root 0664" /etc/mdev.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH:The umask has not been set for random device in /etc/mdev.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^net\/tun\[0-9\]\*   root:netdev 0660" /etc/mdev.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH:The umask has not been set for tun device in /etc/mdev.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^net\/tap\[0-9\]\*   root:netdev 0660" /etc/mdev.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH:The umask has not been set for tap device in /etc/mdev.conf"; fi
-
 
     # File permissions changes on /etc
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/alpine-release -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/alpine-release"; fi
@@ -1944,7 +2099,7 @@ verifyEtc() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/profile -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/profile"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/protocols -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/protocols"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/rc.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/rc.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/resolv.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/resolv.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/resolv.conf -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/resolv.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/securetty -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/securetty"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/services -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/services"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/shadow -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/shadow"; fi
@@ -2001,7 +2156,7 @@ verifyEtc() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/runlevels/shutdown -perm 705 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/runlevels/shutdown"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/runlevels/sysinit -perm 705 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/runlevels/sysinit"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/secfixes.d -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/secfixes.d"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssl -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssl"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssl1.1 -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssl1.1"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/sysctl.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/sysctl.d"; fi
@@ -2026,7 +2181,7 @@ verifyEtc() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/acpi/PWRF/00000080 -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/acpi/PWRF/00000080"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/apk/arch -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/apk/arch"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/apk/repositories -perm 400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/apk/repositories"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/apk/world -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/apk/world"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/apk/world -perm 644 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/apk/world"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/busybox-paths.d/busybox -perm 644 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/busybox-paths.d/busybox"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/chrony/chrony.conf -perm 604 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/chrony/chrony.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/crontabs/root -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/crontabs/root"; fi
@@ -2037,6 +2192,59 @@ verifyEtc() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/network/if-pre-up.d/bridge -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/network/if-pre-up.d/bridge"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/network/if-up.d/dad -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/network/if-up.d/dad"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/secfixes.d/alpine -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/secfixes.d/alpine"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/acpid -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/acpid"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/binfmt -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/binfmt"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/bootmisc -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/bootmisc"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/cgroups -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/cgroups"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/chronyd -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/chronyd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/consolefont -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/consolefont"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/crond -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/crond"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/devfs -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/devfs"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/dmesg -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/dmesg"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/firstboot -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/firstboot"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/fsck -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/fsck"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/hostname -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/hostname"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/hwclock -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/hwclock"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/hwdrivers -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/hwdrivers"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/killprocs -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/killprocs"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/klogd -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/klogd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/loadkmap -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/loadkmap"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/local -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/local"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/localmount -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/localmount"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/loopback -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/loopback"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/lvm -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/lvm"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/machine-id -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/machine-id"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/mdev -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/mdev"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/modloop -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/modloop"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/mount-ro -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/mount-ro"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/mtab -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/mtab"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/net-online -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/net-online"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/netmount -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/netmount"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/networking -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/networking"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ntpd -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ntpd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/numlock -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/numlock"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/osclock -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/osclock"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/procfs -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/procfs"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/rdate -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/rdate"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/root -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/root"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/runsvdir -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/runsvdir"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/s6-svscan -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/s6-svscan"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/save-keymaps -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/save-keymaps"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/save-termencoding -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/save-termencoding"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/savecache -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/savecache"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/seedrng -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/seedrng"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sshd -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sshd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/staticroute -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/staticroute"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/swap -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/swap"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/swclock -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/swclock"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sysctl -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sysctl"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sysfs -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sysfs"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sysfsconf -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sysfsconf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/syslog -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/syslog"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/termencoding -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/termencoding"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/user -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/user"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/watchdog -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/watchdog"; fi
 
     # The /etc directory itself
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc -perm 751 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc"; fi
@@ -2045,8 +2253,162 @@ verifyEtc() {
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for configurating files found in /etc: $missing"; else echo "INFO: Not a single missed test for configurating files found in /etc!"; fi
 }
 
-verifyLimitedUsers() {
+verifyRestrictedUsers() {
     local missing=0
+
+    # Package checks
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep doas)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find doas package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep doas-doc)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find doas-doc package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep libcap-getcap)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find libcap-getcap package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep libcap-setcap)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find libcap-setcap package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep loksh)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find loksh package"; fi
+
+    # User existance checks
+    if [ -z "$(chroot $mountPoint /bin/grep chrony /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User chrony was not found"; fi
+#    if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $entryUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $firewallUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $updateUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $updateUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $fail2banUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $fail2banUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $collectorUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $collectorUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $monitorUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $monitorUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $previewUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $previewUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $backupUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $serverCommandUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $serverCommandUsername was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $backupUsername was not found"; fi
+
+    # Group existance checks
+    if [ -z "$(chroot $mountPoint /bin/grep busybox /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group busybox was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep coreutils /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group coreutils was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep lvm /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group lvm was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep suid /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group suid was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep diskUtil /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group diskUtil was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep cmdUtil /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group cmdUtil was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep doas /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group doas was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep apk /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group apk was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep rshell /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group rshell was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep firewall /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group firewall was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep fail2ban /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group fail2ban was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep logread /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group logread was not found"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep net /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group net was not found"; fi
+
+    # User in certain group checks
+	# Chronyd
+    if [ -z "$(chroot $mountPoint /bin/grep net /etc/group | grep chrony)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $entryUsername was not found in group net"; fi
+
+	# SSHD
+    if [ -z "$(chroot $mountPoint /bin/grep net /etc/group | grep $entryUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $entryUsername was not found in group net"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep suid /etc/group | grep $entryUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $entryUsername was not found in group suid"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep shadow /etc/group | grep $entryUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $entryUsername was not found in group shadow"; fi
+
+        # Firewall
+    if [ -z "$(chroot $mountPoint /bin/grep net /etc/group | grep $firewallUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $firewallUsername was not found in group net"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep firewall /etc/group | grep $firewallUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $firewallUsername was not found in group firewall["; fi
+
+        # Apk
+    if [ -z "$(chroot $mountPoint /bin/grep net /etc/group | grep $updateUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $updateUsername was not found in group net"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep apk /etc/group | grep $updateUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $updateUsername was not found in group apk"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep doas /etc/group | grep $updateUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $updateUsername was not found in group doas"; fi
+
+        # Fail2ban
+    if [ -z "$(chroot $mountPoint /bin/grep net /etc/group | grep $fail2banUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $fail2banUsername was not found in group net"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep fail2ban /etc/group | grep $fail2banUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $fail2banUsername was not found in group fail2ban"; fi
+
+        # Log gatherer
+    if [ -z "$(chroot $mountPoint /bin/grep coreutils /etc/group | grep $collectorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $collectorUsername was not found in group coreutils"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep busybox /etc/group | grep $collectorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $collectorUsername was not found in group busybox"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep diskUtil /etc/group | grep $collectorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $collectorUsername was not found in group diskUtil"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep lvm /etc/group | grep $collectorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $collectorUsername was not found in group lvm"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep doas /etc/group | grep $collectorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $collectorUsername was not found in group doas"; fi
+
+    	# Remote log sender
+    if [ -z "$(chroot $mountPoint /bin/grep net /etc/group | grep $monitorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $monitorUsername was not found in group net"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep rshell /etc/group | grep $monitorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $monitorUsername was not found in group rshell"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep logread /etc/group | grep $monitorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $monitorUsername was not found in group logread"; fi
+
+    	# Preview stats of server
+    if [ -z "$(chroot $mountPoint /bin/grep rshell /etc/group | grep $previewUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $previewUsername was not found in group rshell"; fi
+
+        # Remote execute command
+    if [ -z "$(chroot $mountPoint /bin/grep rshell /etc/group | grep $serverCommandUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $serverCommandUsername was not found in group rshell"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep cmdUtil /etc/group | grep $serverCommandUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $serverCommandUsername was not found in group cmdUtil"; fi
+
+        # Backup files user
+    if [ -z "$(chroot $mountPoint /bin/grep rshell /etc/group | grep $backupUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $backupUsername was not found in group rshell"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep net /etc/group | grep $backupUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $backupUsername was not found in group net"; fi
+
+
+    # Configurations in /etc/init.d/ check
+    if [ -z "$(chroot $mountPoint /bin/grep "^command=\"\/usr\/bin\/doas\"$" /etc/init.d/chronyd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/chronyd service is misconfigured in command"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^command_args=\"-u chrony \/usr\/sbin\/chronyd -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log\"$" /etc/init.d/chronyd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/chronyd service is misconfigured in command_args"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^command=\"\/usr\/bin\/doas\"$" /etc/init.d/sshd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/sshd service is misconfigured in command"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^command_args=\"-u $entryUsername \/usr\/sbin\/sshd \$\(command_args:-\$\(SSHD_OPTS:-\)\)\"$" /etc/init.d/sshd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/sshd service is misconfigured in command_args"; fi
+
+    # File ownership checks
+    	# Executables: doas, ksh, and libcap
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/rksh -user root -and -group rshell 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/chown"; fi
+
+	# Chronyd
+    if [ ! -f "$mountPoint/var/log/chronyd.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/chronyd.log does not exist!"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/chronyd -user root -and -group chrony 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/chronyd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/chronyd.log -user root -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/chronyd.log"; fi
+
+	# SSHD
+    if [ -z "$(chroot $mountPoint /usr/bin/find /run/sshd.pid -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /run/sshd.pid"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/sshd -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/sshd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_config"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/sshd_config"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/moduli -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/moduli"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ecdsa_key -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_ecdsa_key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ecdsa_key.pub -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_ecdsa_key.pub"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ed25519_key -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_ed25519_key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ed25519_key.pub -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_ed25519_key.pub"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_rsa_key -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_rsa_key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_rsa_key.pub -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_rsa_key.pub"; fi
+
+        # Firewall
+
+        # Apk
+
+        # Fail2ban
+
+        # Log gatherer
+
+    # File permissions changes within directories of /etc
+    	# Executables: doas, ksh, and libcap
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/doas -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/doas"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/doas.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/doas.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/doas.d -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/doas.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/setcap -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/setcap"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/getcap -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/getcap"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/ksh -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/ksh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/rksh -perm 0110 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/rksh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/doas.d/daemon.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/doas.d/daemon.conf"; fi
+
+	# Chronyd
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/chronyd -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/chronyd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/chronyd.log -perm 0240 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/chronyd.log"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/chronyd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/chronyd"; fi
+
+	# SSHD
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/sshd -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/sshd"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /run/sshd.pid -perm 0660 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /run/sshd.pid"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sshd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sshd"; fi
+
+        # Firewall
+
+        # Apk
+
+        # Fail2ban
+
+        # Log gatherer
+
+    # Capabilities check
+    if [ -z "$(chroot $mountPoint /usr/sbin/getcap /usr/sbin/chronyd | grep cap_sys_time 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Binary /usr/sbin/chronyd has incorrect capabilities set, or is missing"; fi
+    if [ -z "$(chroot $mountPoint /usr/sbin/getcap /usr/sbin/sshd | grep cap_net_bind_service | grep cap_setgid | grep cap_setuid 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Binary /usr/sbin/sshd has incorrect capabilities set, or is missing"; fi
+
+    # Doas configuration check
+    if [ -z "$(chroot $mountPoint /bin/grep "^permit nopass root as chrony cmd \/usr\/sbin\/chronyd args -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log$" /etc/doas.d/daemon.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Doas is misconfigured for; chrony!"; fi
+#    if [ -z "$(chroot $mountPoint /bin/grep "^permit nopass root as $entryUsername cmd \/usr\/sbin\/sshd args$" /etc/doas.d/daemon.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Doas is misconfigured for; $entryUsername!"; fi
 
     # Local ssh tests to see if users are added
     if [ -z "$(chroot $mountPoint /bin/grep "^AllowUsers $username" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; AllowUsers for $username!"; fi
@@ -2066,6 +2428,12 @@ verifyLogging() {
 # Needs scripting; kernel.yama.ptrace_scope, kernel.modules_disabled, user.max_user_namespaces?, kernel.warn_limit
 verifyKernel() {
     local missing=0
+    # Ownership check
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong folder ownership for /home/maintain"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/lts.$archType.config" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/lts.$archType.config"; fi
+
     # Directory permission verification
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports"; fi
@@ -2116,8 +2484,8 @@ main() {
     printVariables
     
     # Check if no specific tests are set, to enable usage on everything
-    if ! $gAlpineSetup && ! $gPartition && ! $gEtc && ! $gLogging && ! $gLimitedUsers && ! $gKernel && ! $gExecutable && ! $gSSHD && ! $gFirewall && ! $gFail2Ban && ! $gSELinux; then
-        gAlpineSetup=true; gPartition=true; gEtc=true; gLogging=true; gLimitedUsers=true; gKernel=true; gExecutable=true; gSSHD=true; gFirewall=true; gFail2Ban=true; gSELinux=true;
+    if ! $gAlpineSetup && ! $gPartition && ! $gEtc && ! $gLogging && ! $gRestrictedUsers && ! $gKernel && ! $gExecutable && ! $gSSHD && ! $gFirewall && ! $gFail2Ban && ! $gSELinux; then
+        gAlpineSetup=true; gPartition=true; gEtc=true; gLogging=true; gRestrictedUsers=true; gKernel=true; gExecutable=true; gSSHD=true; gFirewall=true; gFail2Ban=true; gSELinux=true;
     fi
 
     # Pre-installation
@@ -2136,13 +2504,13 @@ main() {
 	    log "INFO: Started post-setup!"
             mountAlpine
 	    if $gSSHD; then configSSHD; fi
-	    if $gKernel; then configKernel; fi
 	    if $gFirewall; then configFirewall; fi
 	    if $gFail2Ban; then configFail2Ban; fi
             if $gExecutable; then configExecutables; fi
 	    if $gEtc; then configEtc; fi
 	    if $gLogging; then configLogging; fi
-	    if $gLimitedUsers; then configLimitedUsers; fi
+	    if $gRestrictedUsers; then configRestrictedUsers; fi
+	    if $gKernel; then configKernel; fi
 	    if $gSELinux; then configSELinux; fi
             log "INFO: Finished post-setup!"
     fi
@@ -2158,7 +2526,7 @@ main() {
             if $gExecutable; then verifyExecutable; fi
 	    if $gEtc; then verifyEtc; fi
 	    if $gLogging; then verifyLogging; fi
-	    if $gLimitedUsers; then verifyLimitedUsers; fi
+	    if $gRestrictedUsers; then verifyRestrictedUsers; fi
 	    if $gKernel; then verifyKernel; fi
 	    if $gSELinux; then verifySELinux; fi
             log "INFO: Finished verifying changes!"
