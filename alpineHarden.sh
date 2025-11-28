@@ -41,6 +41,7 @@
 # Central or decentralized identity user account management
 # Restrict dns queires in /etc/resolv?
 # Add command_user or command_capabilities to all /etc/init.d service files. This limits/removes doas exposure, setcap & getcap, and guarantees service is ran in limited mode
+# Add to ssh an option to install moduli file remotely
 
 # Log meanings in this script:
 # INFO: States what is currently happening in the script.
@@ -92,8 +93,9 @@ export previewUsername="REPLACEME" # Username that only receives a simple output
 export serverCommandUsername="REPLACEME" # Username with restricted commands to execute
 export backupUsername="REPLACEME" # Username made to backup select files
 export firewallUsername="REPLACEME" # Only user authorized for firewall stuff
-export updateUsername="REPLACEME" # Only user authorized for apk update
 export fail2banUsername="REPLACEME" # Only user authorized for blocking network packets
+export updateUsername="REPLACEME" # Only user authorized for apk update
+export extractUsername="REPLACEME" # A user that will be deleted after 24 hours, and is used to pick up sensitive information (like ssh keys)
 
 # For all Banners. Remove symbol: ` and add a space after symbol if at the end of the line it has: \
 export bannerIssue="###############################################################
@@ -207,8 +209,8 @@ Found in --post and --verify;
 	--fail2ban	Configure fail2ban
 	--executable	Configure executables found in /bin /sbin /usr/bin and /usr/sbin
 	--etc		Configure configuration files found in /etc, and some system defaults
-	--logging	Configure scripts for system startup, logging capabilities, and monitoring
 	--users		Configure and create new users under the principal of least priviledge, and configure doas
+	--logging	Configure scripts for system startup, logging capabilities, and monitoring
 	--kernel	Configure the kernel
 	--selinux	Configure SELinux
 
@@ -260,9 +262,10 @@ serverCommandUsername:  A username that is severely restricted to execute very f
 backupUsername:		A username with limited capabilities to explore the system to backup important files, and can login by ssh
 collectorUsername:      A username that is permitted to explore the rest of the system
 firewallUsername:	A system user that is meant to run firewall related applications
+fail2banUsername:	A system user meant to handle applications like fail2ban
 updateUsername:		A system user that is meant to occasionally update the system
-fail2banUsername:		A system user meant to handle applications like fail2ban
 buildUsername:		A system user meant to build a linux kernel
+extractUsername:	A user that will be deleted in 24 hours, but has sensitive information about several users
 Note: Most of these usernames are only applied if --users is executed, or --kernel"
     exit;
 }
@@ -327,8 +330,9 @@ interpretArgs() {
     if [ -z "$serverCommandUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$serverCommandUsername and include a name!"; exit; fi
     if [ -z "$backupUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$backupUsername and include a name!"; exit; fi
     if [ -z "$firewallUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$firewallUsername and include a name!"; exit; fi
-    if [ -z "$updateUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$updateUsername and include a name!"; exit; fi
     if [ -z "$fail2banUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$fail2banUsername and include a name!"; exit; fi
+    if [ -z "$updateUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$updateUsername and include a name!"; exit; fi
+    if [ -z "$extractUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$extractUsername and include a name!"; exit; fi
     if [ -z "$sshUsernameKey" ]; then echo "BAD FORMAT: Public key variable must be configured before usage! Edit: \$sshUsernameKey and include a public key!"; exit; fi
     if [ -z "$rootSize" ]; then echo "BAD FORMAT: Missing required value in rootSize"; exit; fi
     if [ -z "$homeSize" ]; then echo "BAD FORMAT: Missing required value in homeSize"; exit; fi
@@ -622,7 +626,6 @@ setupAlpine() {
     setup-devd -C "$devDevice" 2>/dev/null || log "UNEXPECTED: Could not set mdev for devd"
     setup-dns "$dnsList" 2>/dev/null || log "CRITICAL: Could not set up local dns"
     ntpd -q -p us.pool.ntp.org 2>/dev/null || log "CRITICAL: Could not set up local time with ntpd"
-    ntpd -q -p us.pool.ntp.org 2>/dev/null || log "CRITICAL: Could not set up local time with ntpd a second time"
     rc-update --quiet add networking boot 2>/dev/null || log "UNEXPECTED: Could not add networking and boot services to rc"
     rc-update --quiet add seedrng boot 2>/dev/null || rc-update --quiet add urandom boot 2>/dev/null || log "UNEXPECTED: Could not add seedrng and boot to rc"
     rc-update --quiet add crond 2>/dev/null || log "UNEXPECTED: Could not setup crond to rc"
@@ -637,6 +640,7 @@ setupAlpine() {
         echo "@additional $i/community" >> /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a community repository for apk: $i/community"
         echo "@se $i/testing" >> /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a testing repository for apk: $i/testing"
     done
+    apk update 2>/dev/null # First instance keeps failing despite time correctly set
     apk update
     setup-timezone "$timezone" 2>/dev/null || log "UNEXPECTED: Could not set timezone"
     setup-ntp chrony 2>/dev/null || log "UNEXPECTED: Did not setup chronyd as the default ntp service"
@@ -883,10 +887,10 @@ configFirewall() {
     chroot $mountPoint /usr/sbin/ufw default deny outgoing 2>/dev/null || log "CRITICAL: Failed to set default deny outgoing to ufw firewall"
     chroot $mountPoint /usr/sbin/ufw default deny incoming 2>/dev/null || log "CRITICAL: Failed to set default deny incoming to ufw firewall"
     chroot $mountPoint /usr/sbin/ufw default deny routed 2>/dev/null || log "CRITICAL: Failed to set default deny routing packets to ufw firewall"
-    chroot $mountPoint /bin/chmod 700 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change /etc/default permissions to writable"
-    chroot $mountPoint /bin/chmod 600 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to writable"
+    chroot $mountPoint /bin/chmod 701 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change /etc/default permissions to writable"
+    chroot $mountPoint /bin/chmod 640 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to writable"
     chroot $mountPoint /bin/sed -i 's/#\{0,2\}IPV6\(.*\)=\(.*\)yes/IPV6=no/g' /etc/default/ufw 2>/dev/null || log "UNEXPECTED: No pattern to remove IPV6 from UFW has worked"
-    chroot $mountPoint /bin/chmod 400 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to readable"
+    chroot $mountPoint /bin/chmod 440 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to readable"
 
     log "INFO: Setting up UFW firewall profiles for ssh, ntp, apk, and dns"
     chroot $mountPoint /usr/sbin/ufw app default allow 2>/dev/null || log "UNEXPECTED: Failed to guarantee ufw firewall accept newly made profiles"
@@ -909,16 +913,24 @@ configFirewall() {
     chroot $mountPoint /usr/sbin/ufw limit in log from "$localNetwork"/"$localNetmask" to "$localNetwork"/"$localNetmask" app SSHServer 2>/dev/null || log "CRITICAL: Failed to limit port $sshPort for ingress traffic for ufw firewall"
 
     log "INFO: Changing file permissions for UFW application profiles created and related files"
-    chroot $mountPoint /bin/chmod 700 /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw permissions"
-    chroot $mountPoint /bin/chmod 700 /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/applications.d permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh profile permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change apk profile permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ntp profile permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change dns profile permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/user.rules"
-    chroot $mountPoint /bin/chmod 400 /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/user6.rules"
-    chroot $mountPoint /bin/chmod 400 /etc/ethertypes 2>/dev/null || log "UNEXPECTED: Could not change ethertypes file permissions"
-    chroot $mountPoint /bin/chmod 460 /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not change nftables.nft file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/applications.d permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh profile permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change apk profile permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ntp profile permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change dns profile permissions"
+    chroot $mountPoint /bin/chmod 550 /etc/ufw/before.init 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/before.init"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/before.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/before.rules"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/before6.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/before6.rules"
+    chroot $mountPoint /bin/chmod 550 /etc/ufw/after.init 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/after.init"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/after.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/after.rules"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/after6.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/after6.rules"
+    chroot $mountPoint /bin/chmod 640 /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/user.rules"
+    chroot $mountPoint /bin/chmod 640 /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/user6.rules"
+    chroot $mountPoint /bin/chmod 640 /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/ufw.conf"
+    chroot $mountPoint /bin/chmod 440 /etc/ufw/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/sysctl.conf"
+    chroot $mountPoint /bin/chmod 440 /etc/ethertypes 2>/dev/null || log "UNEXPECTED: Could not change ethertypes file permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not change nftables.nft file permissions"
     chroot $mountPoint /bin/chmod 000 /etc/iptables 2>/dev/null || log "UNEXPECTED: Could not change /etc/iptables folder permissions"
     chroot $mountPoint /bin/chmod 000 /etc/nftables.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/nftables.d folder permissions"
     chroot $mountPoint /bin/chmod 500 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ufw file permissions"
@@ -926,16 +938,18 @@ configFirewall() {
     chroot $mountPoint /bin/chmod 500 /etc/init.d/iptables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/iptables file permissions"
     chroot $mountPoint /bin/chmod 500 /etc/init.d/ip6tables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ip6tables file permissions"
     chroot $mountPoint /bin/chmod 500 /etc/init.d/ebtables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ebtables file permissions"
+    if [ -f "$mountPoint/etc/init.d/ufw.apk-new" ]; then chroot $mountPoint /bin/rm /etc/init.d/ufw.apk-new 2>/dev/null || log "UNEXPECTED: Could not remove redundant default file: /etc/init.d/ufw.apk-new"; fi
+    if [ -f "$mountPoint/etc/ufw/ufw.conf.apk-new" ]; then chroot $mountPoint /bin/rm /etc/ufw/ufw.conf.apk-new 2>/dev/null || log "UNEXPECTED: Could not remove redundant default file: /etc/ufw/ufw.conf.apk-new"; fi
+    if [ -f "$mountPoint/etc/default/ufw.apk-new" ]; then chroot $mountPoint /bin/rm /etc/default/ufw.apk-new 2>/dev/null || log "UNEXPECTED: Could not remove redundant default file: /etc/default/ufw.apk-new"; fi
 
     log "INFO: Setting permissions on UFW executables"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; python3.12"
+    chroot $mountPoint /bin/chmod 0510 /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; python3.12"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/pydoc3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pydoc3.12"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/2to3-3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; 2to3-3.12"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xtables-nft-multi"
+    chroot $mountPoint /bin/chmod 0550 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xtables-nft-multi"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/iptables-apply 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables-apply"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/nft 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nft"
-    chroot $mountPoint /bin/chmod 400 /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/ufw.conf"
 
     log "INFO: Restarting service & Enabling"
     chroot $mountPoint /usr/sbin/ufw enable 2>/dev/null || log "UNEXPECTED: ufw could not be enabled"
@@ -950,44 +964,51 @@ configFirewall() {
 configFail2Ban() {
     log "INFO: Installing fail2ban"
     chroot $mountPoint /sbin/apk add fail2ban || log "CRITICAL: Could not install all software for limiting unwanted connections"
-    chroot $mountPoint /bin/chmod 700 /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban folder permissions"
-
-    log "INFO: Defaulting unchanged files to readonly"
-    chroot $mountPoint /bin/chmod 400 /etc/fail2ban/jail.conf 2>/dev/null || log "UNEXPECTED: Could not change original jail permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/fail2ban/paths-common.conf 2>/dev/null || log "UNEXPECTED: Could not change common-paths permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/fail2ban/paths-debian.conf 2>/dev/null || log "UNEXPECTED: Could not change debian-paths permissions"
-    chroot $mountPoint /bin/chmod 400 /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not change logrotate.conf file permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban folder permissions"
 
     log "INFO: Configurating default jail behavior"
     chroot $mountPoint /bin/touch /etc/fail2ban/jail.local || log "CRITICAL: Failed to create configuration file for fail2ban"
-    chroot $mountPoint /bin/chmod 600 /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not guanratee local jail permissions are writable"   
+    chroot $mountPoint /bin/chmod 660 /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not guanratee local jail permissions are writable"   
     chroot $mountPoint /bin/echo -e '[INCLUDES]\nbefore = paths-debian.conf\n' > $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to include other relevant standard jail settings"
     chroot $mountPoint /bin/echo -e '[DEFAULT]\nbantime = 1h\nfindtime = 1h\nmaxretry = 3\nbantime.increment = true\nbantime.maxtime = 6000\nbantime.factor = 2\nbantime.overalljails = true\nignorecommand =\nmaxmatches = %(maxretry)s\nbackend = auto\nusedns = warn\nlogencoding = auto\nenabled = false\nmode = normal\nfilter = %(__name__)s[mode=%(mode)s]\n' >> $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to declare default jail settings"
     chroot $mountPoint /bin/echo -e 'destemail=root@localhost\nsender = root@<fq-hostname>\nmta = sendmail\nprotocol = tcp\nchain = <known/chain>\nport = 0:65535\nfail2ban_agent = Fail2Ban%(fail2ban_version)s\nbanaction = iptables-multiport\nbanaction_allports = iptables_allports\naction_ = %(banaction)s[port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]\naction_mw = %(action)s%(mta)s-whois[sender="%(sender)", dest="%(destemail)s", protocol="%(protocol)s", chain="%(chain)s"]\naction_mwl = %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]\naction_xarf = %(action)sxarf-login-attack[service=%(__name__), logpath="%(logpath)s", port="%(port)s""]\naction_cf_mwl = cloudflare[cfuser="%(cfemail)s", cftoken="%(cfapikey)s"] %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]\naction_blocklist_de = blocklist_de[email="%(sender)s", service="%(__name__)s", apikey="%(blocklist_de_apikey)s", agent="%(fail2ban_agent)s"]\naction_abuseipdb = abuseipdb\naction = %(action_)s' >> $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Mostly failed to declare email and management settings for jail"
-    chroot $mountPoint /bin/chmod 400 /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not change local jail permissions to readable"
+    chroot $mountPoint /bin/chmod 440 /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not change local jail permissions to readable"
 
     log "INFO: Configurations for fail2ban's behavior"
     chroot $mountPoint /bin/chmod 600 /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change fail2ban configuration file permissions to writable"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}allowipv6\(.*\)=\(.*\)/allowipv6 = no/g" /etc/fail2ban/fail2ban.conf || log "UNEXPECTED: Could not disable IPv6 configuration on fail2ban.conf"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}loglevel\(.*\)=\(.*\)/loglevel = $fail2banLogging/g" /etc/fail2ban/fail2ban.conf || log "UNEXPECTED: Could not change logging level on fail2ban.conf"
-    chroot $mountPoint /bin/chmod 400 /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change fail2ban configuration file permissions to readable"
+    chroot $mountPoint /bin/chmod 440 /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change fail2ban configuration file permissions to readable"
 
-    log "INFO: Setting permissions on fail2ban executables"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; python3.12"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/pydoc3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pydoc3.12"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/2to3-3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; 2to3-3.12"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-server"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-regex"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-client"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xtables-nft-multi"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/iptables-apply 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables-apply"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logrotate"
+    log "INFO: Defaulting unchanged files to readonly"
+    chroot $mountPoint /bin/chmod 440 /etc/fail2ban/jail.conf 2>/dev/null || log "UNEXPECTED: Could not change original jail permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/fail2ban/paths-common.conf 2>/dev/null || log "UNEXPECTED: Could not change common-paths permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/fail2ban/paths-debian.conf 2>/dev/null || log "UNEXPECTED: Could not change debian-paths permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not change logrotate.conf file permissions"
+    chroot $mountPoint /bin/chmod 000 /etc/fail2ban/fail2ban.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/fail2ban.d folder permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/fail2ban/action.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/action.d folder permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/fail2ban/filter.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/filter.d folder permissions"
+    chroot $mountPoint /bin/chmod 750 /etc/fail2ban/jail.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/jail.d folder permissions"
+    chroot $mountPoint /bin/chmod 440 /etc/fail2ban/jail.d/alpine-ssh.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/jail.d/alpine-ssh.conf folder permissions"
 
-    log "INFO: Setting permissions on fail2ban configuration files"
+    log "INFO: Setting permissions on other fail2ban configuration files"
     chroot $mountPoint /bin/chmod 500 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/fail2ban file permissions"
     chroot $mountPoint /bin/chmod 500 /etc/init.d/iptables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/iptables file permissions"
     chroot $mountPoint /bin/chmod 500 /etc/init.d/ip6tables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ip6tables file permissions"
     chroot $mountPoint /bin/chmod 500 /etc/init.d/ebtables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ebtables file permissions"
+    chroot $mountPoint /bin/touch /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for fail2ban service"
+    chroot $mountPoint /bin/chmod 240 /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/fail2ban.log file permissions"
+
+    log "INFO: Setting permissions on fail2ban executables"
+    chroot $mountPoint /bin/chmod 0510 /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; python3.12"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/pydoc3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pydoc3.12"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/2to3-3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; 2to3-3.12"
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-server"
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-regex"
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-client"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xtables-nft-multi"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/iptables-apply 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables-apply"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logrotate"
 
     log "INFO: Restarting service & Enabling"
     chroot $mountPoint /sbin/rc-update add fail2ban 2>/dev/null || log "INFO: Fail2ban was already added to boot"
@@ -1012,7 +1033,7 @@ configExecutables() {
     #chroot $mountPoint /sbin/apk del -f alpine-conf || log "UNEXPECTED: Could not remove alpine-conf package"
 
     log "INFO: Setting permissions on /bin executables"
-    chroot $mountPoint /bin/chmod 0500 /bin/busybox 2>/dev/null || log "UNEXPECTED: Could not change permissions for; busybox"
+    chroot $mountPoint /bin/chmod 0510 /bin/busybox 2>/dev/null || log "UNEXPECTED: Could not change permissions for; busybox"
     chroot $mountPoint /bin/chmod 0500 /bin/coreutils 2>/dev/null || log "UNEXPECTED: Could not change permissions for; coreutils"
     chroot $mountPoint /bin/chmod 0500 /bin/rc-status 2>/dev/null || log "UNEXPECTED: Could not change permissions for; rc-status"
     chroot $mountPoint /bin/chmod 0500 /bin/setpriv 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setpriv"
@@ -1048,7 +1069,7 @@ configExecutables() {
     chroot $mountPoint /bin/chmod 0500 /usr/bin/find 2>/dev/null || log "UNEXPECTED: Could not change permissions for; find"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/sha512sum 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sha512sum"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/fmt 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fmt"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/env 2>/dev/null || log "UNEXPECTED: Could not change permissions for; env"
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/env 2>/dev/null || log "UNEXPECTED: Could not change permissions for; env"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/econftool 2>/dev/null || log "UNEXPECTED: Could not change permissions for; econftool"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/ssh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/ssh-pkcs11-helper 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh-pkcs11-helper"
@@ -1270,7 +1291,7 @@ configEtc() {
     chroot $mountPoint /bin/chmod 755 /etc/terminfo/x 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/x folder permissions"
     chroot $mountPoint /bin/chmod 000 /etc/udhcpc 2>/dev/null || log "UNEXPECTED: Could not change /etc/udhcpc folder permissions"
     chroot $mountPoint /bin/chmod 500 /etc/zoneinfo 2>/dev/null || log "UNEXPECTED: Could not change /etc/zoneinfo folder permissions"
-    chroot $mountPoint /bin/chmod 700 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change /etc/default folder permissions"
+    chroot $mountPoint /bin/chmod 701 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change /etc/default folder permissions"
 
     # Extra files found in other directories in /etc
     log "INFO: Chagning file permissions to the remaining few files"
@@ -1357,19 +1378,13 @@ configEtc() {
     log "INFO: Successfully reached end of configurating files found in /etc!"
 }
 
-# A function that enables proper logging and monitoring of a variety of different concerns
-# Log configuration: logrotate.conf
-# File system health monitoring: e2scrub.conf (lvm monitor)
-#revist crontab, 
-# look into rc.conf; rc_logger & rc_log_path
-# add to /etc/chrony/chrony.conf the "log" option into the file
-# look into /etc/logrotate.d/*
-# utmp, btmp, and wtmp for recording user logging in
-configLogging() {
-
-    # RC.conf configuration: rc.conf & /etc/conf.d
-
-    log "INFO: Successfully reached end of configurating logging capabilities!"
+# Adding simple scripts to cron
+# Add simple script for updating packages
+# Add simple script for threat detection
+# Add simple checksum scans
+# Add script to automatically populate /var/run with services: ssh, chrony, and fail2ban
+configCronScripts() {
+    log "INFO: Successfully reached end of configurating local continous scripts!"
 }
 
 # Resources:
@@ -1396,7 +1411,7 @@ configRestrictedUsers() {
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/getcap 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/getcap file permissions"
 
     log "INFO: Creating groups for certain executables, data files, and folders"
-    local expectedGroups="busybox coreutils lvm suid diskUtil cmdUtil doas apk rshell firewall fail2ban logread net"
+    local expectedGroups="busybox coreutils lvm suid diskUtil cmdUtil doas apk rshell logread iptables logrotate net chrony python $entryUsername $collectorUsername $updateUsername $firewallUsername $fail2banUsername"
     for newGroup in $expectedGroups; do
         if [ -z "$(chroot $mountPoint /bin/grep $newGroup: /etc/group)" ]; then chroot $mountPoint /usr/sbin/addgroup -S $newGroup 2>/dev/null || log "CRITICAL: Could not create a $newGroup group"; else log "INFO: Group $newGroup has already been created"; fi
     done
@@ -1410,7 +1425,7 @@ configRestrictedUsers() {
 
     log "INFO: Re-purposing system account; chrony user for running chronyd"
     chroot $mountPoint /usr/sbin/addgroup chrony net 2>/dev/null || log "UNEXPECTED: Could not add net group to chrony user"
-    chroot $mountPoint /bin/touch /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for chronyd service" 
+    chroot $mountPoint /bin/touch /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for chronyd service"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/chronyd file permissions"
     chroot $mountPoint /bin/chmod 0240 /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/chronyd.log file permissions"
     chroot $mountPoint /bin/chown root:chrony /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/chronyd"
@@ -1423,11 +1438,12 @@ configRestrictedUsers() {
 
 # https://linux.die.net/man/7/capabilities
 # https://man.freebsd.org/cgi/man.cgi?query=doas.conf&sektion=5&format=html
+# Fail2ban troubleshoot wiki: https://deepwiki.com/fail2ban/fail2ban/9-troubleshooting
 # Problem: https://www.spinics.net/lists/openssh-unix-dev/msg06335.html
 # make setcap use -n option to limit only sshd user id
 # To change services look into /etc/init.d/sshd, change command: "/usr/bin/doas", change command_args: "-u $entryUsername /usr/sbin/sshd -f "
 #    log "INFO: Considering system account; $entryUsername user for running sshd"
-#    if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $entryUsername 2>/dev/null || log "CRITICAL: Could not create an account for running sshd server"; fi
+#    if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $entryUsername -s /sbin/nologin $entryUsername 2>/dev/null || log "CRITICAL: Could not create an account for running sshd server"; fi
 #    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" net 2>/dev/null || log "UNEXPECTED: Could not add net group to "$entryUsername" user"
 #    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" suid 2>/dev/null || log "UNEXPECTED: Could not add suid group to "$entryUsername" user"
 #    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" shadow 2>/dev/null || log "UNEXPECTED: Could not add shadow group to "$entryUsername" user"
@@ -1451,23 +1467,88 @@ configRestrictedUsers() {
 #    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/sshd"
 
     log "INFO: Considering system account; $firewallUsername user for running firewall"
-    if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $firewallUsername 2>/dev/null || log "CRITICAL: Could not create an account for running firewall"; fi
-    chroot $mountPoint /usr/sbin/addgroup $firewallUsername firewall 2>/dev/null || log "UNEXPECTED: Could not add firewall group to firewall user"
+    if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $firewallUsername -s /sbin/nologin $firewallUsername 2>/dev/null || log "CRITICAL: Could not create an account for running firewall"; fi
     chroot $mountPoint /usr/sbin/addgroup $firewallUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to firewall user"
+    chroot $mountPoint /usr/sbin/addgroup $firewallUsername iptables 2>/dev/null || log "UNEXPECTED: Could not add iptables group to firewall user" # Required since it relies on iptables
+    chroot $mountPoint /usr/sbin/addgroup $firewallUsername python 2>/dev/null || log "UNEXPECTED: Could not add python group to firewall user" # Required since it relies on python to execute code
+    chroot $mountPoint /usr/sbin/addgroup $firewallUsername busybox 2>/dev/null || log "UNEXPECTED: Could not add busybox group to firewall user" # Required for disabling firewall (their script executes /bin/sh)
+    chroot $mountPoint /bin/chmod 0550 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/ufw file permissions"
+    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw file permissions"
+    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init file permissions"
+    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init-functions file permissions"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/applications.d"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ownership for; ssh profile"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change ownership for; apk profile"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ownership for; ntp profile"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change ownership for; dns profile"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before.init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before.init"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before.rules"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before6.rules"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after.init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after.init"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after.rules"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after6.rules"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/sysctl.conf"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/default/ufw"
+    chroot $mountPoint /bin/chown "root:$firewallUsername" /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/ufw"
+    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw"
+    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw/ufw-init"
+    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw/ufw-init-functions"
+    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/ufw.conf"
+    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/user.rules"
+    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/user6.rules"
+    chroot $mountPoint /bin/chmod 0700 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/ufw"
+    if [ -z "$(chroot $mountPoint /bin/grep command_user /etc/init.d/ufw)" ]; then chroot $mountPoint /bin/echo "command_user=\"$firewallUsername:$firewallUsername\"" >> $mountPoint/etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not remove root access of executing ufw at init"; fi
+    chroot $mountPoint /bin/sed -i "s/^command_user=\"\(.*\)/command_user=\"$firewallUsername:$firewallUsername\"/g" /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/ufw to change user permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/ufw"
+    # UFW requires root access, and that is a problem. So the following code was removed from the python script that composes UFW's unit tests, and an annoying warning message
+    chroot $mountPoint /bin/sed -i "s/    if uid != 0/    if 1 == 2 and uid != 0/1" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null || log "CRITICAL: Could not modify ufw backend python library to bypass root required access"
+    chroot $mountPoint /bin/sed -i "s/            if statinfo.st_uid != 0/            if 1 == 2 and statinfo.st_uid != 0/1" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null || log "UNEXPECTED: Could not turn off warning of certain files owned by non-root account in ufw"
+    
+    log "INFO: Considering system account; $fail2banUsername user for running fail2ban"
+    if [ -z "$(chroot $mountPoint /bin/grep $fail2banUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $fail2banUsername -s /sbin/nologin $fail2banUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"; fi
+    if [ ! -f "$mountPoint/var/run/fail2ban" ]; then chroot $mountPoint /bin/mkdir /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could create special unpriviledge directory for fail2ban to use in /var/run"; fi
+    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to fail2ban user"
+    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername iptables 2>/dev/null || log "UNEXPECTED: Could not add iptables group to fail2ban user" # Required since it relies on iptables
+    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername python 2>/dev/null || log "UNEXPECTED: Could not add python group to fail2ban user" # Required since it relies on python to execute code
+    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername logread 2>/dev/null || log "UNEXPECTED: Could not add logread group to fail2ban user" # Required to function reading other service logs
+    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername logrotate 2>/dev/null || log "UNEXPECTED: Could not add logrotate group to fail2ban user" # Will ocassional try to rotate its own logs
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-client file permissions"
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-server file permissions"
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-regex file permissions"
+    chroot $mountPoint /bin/chmod 0460 /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change /var/lib/fail2ban/fail2ban.sqlite3 file permissions"
+    chroot $mountPoint /bin/chmod 0750 /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /var/run/fail2ban folder permissions"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-client"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-server"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-regex"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/fail2ban.conf"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.conf"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.local"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/paths-common.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/paths-common.conf"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/paths-debian.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/paths-debian.conf"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/fail2ban.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/fail2ban.d"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/action.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/action.d"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/filter.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/filter.d"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.d"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.d/alpine-ssh.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.d/alpine-ssh.conf"
+    chroot $mountPoint /bin/chown "root:$fail2banUsername" /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/lib/fail2ban/fail2ban.sqlite3"
+    chroot $mountPoint /bin/chown "$fail2banUsername:logread" /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/fail2ban.log"
+    chroot $mountPoint /bin/chown "$fail2banUsername:$fail2banUsername" /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/run/fail2ban"
+    chroot $mountPoint /bin/chmod 0700 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/fail2ban"
+    if [ -z "$(chroot $mountPoint /bin/grep command_user /etc/init.d/fail2ban)" ]; then chroot $mountPoint /bin/echo "command_user=\"$fail2banUsername:$fail2banUsername\"" >> $mountPoint/etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not remove root access of executing fail2ban at init"; fi
+    chroot $mountPoint /bin/sed -i "s/^command_user=\"\(.*\)/command_user=\"$fail2banUsername:$fail2banUsername\"/g" /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/fail2ban to change user permissions"
+    chroot $mountPoint /bin/sed -i "s/^FAIL2BAN=\"\(.*\)/FAIL2BAN=\"\/usr\/bin\/fail2ban-server --async -b -s \/var\/run\/fail2ban.sock -p \/var\/run\/fail2ban\/fail2ban.pid -vvv --loglevel $fail2banLogging --logtarget \/var\/log\/fail2ban.log --syslogsocket auto\"/g" /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/fail2ban to launch the server directly with default arguments"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/fail2ban"
 
     log "INFO: Considering system account; $updateUsername user for running apk"
-    if [ -z "$(chroot $mountPoint /bin/grep $updateUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $updateUsername 2>/dev/null || log "CRITICAL: Could not create an account for running apk"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $updateUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $updateUsername -s /sbin/nologin $updateUsername 2>/dev/null || log "CRITICAL: Could not create an account for running apk"; fi
     chroot $mountPoint /usr/sbin/addgroup $updateUsername apk 2>/dev/null || log "UNEXPECTED: Could not add apk group to apk updater user"
     chroot $mountPoint /usr/sbin/addgroup $updateUsername doas 2>/dev/null || log "UNEXPECTED: Could not add doas group to apk updater user"
     chroot $mountPoint /usr/sbin/addgroup $updateUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to apk updater user"
-    
-    log "INFO: Considering system account; $fail2banUsername user for running fail2ban"
-    if [ -z "$(chroot $mountPoint /bin/grep $fail2banUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $fail2banUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"; fi
-    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername fail2ban 2>/dev/null || log "UNEXPECTED: Could not add fail2ban group to fail2ban user"
-    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to fail2ban user"
 
     log "INFO: Considering system account; $collectorUsername user for running local log preservation tasks"
-    if [ -z "$(chroot $mountPoint /bin/grep $collectorUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -S -D -s /sbin/nologin $collectorUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $collectorUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $collectorUsername -s /sbin/nologin $collectorUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"; fi
     chroot $mountPoint /usr/sbin/addgroup $collectorUsername coreutils 2>/dev/null || log "UNEXPECTED: Could not add coreutils group to local archieve user"
     chroot $mountPoint /usr/sbin/addgroup $collectorUsername busybox 2>/dev/null || log "UNEXPECTED: Could not add busybox group to local archieve user"
     chroot $mountPoint /usr/sbin/addgroup $collectorUsername diskUtil 2>/dev/null || log "UNEXPECTED: Could not add diskUtil group to local archieve user"
@@ -1506,12 +1587,28 @@ configRestrictedUsers() {
     chroot $mountPoint /usr/sbin/addgroup $backupUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to backup maintainer user"
     chroot $mountPoint /usr/sbin/addgroup $backupUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to backup maintainer user"
 
-# On doas.conf: permit nopass root as sshd cmd /usr/sbin/sshd args
+    log "INFO: Considering limited user account; $extractUsername user for extracting sensitive data that cannot be nicely be moved out"
+    if [ -z "$(chroot $mountPoint /bin/grep $extractUsername /etc/passwd)" ]; then
+        chroot $mountPoint /bin/mkdir -p /home/"$extractUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $extractUsername"
+        chroot $mountPoint /usr/sbin/adduser -h /home/"$extractUsername" -s /bin/rksh -D $extractUsername 2>/dev/null || log "CRITICAL: Could not create an account for extracting sensitive data"
+    fi
+    chroot $mountPoint /usr/sbin/addgroup $extractUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to extracing sensitive data user"
+
     log "INFO: Enabling certain priviledges for certain users within doas"
     if [ -f "$mountPoint/etc/doas.d/daemon.conf" ]; then chroot $mountPoint /bin/chmod 0600 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not reset /etc/doas.d/daemon.conf"; fi
     chroot $mountPoint /bin/echo "permit nopass root as chrony cmd /usr/sbin/chronyd args -u chrony -U -F 1 -f /etc/chrony/chrony.conf -L 0 -l /var/log/chronyd.log" > $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure chronyd service is ran with chrony user"
 #    chroot $mountPoint /bin/echo "permit nopass root as $entryUsername cmd /usr/sbin/sshd args" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure sshd service is ran with $entryUsername user"
     chroot $mountPoint /bin/chmod 0440 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/daemon.conf file permissions"
+
+    log "INFO: Applying secondary new groups across the entire system (if certian services exists)"
+    chroot $mountPoint /bin/chmod 0640 /var/log/messages 2>/dev/null || log "UNEXPECTED: Could not change /var/log/messages file permissions"
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/env 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/env file permissions"
+    chroot $mountPoint /bin/chown root:logread /var/log/messages 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/messages"
+    chroot $mountPoint /bin/chown root:python /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/python3.12"
+    chroot $mountPoint /bin/chown root:python /usr/bin/env 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/env"
+    chroot $mountPoint /bin/chown "root:iptables" /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/xtables-nft-multi"
+    chroot $mountPoint /bin/chown "root:logrotate" /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/logrotate"
+    chroot $mountPoint /usr/sbin/setcap "cap_net_admin=pe" /usr/sbin/xtables-nft-multi 2>/dev/null || log "CRITICAL: Could not give xtables-nft-multi executable the capability to modify system firewall configurations"
 
     log "INFO: Restarting services"
     chroot $mountPoint /sbin/rc-service chronyd restart || log "UNEXPECTED: Could not restart chronyd daemon"
@@ -1522,7 +1619,6 @@ configRestrictedUsers() {
 
     echo "TEMP: Finished for now ..."
     return 0
-    log "INFO: Applying secondary new groups across the entire system (if certian services exists)"
 
     log "INFO: Causing changes to sshd and enabling certain users for remote login"
     echo "${sshUsernameKey}" >> /home/"${username}"/.ssh/authorized_keys || log "CRITICAL: Failed to add ssh public key to /.ssh/authorized_keys of $username"
@@ -1531,6 +1627,21 @@ configRestrictedUsers() {
     log "INFO: Locking root account and making any password invalid as login"
 
     log "INFO: Successfully reached end of configurating users!"
+}
+
+# A function that enables proper logging and monitoring of a variety of different concerns
+# Log configuration: logrotate.conf
+# File system health monitoring: e2scrub.conf (lvm monitor)
+#revist crontab, 
+# look into rc.conf; rc_logger & rc_log_path
+# add to /etc/chrony/chrony.conf the "log" option into the file
+# look into /etc/logrotate.d/*
+# utmp, btmp, and wtmp for recording user logging in
+configLogging() {
+
+    # RC.conf configuration: rc.conf & /etc/conf.d
+
+    log "INFO: Successfully reached end of configurating logging capabilities!"
 }
 
 # Modify kernel with ncurses-dev; chroot /mnt/alpine /usr/bin/make menuconfig -C /home/maintain/aports/main/linux-lts/src/linux-6.12
@@ -1841,32 +1952,44 @@ verifyFirewall() {
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-limit-accept -j ACCEPT' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for rate limiting"; fi
 
     # Checking file permissions and directories
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ssh -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/ssh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/apk -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/apk"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ntp -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/ntp"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/dns -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/dns"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/ufw -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/ufw.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/ufw.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user.rules -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/user.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user6.rules -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/user6.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ethertypes -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ethertypes"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/nftables.nft -perm 0460 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/nftables.nft"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ssh -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/ssh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/apk -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/apk"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ntp -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/ntp"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/dns -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/dns"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/ufw -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/ufw.conf -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/ufw.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/sysctl.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/sysctl.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.init -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/after.init"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.rules -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/after.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after6.rules -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/after6.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.init -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/before.init"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.rules -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/before.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before6.rules -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/before6.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user.rules -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/user.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user6.rules -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/user6.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ethertypes -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ethertypes"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/nftables.nft -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/nftables.nft"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/iptables -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/iptables"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/nftables.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/nftables.d"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/python3.12 -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/python3.12"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/python3.12 -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/python3.12"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/pydoc3.12 -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/pydoc3.12"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/2to3-3.12 -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/2to3-3.12"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/xtables-nft-multi -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/xtables-nft-multi"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/xtables-nft-multi -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/xtables-nft-multi"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/iptables-apply -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/iptables-apply"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/ufw -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/ufw -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/ufw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/nft -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/nft"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ufw -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ufw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/nftables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/nftables"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/iptables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/iptables"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ip6tables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ip6tables"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ebtables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ebtables"; fi
+
+    # Existance of redundant files?
+    if [ -f "$mountPoint/etc/init.d/ufw.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/init.d/ufw.apk-new should not exist!"; fi
+    if [ -f "$mountPoint/etc/ufw/ufw.conf.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/ufw/ufw.conf.apk-new should not exist!"; fi
+    if [ -f "$mountPoint/etc/default/ufw.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/default/ufw.apk-new should not exist!"; fi
 
     # Is ufw enabled on start up?
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Ufw is yet to be added to rc list"; fi
@@ -1895,21 +2018,28 @@ verifyFail2Ban() {
     if [ -z "$(chroot $mountPoint /bin/grep "^allowipv6 = no" /etc/fail2ban/fail2ban.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban still uses IPv6"; fi
 
     # Checking file permissions and directories
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/jail.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/jail.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/paths-common.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/paths-common.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/paths-debian.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/paths-debian.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/jail.local -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/jail.local"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/fail2ban.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/fail2ban.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/python3.12 -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/python3.12"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/jail.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/jail.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/jail.local -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/jail.local"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/paths-common.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/paths-common.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/paths-debian.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/paths-debian.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/logrotate.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/logrotate.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/fail2ban.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/fail2ban.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/fail2ban.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/fail2ban.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/action.d -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/action.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/filter.d -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/filter.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/jail.d -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/jail.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/fail2ban/jail.d/alpine-ssh.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/fail2ban/jail.d/alpine-ssh.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/fail2ban.log -perm 0240 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/fail2ban.log"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/python3.12 -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/python3.12"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/pydoc3.12 -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/pydoc3.12"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/2to3-3.12 -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/2to3-3.12"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-server -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/fail2ban-server"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-regex -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/fail2ban-regex"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-client -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/fail2ban-client"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/xtables-nft-multi -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/xtables-nft-multi"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-server -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/fail2ban-server"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-regex -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/fail2ban-regex"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-client -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/fail2ban-client"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/xtables-nft-multi -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/xtables-nft-multi"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/iptables-apply -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/iptables-apply"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/logrotate -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/logrotate"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/logrotate -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/logrotate"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/fail2ban -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/fail2ban"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/iptables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/iptables"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ip6tables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ip6tables"; fi
@@ -1932,7 +2062,7 @@ verifyExecutable() {
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep setpriv)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find setpriv package"; fi
 
     # Checking /bin executables
-    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/busybox -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/busybox"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/busybox -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/busybox"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/coreutils -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/coreutils"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/rc-status -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/rc-status"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/setpriv -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/setpriv"; fi
@@ -1968,7 +2098,7 @@ verifyExecutable() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/find -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/find"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/sha512sum -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/sha512sum"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fmt -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/fmt"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/env -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/env"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/env -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/env"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/econftool -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/econftool"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ssh -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/ssh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ssh-pkcs11-helper -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/ssh-pkcs11-helper"; fi
@@ -2174,7 +2304,7 @@ verifyEtc() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/terminfo/x -perm 755 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/terminfo/x"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/udhcpc -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/udhcpc"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/zoneinfo -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/zoneinfo"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default"; fi
 
     # File permissions changes within directories of /etc
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/grub -perm 400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default/grub"; fi
@@ -2508,8 +2638,8 @@ main() {
 	    if $gFail2Ban; then configFail2Ban; fi
             if $gExecutable; then configExecutables; fi
 	    if $gEtc; then configEtc; fi
-	    if $gLogging; then configLogging; fi
 	    if $gRestrictedUsers; then configRestrictedUsers; fi
+	    if $gLogging; then configLogging; fi
 	    if $gKernel; then configKernel; fi
 	    if $gSELinux; then configSELinux; fi
             log "INFO: Finished post-setup!"
@@ -2525,8 +2655,8 @@ main() {
 	    if $gFail2Ban; then verifyFail2Ban; fi
             if $gExecutable; then verifyExecutable; fi
 	    if $gEtc; then verifyEtc; fi
-	    if $gLogging; then verifyLogging; fi
 	    if $gRestrictedUsers; then verifyRestrictedUsers; fi
+	    if $gLogging; then verifyLogging; fi
 	    if $gKernel; then verifyKernel; fi
 	    if $gSELinux; then verifySELinux; fi
             log "INFO: Finished verifying changes!"
