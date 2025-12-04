@@ -1458,125 +1458,140 @@ configRestrictedUsers() {
     chroot $mountPoint /bin/chmod 000 /etc/security/namespace.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/namespace.d folder permissions"
     chroot $mountPoint /bin/chmod 500 /etc/pam.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d folder permissions"
 
-
     log "INFO: Creating groups for certain executables, data files, and folders"
     local expectedGroups="busybox coreutils lvm suid diskUtil cmdUtil doas apk rshell logread iptables logrotate net chrony python $entryUsername $collectorUsername $updateUsername $firewallUsername $fail2banUsername"
     for newGroup in $expectedGroups; do
         if [ -z "$(chroot $mountPoint /bin/grep $newGroup: /etc/group)" ]; then chroot $mountPoint /usr/sbin/addgroup -S $newGroup 2>/dev/null || log "CRITICAL: Could not create a $newGroup group"; else log "INFO: Group $newGroup has already been created"; fi
     done
 
-    log "INFO: Re-purposing system account; chrony user for running chronyd"
-    chroot $mountPoint /usr/sbin/addgroup chrony net 2>/dev/null || log "UNEXPECTED: Could not add net group to chrony user"
-    chroot $mountPoint /bin/touch /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for chronyd service"
-    chroot $mountPoint /bin/chmod 0510 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/chronyd file permissions"
-    chroot $mountPoint /bin/chmod 0240 /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/chronyd.log file permissions"
-    chroot $mountPoint /bin/chown root:chrony /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/chronyd"
-    chroot $mountPoint /bin/chown chrony:logread /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change ownership of /var/log/chronyd.log to chrony:logread"
-    chroot $mountPoint /usr/sbin/setcap "cap_sys_time=pe" /usr/sbin/chronyd 2>/dev/null || log "CRITICAL: Could not give chronyd executable the capability to set system time"
-    chroot $mountPoint /bin/chmod 0700 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/chronyd"
-    chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/chronyd to change starting command to be doas"
-    chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u chrony \/usr\/sbin\/chronyd -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log\"/g" /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/chronyd to change command_args for chronyd service"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/chronyd"
+    log "INFO: Starting doas configuration"
+    if [ -f "$mountPoint/etc/doas.d/daemon.conf" ]; then chroot $mountPoint /bin/chmod 0600 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not make /etc/doas.d/daemon.conf writable"; fi
+    chroot $mountPoint /bin/echo "# Doas configuration for limited user services" > $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure daemon.conf was reset!"
+
+    if [ -f "$mountPoint/usr/sbin/chronyd" ]; then
+        log "INFO: Re-purposing system account; chrony user for running chronyd"
+        chroot $mountPoint /usr/sbin/addgroup chrony net 2>/dev/null || log "UNEXPECTED: Could not add net group to chrony user"
+        chroot $mountPoint /bin/touch /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for chronyd service"
+        chroot $mountPoint /bin/chmod 0510 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/chronyd file permissions"
+        chroot $mountPoint /bin/chmod 0240 /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/chronyd.log file permissions"
+        chroot $mountPoint /bin/chown root:chrony /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/chronyd"
+        chroot $mountPoint /bin/chown chrony:logread /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change ownership of /var/log/chronyd.log to chrony:logread"
+        chroot $mountPoint /usr/sbin/setcap "cap_sys_time=pe" /usr/sbin/chronyd 2>/dev/null || log "CRITICAL: Could not give chronyd executable the capability to set system time"
+        chroot $mountPoint /bin/chmod 0700 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/chronyd"
+        chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/chronyd to change starting command to be doas"
+        chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u chrony \/usr\/sbin\/chronyd -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log\"/g" /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/chronyd to change command_args for chronyd service"
+        chroot $mountPoint /bin/chmod 0500 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/chronyd"
+        chroot $mountPoint /bin/echo "permit nopass root as chrony cmd /usr/sbin/chronyd args -u chrony -U -F 1 -f /etc/chrony/chrony.conf -L 0 -l /var/log/chronyd.log" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure chronyd service is ran with chrony user"
+    fi
 
 # https://linux.die.net/man/7/capabilities
 # https://man.freebsd.org/cgi/man.cgi?query=doas.conf&sektion=5&format=html
-# Fail2ban troubleshoot wiki: https://deepwiki.com/fail2ban/fail2ban/9-troubleshooting
 # Problem: https://www.spinics.net/lists/openssh-unix-dev/msg06335.html
 # make setcap use -n option to limit only sshd user id
 # To change services look into /etc/init.d/sshd, change command: "/usr/bin/doas", change command_args: "-u $entryUsername /usr/sbin/sshd -f "
-#    log "INFO: Considering system account; $entryUsername user for running sshd"
-#    if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $entryUsername -s /sbin/nologin $entryUsername 2>/dev/null || log "CRITICAL: Could not create an account for running sshd server"; fi
-#    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" net 2>/dev/null || log "UNEXPECTED: Could not add net group to "$entryUsername" user"
-#    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" suid 2>/dev/null || log "UNEXPECTED: Could not add suid group to "$entryUsername" user"
-#    chroot $mountPoint /usr/sbin/addgroup "$entryUsername" shadow 2>/dev/null || log "UNEXPECTED: Could not add shadow group to "$entryUsername" user"
-#    chroot $mountPoint /bin/chmod 0510 /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/sshd file permissions"
-#    chroot $mountPoint /bin/chmod 0660 /run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could not change /run/sshd.pid file permissions"
-#    chroot $mountPoint /bin/chown "root:$entryUsername" /run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could not change ownership of /run/sshd.pid"
-#    chroot $mountPoint /bin/chown "root:$entryUsername" /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/sshd"
-#    chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_config"
-#    chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of sshd_config"
-#    chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change ownership of moduli"
-#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key"
-#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key.pub"
-#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key"
-#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key.pub"
-#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key"
-#    chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key.pub"
-#    chroot $mountPoint /usr/sbin/setcap "cap_net_bind_service,cap_setgid,cap_setuid=ep" /usr/sbin/sshd 2>/dev/null || log "CRITICAL: Could not give sshd executable the permission to bind to system ports, change UID, and change GID"
-#    chroot $mountPoint /bin/chmod 0700 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/sshd"
-#    chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change starting command to be doas"
-#    chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u $entryUsername \/usr\/sbin\/sshd \$\(command_args:-\$\(SSHD_OPTS:-\)\)\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change command_args for chronyd service"
-#    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/sshd"
+#    if [ -f "$mountPoint/usr/sbin/sshd" ]; then
+#        log "INFO: Considering system account; $entryUsername user for running sshd"
+#        if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $entryUsername -s /sbin/nologin $entryUsername 2>/dev/null || log "CRITICAL: Could not create an account for running sshd server"; fi
+#        chroot $mountPoint /usr/sbin/addgroup "$entryUsername" net 2>/dev/null || log "UNEXPECTED: Could not add net group to "$entryUsername" user"
+#        chroot $mountPoint /usr/sbin/addgroup "$entryUsername" suid 2>/dev/null || log "UNEXPECTED: Could not add suid group to "$entryUsername" user"
+#        chroot $mountPoint /usr/sbin/addgroup "$entryUsername" shadow 2>/dev/null || log "UNEXPECTED: Could not add shadow group to "$entryUsername" user"
+#        chroot $mountPoint /bin/chmod 0510 /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/sshd file permissions"
+#        chroot $mountPoint /bin/chmod 0660 /run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could not change /run/sshd.pid file permissions"
+#        chroot $mountPoint /bin/chown "root:$entryUsername" /run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could not change ownership of /run/sshd.pid"
+#        chroot $mountPoint /bin/chown "root:$entryUsername" /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/sshd"
+#        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_config"
+#        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of sshd_config"
+#        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change ownership of moduli"
+#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key"
+#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key.pub"
+#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key"
+#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key.pub"
+#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key"
+#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key.pub"
+#        chroot $mountPoint /usr/sbin/setcap "cap_net_bind_service,cap_setgid,cap_setuid=ep" /usr/sbin/sshd 2>/dev/null || log "CRITICAL: Could not give sshd executable the permission to bind to system ports, change UID, and change GID"
+#        chroot $mountPoint /bin/chmod 0700 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/sshd"
+#        chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change starting command to be doas"
+#        chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u $entryUsername \/usr\/sbin\/sshd \$\(command_args:-\$\(SSHD_OPTS:-\)\)\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change command_args for chronyd service"
+#        chroot $mountPoint /bin/chmod 0500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/sshd"
+#        chroot $mountPoint /bin/echo "permit nopass root as $entryUsername cmd /usr/sbin/sshd args" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure sshd service is ran with $entryUsername user"
+#    fi
 
-    log "INFO: Considering system account; $firewallUsername user for running firewall"
-    if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $firewallUsername -s /sbin/nologin $firewallUsername 2>/dev/null || log "CRITICAL: Could not create an account for running firewall"; fi
-    chroot $mountPoint /usr/sbin/addgroup $firewallUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to firewall user"
-    chroot $mountPoint /usr/sbin/addgroup $firewallUsername iptables 2>/dev/null || log "UNEXPECTED: Could not add iptables group to firewall user" # Required since it relies on iptables
-    chroot $mountPoint /usr/sbin/addgroup $firewallUsername python 2>/dev/null || log "UNEXPECTED: Could not add python group to firewall user" # Required since it relies on python to execute code
-    chroot $mountPoint /usr/sbin/addgroup $firewallUsername busybox 2>/dev/null || log "UNEXPECTED: Could not add busybox group to firewall user" # Required for disabling firewall (their script executes /bin/sh)
-    chroot $mountPoint /bin/chmod 0550 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/ufw file permissions"
-    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw file permissions"
-    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init file permissions"
-    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init-functions file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ufw file permissions"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/applications.d"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ownership for; ssh profile"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change ownership for; apk profile"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ownership for; ntp profile"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change ownership for; dns profile"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before.init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before.init"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before.rules"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before6.rules"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after.init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after.init"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after.rules"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after6.rules"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/sysctl.conf"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/default/ufw"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/ufw"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw/ufw-init"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw/ufw-init-functions"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/ufw.conf"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/user.rules"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/user6.rules"
-    # UFW requires root access, and that is a problem. So the following code was removed from the python script that composes UFW's unit tests, and an annoying warning message
-    chroot $mountPoint /bin/sed -i "s/    if uid != 0/    if 1 == 2 and uid != 0/1" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null || log "CRITICAL: Could not modify ufw backend python library to bypass root required access"
-    chroot $mountPoint /bin/sed -i "s/            if statinfo.st_uid != 0/            if 1 == 2 and statinfo.st_uid != 0/1" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null || log "UNEXPECTED: Could not turn off warning of certain files owned by non-root account in ufw"
-    
-    log "INFO: Considering system account; $fail2banUsername user for running fail2ban"
-    if [ -z "$(chroot $mountPoint /bin/grep $fail2banUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $fail2banUsername -s /sbin/nologin $fail2banUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"; fi
-    if [ ! -d "$mountPoint/var/run/fail2ban" ]; then chroot $mountPoint /bin/mkdir /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could create special unpriviledge directory for fail2ban to use in /var/run"; fi
-    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to fail2ban user"
-    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername iptables 2>/dev/null || log "UNEXPECTED: Could not add iptables group to fail2ban user" # Required since it relies on iptables
-    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername python 2>/dev/null || log "UNEXPECTED: Could not add python group to fail2ban user" # Required since it relies on python to execute code
-    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername logread 2>/dev/null || log "UNEXPECTED: Could not add logread group to fail2ban user" # Required to function reading other service logs
-    chroot $mountPoint /usr/sbin/addgroup $fail2banUsername logrotate 2>/dev/null || log "UNEXPECTED: Could not add logrotate group to fail2ban user" # Will ocassional try to rotate its own logs
-    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-client file permissions"
-    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-server file permissions"
-    chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-regex file permissions"
-    chroot $mountPoint /bin/chmod 0460 /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change /var/lib/fail2ban/fail2ban.sqlite3 file permissions"
-    chroot $mountPoint /bin/chmod 0750 /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /var/run/fail2ban folder permissions"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-client"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-server"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-regex"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/fail2ban.conf"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.conf"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.local"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/paths-common.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/paths-common.conf"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/paths-debian.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/paths-debian.conf"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/fail2ban.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/fail2ban.d"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/action.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/action.d"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/filter.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/filter.d"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.d"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.d/alpine-ssh.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.d/alpine-ssh.conf"
-    chroot $mountPoint /bin/chown "root:$fail2banUsername" /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/lib/fail2ban/fail2ban.sqlite3"
-    chroot $mountPoint /bin/chown "$fail2banUsername:logread" /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/fail2ban.log"
-    chroot $mountPoint /bin/chown "$fail2banUsername:$fail2banUsername" /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/run/fail2ban"
-    chroot $mountPoint /bin/chmod 0700 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/fail2ban"
-    chroot $mountPoint /bin/sed -i "s/^FAIL2BAN=\"\(.*\)/FAIL2BAN=\"\/usr\/bin\/doas -u $fail2banUsername \/usr\/bin\/fail2ban-client \$\{FAIL2BAN_OPTIONS\}\"/g" /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/fail2ban to change variable that starts and turns off fail2ban"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/fail2ban"
+    if [ -f "$mountPoint/usr/sbin/ufw" ]; then
+        log "INFO: Considering system account; $firewallUsername user for running firewall"
+        if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $firewallUsername -s /sbin/nologin $firewallUsername 2>/dev/null || log "CRITICAL: Could not create an account for running firewall"; fi
+        chroot $mountPoint /usr/sbin/addgroup $firewallUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to firewall user"
+        chroot $mountPoint /usr/sbin/addgroup $firewallUsername iptables 2>/dev/null || log "UNEXPECTED: Could not add iptables group to firewall user" # Required since it relies on iptables
+        chroot $mountPoint /usr/sbin/addgroup $firewallUsername python 2>/dev/null || log "UNEXPECTED: Could not add python group to firewall user" # Required since it relies on python to execute code
+        chroot $mountPoint /usr/sbin/addgroup $firewallUsername busybox 2>/dev/null || log "UNEXPECTED: Could not add busybox group to firewall user" # Required for disabling firewall (their script executes /bin/sh)
+        chroot $mountPoint /bin/chmod 0550 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/ufw file permissions"
+        chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw file permissions"
+        chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init file permissions"
+        chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init-functions file permissions"
+        chroot $mountPoint /bin/chmod 0500 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ufw file permissions"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/applications.d"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ownership for; ssh profile"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change ownership for; apk profile"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ownership for; ntp profile"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change ownership for; dns profile"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before.init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before.init"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before.rules"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before6.rules"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after.init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after.init"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after.rules"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after6.rules"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/sysctl.conf"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/default/ufw"
+        chroot $mountPoint /bin/chown "root:$firewallUsername" /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/ufw"
+        chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw"
+        chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw/ufw-init"
+        chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw/ufw-init-functions"
+        chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/ufw.conf"
+        chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/user.rules"
+        chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/user6.rules"
+        # UFW requires root access, and that is a problem. So the following code was removed from the python script that composes UFW's unit tests, and an annoying warning message
+        chroot $mountPoint /bin/sed -i "s/    if uid != 0/    if 1 == 2 and uid != 0/1" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null || log "CRITICAL: Could not modify ufw backend python library to bypass root required access"
+        chroot $mountPoint /bin/sed -i "s/            if statinfo.st_uid != 0/            if 1 == 2 and statinfo.st_uid != 0/1" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null || log "UNEXPECTED: Could not turn off warning of certain files owned by non-root account in ufw"
+    fi
+
+    if [ -f "$mountPoint/usr/bin/fail2ban-server" ]; then
+        log "INFO: Considering system account; $fail2banUsername user for running fail2ban"
+        if [ -z "$(chroot $mountPoint /bin/grep $fail2banUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $fail2banUsername -s /sbin/nologin $fail2banUsername 2>/dev/null || log "CRITICAL: Could not create an account for running fail2ban"; fi
+        if [ ! -d "$mountPoint/var/run/fail2ban" ]; then chroot $mountPoint /bin/mkdir /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could create special unpriviledge directory for fail2ban to use in /var/run"; fi
+        chroot $mountPoint /usr/sbin/addgroup $fail2banUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to fail2ban user"
+        chroot $mountPoint /usr/sbin/addgroup $fail2banUsername iptables 2>/dev/null || log "UNEXPECTED: Could not add iptables group to fail2ban user" # Required since it relies on iptables
+        chroot $mountPoint /usr/sbin/addgroup $fail2banUsername python 2>/dev/null || log "UNEXPECTED: Could not add python group to fail2ban user" # Required since it relies on python to execute code
+        chroot $mountPoint /usr/sbin/addgroup $fail2banUsername logread 2>/dev/null || log "UNEXPECTED: Could not add logread group to fail2ban user" # Required to function reading other service logs
+        chroot $mountPoint /usr/sbin/addgroup $fail2banUsername logrotate 2>/dev/null || log "UNEXPECTED: Could not add logrotate group to fail2ban user" # Will ocassional try to rotate its own logs
+        chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-client file permissions"
+        chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-server file permissions"
+        chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/fail2ban-regex file permissions"
+        chroot $mountPoint /bin/chmod 0460 /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change /var/lib/fail2ban/fail2ban.sqlite3 file permissions"
+        chroot $mountPoint /bin/chmod 0750 /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /var/run/fail2ban folder permissions"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-client"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-server"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-regex"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/fail2ban.conf"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.conf"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.local"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/paths-common.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/paths-common.conf"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/paths-debian.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/paths-debian.conf"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/fail2ban.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/fail2ban.d"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/action.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/action.d"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/filter.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/filter.d"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.d"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /etc/fail2ban/jail.d/alpine-ssh.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/fail2ban/jail.d/alpine-ssh.conf"
+        chroot $mountPoint /bin/chown "root:$fail2banUsername" /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/lib/fail2ban/fail2ban.sqlite3"
+        chroot $mountPoint /bin/chown "$fail2banUsername:logread" /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/fail2ban.log"
+        chroot $mountPoint /bin/chown "$fail2banUsername:$fail2banUsername" /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/run/fail2ban"
+        chroot $mountPoint /bin/chmod 0700 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/fail2ban"
+        chroot $mountPoint /bin/sed -i "s/^FAIL2BAN=\"\(.*\)/FAIL2BAN=\"\/usr\/bin\/doas -u $fail2banUsername \/usr\/bin\/fail2ban-client \$\{FAIL2BAN_OPTIONS\}\"/g" /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/fail2ban to change variable that starts and turns off fail2ban"
+        chroot $mountPoint /bin/chmod 0500 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/fail2ban"
+        chroot $mountPoint /bin/echo "permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args start" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure fail2ban service is ran with $fail2banUsername user when starting"
+        chroot $mountPoint /bin/echo "permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args stop" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure fail2ban service is ran with $fail2banUsername user when stoping"
+        chroot $mountPoint /bin/echo "permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args reload" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure fail2ban service is ran with $fail2banUsername user when reloading"
+    fi
 
     log "INFO: Considering system account; $updateUsername user for running apk"
     if [ -z "$(chroot $mountPoint /bin/grep $updateUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $updateUsername -s /sbin/nologin $updateUsername 2>/dev/null || log "CRITICAL: Could not create an account for running apk"; fi
@@ -1631,13 +1646,7 @@ configRestrictedUsers() {
     fi
     chroot $mountPoint /usr/sbin/addgroup $extractUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to extracing sensitive data user"
 
-    log "INFO: Enabling certain priviledges for certain users within doas"
-    if [ -f "$mountPoint/etc/doas.d/daemon.conf" ]; then chroot $mountPoint /bin/chmod 0600 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not reset /etc/doas.d/daemon.conf"; fi
-    chroot $mountPoint /bin/echo "permit nopass root as chrony cmd /usr/sbin/chronyd args -u chrony -U -F 1 -f /etc/chrony/chrony.conf -L 0 -l /var/log/chronyd.log" > $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure chronyd service is ran with chrony user"
-#    chroot $mountPoint /bin/echo "permit nopass root as $entryUsername cmd /usr/sbin/sshd args" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure sshd service is ran with $entryUsername user"
-    chroot $mountPoint /bin/echo "permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args start" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure fail2ban service is ran with $fail2banUsername user when starting"
-    chroot $mountPoint /bin/echo "permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args stop" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure fail2ban service is ran with $fail2banUsername user when stoping"
-    chroot $mountPoint /bin/echo "permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args reload" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure fail2ban service is ran with $fail2banUsername user when reloading"
+    log "INFO: Finishing doas configuration for limited services"
     chroot $mountPoint /bin/chmod 0440 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/daemon.conf file permissions"
 
     log "INFO: Applying secondary new groups across the entire system (if certian services exists)"
@@ -1658,15 +1667,11 @@ configRestrictedUsers() {
     chroot $mountPoint /bin/mkdir -p "/home/$previewUsername/.ssh" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $previewUsername"
     chroot $mountPoint /bin/mkdir -p "/home/$serverCommandUsername/.ssh" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $serverCommandUsername"
     chroot $mountPoint /bin/mkdir -p "/home/$backupUsername/.ssh" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $backupUsername"
-    chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$monitorUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $monitorUsername"
-    chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$previewUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $previewUsername"
-    chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$serverCommandUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $serverCommandUsername"
-    chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$backupUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $backupUsername"
+    if [ -f "$mountPoint/home/$monitorUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$monitorUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $monitorUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$monitorUsername-key.pub /home/$monitorUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $monitorUsername"; fi
+    if [ -f "$mountPoint/home/$previewUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$previewUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $previewUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$previewUsername-key.pub /home/$previewUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $previewUsername"; fi
+    if [ -f "$mountPoint/home/$serverCommandUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$serverCommandUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $serverCommandUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$serverCommandUsername-key.pub /home/$serverCommandUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $serverCommandUsername"; fi
+    if [ -f "$mountPoint/home/$backupUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$backupUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $backupUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$backupUsername-key.pub /home/$backupUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $backupUsername"; fi
     if [ -f "$mountPoint/home/$extractUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /bin/echo "$sshUsernameKey" > "$mountPoint/home/$extractUsername/.ssh/authorized_keys" || log "CRITICAL: Failed to add ssh public key to /.ssh/authorized_keys for $extractUsername"; fi
-    chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$monitorUsername-key.pub /home/$monitorUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $monitorUsername"
-    chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$previewUsername-key.pub /home/$previewUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $previewUsername"
-    chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$serverCommandUsername-key.pub /home/$serverCommandUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $serverCommandUsername"
-    chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$backupUsername-key.pub /home/$backupUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $backupUsername"
     chroot $mountPoint /bin/chmod 0501 /home/$extractUsername/.ssh 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/.ssh file permissions"
     chroot $mountPoint /bin/chmod 0501 /home/$monitorUsername/.ssh 2>/dev/null || log "UNEXPECTED: Could not change /home/$monitorUsername/.ssh file permissions"
     chroot $mountPoint /bin/chmod 0501 /home/$previewUsername/.ssh 2>/dev/null || log "UNEXPECTED: Could not change /home/$previewUsername/.ssh file permissions"
