@@ -95,7 +95,7 @@ export backupUsername="REPLACEME" # Username made to backup select files
 export firewallUsername="REPLACEME" # Only user authorized for firewall stuff
 export fail2banUsername="REPLACEME" # Only user authorized for blocking network packets
 export updateUsername="REPLACEME" # Only user authorized for apk update
-export extractUsername="REPLACEME" # A user that will be deleted after 24 hours, and is used to pick up sensitive information (like ssh keys)
+export extractUsername="REPLACEME" # A user that will be deleted after 4 hours, and is used to pick up sensitive information (like ssh keys)
 
 # For all Banners. Remove symbol: ` and add a space after symbol if at the end of the line it has: \
 export bannerIssue="###############################################################
@@ -266,7 +266,7 @@ firewallUsername:	A system user that is meant to run firewall related applicatio
 fail2banUsername:	A system user meant to handle applications like fail2ban
 updateUsername:		A system user that is meant to occasionally update the system
 buildUsername:		A system user meant to build a linux kernel
-extractUsername:	A user that will be deleted in 24 hours, but has sensitive information about several users
+extractUsername:	A user that will be deleted in 4 hours, but has sensitive information about several users
 Note: Most of these usernames are only applied if --users is executed, or --kernel"
     exit;
 }
@@ -762,12 +762,13 @@ configSSHD() {
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}RekeyLimit\(.*\)/RekeyLimit 256M 1h/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: RekeyLimit could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}SyslogFacility\(.*\)/SyslogFacility AUTH/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: SyslogFacility could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}LogLevel\(.*\)/LogLevel $sshLogging/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: LogLevel could not be configured"
-    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}LoginGraceTime\(.*\)/LoginGraceTime 30/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: LoginGraceTime could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}LoginGraceTime\(.*\)/LoginGraceTime 15/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: LoginGraceTime could not be configured"
     chroot $mountPoint /bin/sed -i 's/^#\{0,2\}PermitRootLogin\(.*\)/PermitRootLogin no/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PermitRootLogin could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}StrictModes\(.*\)/StrictModes yes/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: StrictModes could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}MaxAuthTries\(.*\)/MaxAuthTries 2/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: MaxAuthTries could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}MaxSessions\(.*\)/MaxSessions 2/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: MaxSessions could not be configured"
     chroot $mountPoint /bin/sed -i 's/^#\{0,2\}PubkeyAuthentication\(.*\)/PubkeyAuthentication yes/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PubkeyAuthentication could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}AuthorizedKeysFile\(.*\)/AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: AuthorizedKeysFile could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}HostbasedAuthentication\(.*\)/HostbasedAuthentication no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: HostbasedAuthentication could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}IgnoreUserKnownHosts\(.*\)/IgnoreUserKnownHosts no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: IgnoreUserKnownHosts could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}IgnoreRhosts\(.*\)/IgnoreRhosts yes/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: IgnoreRhosts could not be configured"
@@ -784,6 +785,7 @@ configSSHD() {
     chroot $mountPoint /bin/sed -i 's/^#\{0,2\}ClientAliveInterval\(.*\)/ClientAliveInterval 150/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: ClientAliveInterval could not be configured for after 150 seconds in sshd"
     chroot $mountPoint /bin/sed -i 's/^#\{0,2\}ClientAliveCountMax\(.*\)/ClientAliveCountMax 2/g' /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: ClientAliveCountMax is not configured for a maximum of 2 clients"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}UseDNS\(.*\)/UseDNS no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: UseDNS could not be configured"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}PidFile\(.*\)/PidFile \/run\/sshd\/sshd.pid/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PidFile could not be configured to a directory"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}PermitTunnel\(.*\)/PermitTunnel no/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: PermitTunnel could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Banner\(.*\)/Banner \/etc\/issue/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Banner could not be configured"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}Subsystem\(.*\)/#Subsystem/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Subsystem could not be configured"
@@ -854,6 +856,12 @@ configSSHD() {
     chroot $mountPoint /bin/chmod 000 /etc/ssh/sshd_config.d 2>/dev/null || log "UNEXPECTED: Could not change sshd_config.d in ssh directory permissions"
     chroot $mountPoint /bin/chmod 500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sshd file permissions"
     chroot $mountPoint /bin/chmod 750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh directory permissions"
+
+    log "INFO: Pid directory creation and custom .keys directory in /home"
+    chroot $mountPoint /bin/mkdir -p /run/sshd 2>/dev/null || log "UNEXPECTED: Could not create directory for pid file"
+    chroot $mountPoint /bin/mkdir -p /home/.keys 2>/dev/null || log "UNEXPECTED: Could not create directory for ssh key storage"
+    chroot $mountPoint /bin/chmod 00750 /run/sshd 2>/dev/null || log "UNEXPECTED: Could not change /run/sshd directory permissions"
+    chroot $mountPoint /bin/chmod 00550 /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys directory permissions"
 
     log "INFO: Restarting sshd service"
     chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
@@ -1021,7 +1029,6 @@ configFail2Ban() {
 
 # Check inittab to implace restrict shell
 # Check /etc/busybox-paths.d/busybox
-# chmod 700 and chown /bin/busybox
 # https://wiki.alpinelinux.org/wiki/How_to_get_regular_stuff_working
 # Found executables via: find /usr/bin ! -perm 777 -and ! -perm 0500
 configExecutables() {
@@ -1158,10 +1165,10 @@ configExecutables() {
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/setup-acf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setup-acf"
 
     # Declaring last set of permissions
-    chroot $mountPoint /bin/chmod 701 /bin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /bin"
-    chroot $mountPoint /bin/chmod 701 /sbin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /sbin"
-    chroot $mountPoint /bin/chmod 701 /usr/bin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/bin"
-    chroot $mountPoint /bin/chmod 701 /usr/sbin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/sbin"
+    chroot $mountPoint /bin/chmod 00701 /bin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /bin"
+    chroot $mountPoint /bin/chmod 00701 /sbin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /sbin"
+    chroot $mountPoint /bin/chmod 00701 /usr/bin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/bin"
+    chroot $mountPoint /bin/chmod 00701 /usr/sbin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/sbin"
 
     log "INFO: Finished modifying default executables!"
 }
@@ -1212,7 +1219,7 @@ configEtc() {
     chroot $mountPoint /bin/chmod 0404 /etc/motd 2>/dev/null || log "UNEXPECTED: Could not change modules file permissions"
     chroot $mountPoint /bin/chmod 0440 /etc/nsswitch.conf 2>/dev/null || log "UNEXPECTED: Could not change nsswitch.conf file permissions"
     chroot $mountPoint /bin/chmod 0604 /etc/passwd 2>/dev/null || log "UNEXPECTED: Could not change passwd file permissions"
-    chroot $mountPoint /bin/chmod 0600 /etc/passwd- 2>/dev/null || log "UNEXPECTED: Could not change passwd- file permissions"
+    chroot $mountPoint /bin/chmod 0604 /etc/passwd- 2>/dev/null || log "UNEXPECTED: Could not change passwd- file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/profile 2>/dev/null || log "UNEXPECTED: Could not change profile file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/protocols 2>/dev/null || log "UNEXPECTED: Could not change protocols file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/rc.conf 2>/dev/null || log "UNEXPECTED: Could not change rc.conf file permissions"
@@ -1220,7 +1227,7 @@ configEtc() {
     chroot $mountPoint /bin/chmod 0400 /etc/securetty 2>/dev/null || log "UNEXPECTED: Could not change /etc/securetty file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/services 2>/dev/null || log "UNEXPECTED: Could not change services file permissions"
     chroot $mountPoint /bin/chmod 0640 /etc/shadow 2>/dev/null || log "UNEXPECTED: Could not change shadow file permissions"
-    chroot $mountPoint /bin/chmod 0600 /etc/shadow- 2>/dev/null || log "UNEXPECTED: Could not change shadow- file permissions"
+    chroot $mountPoint /bin/chmod 0640 /etc/shadow- 2>/dev/null || log "UNEXPECTED: Could not change shadow- file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/shells 2>/dev/null || log "UNEXPECTED: Could not change shells file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change sysctl.conf file permissions"
     chroot $mountPoint /bin/chmod 0640 /usr/lib/os-release 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/os-release file permissions for /etc/os-release"
@@ -1387,6 +1394,7 @@ configEtc() {
 # Add script to automatically populate /var/run with services: ssh, chrony, and fail2ban
 configCronScripts() {
     log "INFO: Successfully reached end of configurating local continous scripts!"
+
 }
 
 # Resources:
@@ -1405,8 +1413,8 @@ configCronScripts() {
 # Is removing dead usernames good practice?
 # Finishing setting up monitor/logging user(s)
 configRestrictedUsers() {
-    log "INFO: Installing corresponding packages: doas, rksh, PAM, and delegating superuser capabilities"
-    chroot $mountPoint /sbin/apk add doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional 2>/dev/null || log "CRITICAL: Could not install required packages to ensure root is rarely accessed"
+    log "INFO: Installing corresponding packages: doas, libcap, rksh, at, and PAM packages"
+    chroot $mountPoint /sbin/apk add doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional 2>/dev/null || log "CRITICAL: Could not install required packages to ensure root is rarely accessed"
     chroot $mountPoint /bin/chmod 0510 /usr/bin/doas 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/doas file permissions"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/setcap 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/setcap file permissions"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/getcap 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/getcap file permissions"
@@ -1420,6 +1428,8 @@ configRestrictedUsers() {
     chroot $mountPoint /bin/chmod 0500 /usr/bin/chsh 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/chsh file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/chfn 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/chfn file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/chage 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/chage file permissions"
+    chroot $mountPoint /bin/chmod 0510 /usr/bin/at 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/at file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/batch 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/batch file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/vipw 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/vipw file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/usermod 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/usermod file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/userdel 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/userdel file permissions"
@@ -1439,6 +1449,8 @@ configRestrictedUsers() {
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/pam_timestamp_check 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/pam_timestamp_check file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/pam_namespace_helper 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/pam_namespace_helper file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/mkhomedir_helper 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/mkhomedir_helper file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/atd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/atd file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/atrun 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/atrun file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/faillock 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/faillock file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/security/access.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/access.conf file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/security/faillock.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/faillock.conf file permissions"
@@ -1452,11 +1464,12 @@ configRestrictedUsers() {
     chroot $mountPoint /bin/chmod 0400 /etc/pam.d/chsh 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d/chsh file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/pam.d/shadow-utils 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d/shadow-utils file permissions"
     chroot $mountPoint /bin/chmod 0440 /etc/doas.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.conf file permissions"
-    chroot $mountPoint /bin/chmod 510 /etc/doas.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d folder permissions"
-    chroot $mountPoint /bin/chmod 500 /etc/security 2>/dev/null || log "UNEXPECTED: Could not change /etc/security folder permissions"
-    chroot $mountPoint /bin/chmod 000 /etc/security/limits.d 2>/dev/null 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/limits.dy folder permissions"
-    chroot $mountPoint /bin/chmod 000 /etc/security/namespace.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/namespace.d folder permissions"
-    chroot $mountPoint /bin/chmod 500 /etc/pam.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d folder permissions"
+    chroot $mountPoint /bin/chmod 00510 /etc/doas.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d folder permissions"
+    chroot $mountPoint /bin/chmod 00500 /etc/security 2>/dev/null || log "UNEXPECTED: Could not change /etc/security folder permissions"
+    chroot $mountPoint /bin/chmod 00000 /etc/security/limits.d 2>/dev/null 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/limits.dy folder permissions"
+    chroot $mountPoint /bin/chmod 00000 /etc/security/namespace.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/namespace.d folder permissions"
+    chroot $mountPoint /bin/chmod 00500 /etc/pam.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d folder permissions"
+    chroot $mountPoint /bin/chmod 00640 /etc/at.allow 2>/dev/null || log "UNEXPECTED: Could not change /etc/at.allow folder permissions"
 
     log "INFO: Creating groups for certain executables, data files, and folders"
     local expectedGroups="busybox coreutils lvm suid diskUtil cmdUtil doas apk rshell logread iptables logrotate net chrony python $entryUsername $collectorUsername $updateUsername $firewallUsername $fail2banUsername"
@@ -1467,6 +1480,12 @@ configRestrictedUsers() {
     log "INFO: Starting doas configuration"
     if [ -f "$mountPoint/etc/doas.d/daemon.conf" ]; then chroot $mountPoint /bin/chmod 0600 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not make /etc/doas.d/daemon.conf writable"; fi
     chroot $mountPoint /bin/echo "# Doas configuration for limited user services" > $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure daemon.conf was reset!"
+
+    # Lock down: Cron
+
+    # Lock down: syslogd?
+
+    # Lock down: acpid?
 
     if [ -f "$mountPoint/usr/sbin/chronyd" ]; then
         log "INFO: Re-purposing system account; chrony user for running chronyd"
@@ -1489,32 +1508,35 @@ configRestrictedUsers() {
 # Problem: https://www.spinics.net/lists/openssh-unix-dev/msg06335.html
 # make setcap use -n option to limit only sshd user id
 # To change services look into /etc/init.d/sshd, change command: "/usr/bin/doas", change command_args: "-u $entryUsername /usr/sbin/sshd -f "
-#    if [ -f "$mountPoint/usr/sbin/sshd" ]; then
-#        log "INFO: Considering system account; $entryUsername user for running sshd"
-#        if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $entryUsername -s /sbin/nologin $entryUsername 2>/dev/null || log "CRITICAL: Could not create an account for running sshd server"; fi
-#        chroot $mountPoint /usr/sbin/addgroup "$entryUsername" net 2>/dev/null || log "UNEXPECTED: Could not add net group to "$entryUsername" user"
+    if [ -f "$mountPoint/usr/sbin/sshd" ]; then
+        log "INFO: Considering system account; $entryUsername user for running sshd"
+        if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $entryUsername -s /sbin/nologin $entryUsername 2>/dev/null || log "CRITICAL: Could not create an account for running sshd server"; fi
+        if [ ! -f "$mountPoint/var/run/sshd.pid" ]; then chroot $mountPoint /bin/touch /var/run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could create special unpriviledge directory for fail2ban to use in /var/run"; fi
+        chroot $mountPoint /usr/sbin/addgroup "$entryUsername" net 2>/dev/null || log "UNEXPECTED: Could not add net group to "$entryUsername" user"
 #        chroot $mountPoint /usr/sbin/addgroup "$entryUsername" suid 2>/dev/null || log "UNEXPECTED: Could not add suid group to "$entryUsername" user"
 #        chroot $mountPoint /usr/sbin/addgroup "$entryUsername" shadow 2>/dev/null || log "UNEXPECTED: Could not add shadow group to "$entryUsername" user"
-#        chroot $mountPoint /bin/chmod 0510 /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/sshd file permissions"
-#        chroot $mountPoint /bin/chmod 0660 /run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could not change /run/sshd.pid file permissions"
-#        chroot $mountPoint /bin/chown "root:$entryUsername" /run/sshd.pid 2>/dev/null || log "UNEXPECTED: Could not change ownership of /run/sshd.pid"
-#        chroot $mountPoint /bin/chown "root:$entryUsername" /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/sshd"
-#        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_config"
-#        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of sshd_config"
-#        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change ownership of moduli"
-#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key"
-#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key.pub"
-#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key"
-#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key.pub"
-#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key"
-#        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key.pub"
+        chroot $mountPoint /bin/chmod 0510 /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/sshd file permissions"
+        chroot $mountPoint /bin/chmod 00750 /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not change /var/run/sshd folder permissions"
+        chroot $mountPoint /bin/chown "root:$entryUsername" /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/sshd"
+        chroot $mountPoint /bin/chown "root:$entryUsername" /usr/sbin/sshd 2>/dev/null || log "UNEXPECTED: Could not change ownership of /usr/sbin/sshd"
+        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_config"
+        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change ownership of sshd_config"
+        chroot $mountPoint /bin/chown "root:$entryUsername" /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change ownership of moduli"
+        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key"
+        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ecdsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ecdsa_key.pub"
+        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key"
+        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_ed25519_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_ed25519_key.pub"
+        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key"
+        chroot $mountPoint /bin/chown "$entryUsername:root" /etc/ssh/ssh_host_rsa_key.pub 2>/dev/null || log "UNEXPECTED: Could not change ownership of ssh_host_rsa_key.pub"
+        chroot $mountPoint /bin/chown "$entryUsername:$entryUsername" /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/run/sshd"
 #        chroot $mountPoint /usr/sbin/setcap "cap_net_bind_service,cap_setgid,cap_setuid=ep" /usr/sbin/sshd 2>/dev/null || log "CRITICAL: Could not give sshd executable the permission to bind to system ports, change UID, and change GID"
 #        chroot $mountPoint /bin/chmod 0700 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/sshd"
 #        chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change starting command to be doas"
 #        chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u $entryUsername \/usr\/sbin\/sshd \$\(command_args:-\$\(SSHD_OPTS:-\)\)\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change command_args for chronyd service"
+#	pidfile=???
 #        chroot $mountPoint /bin/chmod 0500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not disable writing permission on /etc/init.d/sshd"
 #        chroot $mountPoint /bin/echo "permit nopass root as $entryUsername cmd /usr/sbin/sshd args" >> $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not ensure sshd service is ran with $entryUsername user"
-#    fi
+    fi
 
     if [ -f "$mountPoint/usr/sbin/ufw" ]; then
         log "INFO: Considering system account; $firewallUsername user for running firewall"
@@ -1615,14 +1637,12 @@ configRestrictedUsers() {
     chroot $mountPoint /usr/sbin/addgroup $monitorUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to remote reading logging user"
     chroot $mountPoint /usr/sbin/addgroup $monitorUsername logread 2>/dev/null || log "UNEXPECTED: Could not add logread group to remote reading logging user"
     chroot $mountPoint /usr/sbin/addgroup $monitorUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to reading logging user"
-
     log "INFO: Considering limited user account; $previewUsername user for receiving status of system"
     if [ -z "$(chroot $mountPoint /bin/grep $previewUsername /etc/passwd)" ]; then
         chroot $mountPoint /bin/mkdir -p /home/"$previewUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $previewUsername"
         chroot $mountPoint /usr/sbin/adduser -h /home/"$previewUsername" -s /bin/rksh -D $previewUsername 2>/dev/null || log "CRITICAL: Could not create an account for receiving status of system"
     fi
     chroot $mountPoint /usr/sbin/addgroup $previewUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to output user"
-    
     log "INFO: Considering limited user account; $serverCommandUsername user for issuing commands to server"
     if [ -z "$(chroot $mountPoint /bin/grep $serverCommandUsername /etc/passwd)" ]; then
         chroot $mountPoint /bin/mkdir -p /home/"$serverCommandUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $serverCommandUsername"
@@ -1630,7 +1650,6 @@ configRestrictedUsers() {
     fi
     chroot $mountPoint /usr/sbin/addgroup $serverCommandUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to command user"
     chroot $mountPoint /usr/sbin/addgroup $serverCommandUsername cmdUtil 2>/dev/null || log "UNEXPECTED: Could not add cmdUtil group to command user"
-    
     log "INFO: Considering limited user account; $backupUsername user for backing important data"
     if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/passwd)" ]; then
         chroot $mountPoint /bin/mkdir -p /home/"$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $backupUsername"
@@ -1638,14 +1657,12 @@ configRestrictedUsers() {
     fi
     chroot $mountPoint /usr/sbin/addgroup $backupUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to backup maintainer user"
     chroot $mountPoint /usr/sbin/addgroup $backupUsername net 2>/dev/null || log "UNEXPECTED: Could not add net group to backup maintainer user"
-
     log "INFO: Considering limited user account; $extractUsername user for extracting sensitive data that cannot be nicely be moved out"
     if [ -z "$(chroot $mountPoint /bin/grep $extractUsername /etc/passwd)" ]; then
         chroot $mountPoint /bin/mkdir -p /home/"$extractUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $extractUsername"
         chroot $mountPoint /usr/sbin/adduser -h /home/"$extractUsername" -s /bin/rksh -D $extractUsername 2>/dev/null || log "CRITICAL: Could not create an account for extracting sensitive data"
     fi
     chroot $mountPoint /usr/sbin/addgroup $extractUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to extracing sensitive data user"
-
     log "INFO: Finishing doas configuration for limited services"
     chroot $mountPoint /bin/chmod 0440 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/daemon.conf file permissions"
 
@@ -1662,56 +1679,86 @@ configRestrictedUsers() {
     chroot $mountPoint /usr/sbin/setcap "cap_net_admin=pe" /usr/sbin/xtables-nft-multi 2>/dev/null || log "CRITICAL: Could not give xtables-nft-multi executable the capability to modify system firewall configurations"
 
     log "INFO: Generating sshd keys for login of other users"
-    chroot $mountPoint /bin/mkdir -p "/home/$extractUsername/.ssh" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $extractUsername"
-    chroot $mountPoint /bin/mkdir -p "/home/$monitorUsername/.ssh" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $monitorUsername"
-    chroot $mountPoint /bin/mkdir -p "/home/$previewUsername/.ssh" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $previewUsername"
-    chroot $mountPoint /bin/mkdir -p "/home/$serverCommandUsername/.ssh" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $serverCommandUsername"
-    chroot $mountPoint /bin/mkdir -p "/home/$backupUsername/.ssh" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $backupUsername"
-    if [ -f "$mountPoint/home/$monitorUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$monitorUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $monitorUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$monitorUsername-key.pub /home/$monitorUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $monitorUsername"; fi
-    if [ -f "$mountPoint/home/$previewUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$previewUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $previewUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$previewUsername-key.pub /home/$previewUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $previewUsername"; fi
-    if [ -f "$mountPoint/home/$serverCommandUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$serverCommandUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $serverCommandUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$serverCommandUsername-key.pub /home/$serverCommandUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $serverCommandUsername"; fi
-    if [ -f "$mountPoint/home/$backupUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$backupUsername-key" -t ed25519 -P "tempSshPass" || log "CRITICAL: Could not generate sshd key for $backupUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$backupUsername-key.pub /home/$backupUsername/.ssh/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $backupUsername"; fi
-    if [ -f "$mountPoint/home/$extractUsername/.ssh/authorized_keys" ]; then chroot $mountPoint /bin/echo "$sshUsernameKey" > "$mountPoint/home/$extractUsername/.ssh/authorized_keys" || log "CRITICAL: Failed to add ssh public key to /.ssh/authorized_keys for $extractUsername"; fi
-    chroot $mountPoint /bin/chmod 0501 /home/$extractUsername/.ssh 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/.ssh file permissions"
-    chroot $mountPoint /bin/chmod 0501 /home/$monitorUsername/.ssh 2>/dev/null || log "UNEXPECTED: Could not change /home/$monitorUsername/.ssh file permissions"
-    chroot $mountPoint /bin/chmod 0501 /home/$previewUsername/.ssh 2>/dev/null || log "UNEXPECTED: Could not change /home/$previewUsername/.ssh file permissions"
-    chroot $mountPoint /bin/chmod 0501 /home/$serverCommandUsername/.ssh 2>/dev/null || log "UNEXPECTED: Could not change /home/$serverCommandUsername/.ssh file permissions"
-    chroot $mountPoint /bin/chmod 0501 /home/$backupUsername/.ssh 2>/dev/null || log "UNEXPECTED: Could not change /home/$backupUsername/.ssh file permissions"
-    chroot $mountPoint /bin/chmod 0400 /home/$extractUsername/.ssh/authorized_keys 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/.ssh/authorized_keys file permissions"
-    chroot $mountPoint /bin/chmod 0400 /home/$monitorUsername/.ssh/authorized_keys 2>/dev/null || log "UNEXPECTED: Could not change /home/$monitorUsername/.ssh/authorized_keys file permissions"
-    chroot $mountPoint /bin/chmod 0400 /home/$previewUsername/.ssh/authorized_keys 2>/dev/null || log "UNEXPECTED: Could not change /home/$previewUsername/.ssh/authorized_keys file permissions"
-    chroot $mountPoint /bin/chmod 0400 /home/$serverCommandUsername/.ssh/authorized_keys 2>/dev/null || log "UNEXPECTED: Could not change /home/$serverCommandUsername/.ssh/authorized_keys file permissions"
-    chroot $mountPoint /bin/chmod 0400 /home/$backupUsername/.ssh/authorized_keys 2>/dev/null || log "UNEXPECTED: Could not change /home/$backupUsername/.ssh/authorized_keys file permissions"
-    chroot $mountPoint /bin/chmod 0440 /home/$extractUsername/$localhostName.$monitorUsername-key 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$monitorUsername-key file permissions"
-    chroot $mountPoint /bin/chmod 0440 /home/$extractUsername/$localhostName.$previewUsername-key 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$previewUsername-key file permissions"
-    chroot $mountPoint /bin/chmod 0440 /home/$extractUsername/$localhostName.$serverCommandUsername-key 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$serverCommandUsername-key file permissions"
-    chroot $mountPoint /bin/chmod 0440 /home/$extractUsername/$localhostName.$backupUsername-key 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$backupUsername-key file permissions"
-    chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/$extractUsername/.ssh/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/.ssh/authorized_keys"
-    chroot $mountPoint /bin/chown "$monitorUsername:$monitorUsername" "/home/$monitorUsername/.ssh/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$monitorUsername/.ssh/authorized_keys"
-    chroot $mountPoint /bin/chown "$previewUsername:$previewUsername" "/home/$previewUsername/.ssh/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$previewUsername/.ssh/authorized_keys"
-    chroot $mountPoint /bin/chown "$serverCommandUsername:$serverCommandUsername" "/home/$serverCommandUsername/.ssh/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$serverCommandUsername/.ssh/authorized_keys"
-    chroot $mountPoint /bin/chown "$backupUsername:$backupUsername" "/home/$backupUsername/.ssh/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$backupUsername/.ssh/authorized_keys"
-    chroot $mountPoint /bin/chown "$monitorUsername:$extractUsername" "/home/$extractUsername/$localhostName.$monitorUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$monitorUsername-key"
-    chroot $mountPoint /bin/chown "$previewUsername:$extractUsername" "/home/$extractUsername/$localhostName.$previewUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$previewUsername-key"
-    chroot $mountPoint /bin/chown "$serverCommandUsername:$extractUsername" "/home/$extractUsername/$localhostName.$serverCommandUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$serverCommandUsername-key"
-    chroot $mountPoint /bin/chown "$backupUsername:$extractUsername" "/home/$extractUsername/$localhostName.$backupUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$backupUsername-key"
-    log "INFO: SSH keys can be obtained through $extractUsername, but for only 24 hours"
+    chroot $mountPoint /bin/mkdir -p "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory as /home/.keys"
+    chroot $mountPoint /bin/mkdir -p "/home/.keys/$extractUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $extractUsername"
+    chroot $mountPoint /bin/mkdir -p "/home/.keys/$monitorUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $monitorUsername"
+    chroot $mountPoint /bin/mkdir -p "/home/.keys/$previewUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $previewUsername"
+    chroot $mountPoint /bin/mkdir -p "/home/.keys/$serverCommandUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $serverCommandUsername"
+    chroot $mountPoint /bin/mkdir -p "/home/.keys/$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $backupUsername"
+    if [ ! -f "$mountPoint/home/.keys/$extractUsername/authorized_keys" ]; then chroot $mountPoint /bin/echo "$sshUsernameKey" > "$mountPoint/home/.keys/$extractUsername/authorized_keys" || log "CRITICAL: Failed to add ssh public key to /home/.keys for $extractUsername"; fi
+    if [ ! -f "$mountPoint/home/.keys/$monitorUsername/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$monitorUsername-key" -t ed25519 -P "$tempSshPass" || log "CRITICAL: Could not generate sshd key for $monitorUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$monitorUsername-key.pub /home/.keys/$monitorUsername/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $monitorUsername"; fi
+    if [ ! -f "$mountPoint/home/.keys/$previewUsername/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$previewUsername-key" -t ed25519 -P "$tempSshPass" || log "CRITICAL: Could not generate sshd key for $previewUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$previewUsername-key.pub /home/.keys/$previewUsername/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $previewUsername"; fi
+    if [ ! -f "$mountPoint/home/.keys/$serverCommandUsername/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$serverCommandUsername-key" -t ed25519 -P "$tempSshPass" || log "CRITICAL: Could not generate sshd key for $serverCommandUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$serverCommandUsername-key.pub /home/.keys/$serverCommandUsername/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $serverCommandUsername"; fi
+    if [ ! -f "$mountPoint/home/.keys/$backupUsername/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$backupUsername-key" -t ed25519 -P "$tempSshPass" || log "CRITICAL: Could not generate sshd key for $backupUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$backupUsername-key.pub /home/.keys/$backupUsername/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $backupUsername"; fi
+    chroot $mountPoint /bin/chmod 00550 "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/ directory permissions"
+    chroot $mountPoint /bin/chmod 00501 "/home/.keys/$extractUsername/" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$extractUsername/ directory permissions"
+    chroot $mountPoint /bin/chmod 00501 "/home/.keys/$monitorUsername/" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$monitorUsername/ directory permissions"
+    chroot $mountPoint /bin/chmod 00501 "/home/.keys/$previewUsername/" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$previewUsername/ directory permissions"
+    chroot $mountPoint /bin/chmod 00501 "/home/.keys/$serverCommandUsername" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$serverCommandUsername directory permissions"
+    chroot $mountPoint /bin/chmod 00501 "/home/.keys/$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$backupUsername directory permissions"
+    chroot $mountPoint /bin/chmod 0404 "/home/.keys/$extractUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$extractUsername/authorized_keys file permissions"
+    chroot $mountPoint /bin/chmod 0404 "/home/.keys/$monitorUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$monitorUsername/authorized_keys file permissions"
+    chroot $mountPoint /bin/chmod 0404 "/home/.keys/$previewUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$previewUsername/authorized_keys file permissions"
+    chroot $mountPoint /bin/chmod 0404 "/home/.keys/$serverCommandUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$serverCommandUsername/authorized_keys file permissions"
+    chroot $mountPoint /bin/chmod 0404 "/home/.keys/$backupUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$backupUsername/authorized_keys file permissions"
+    chroot $mountPoint /bin/chmod 0400 "/home/$extractUsername/$localhostName.$monitorUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$monitorUsername-key file permissions"
+    chroot $mountPoint /bin/chmod 0400 "/home/$extractUsername/$localhostName.$previewUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$previewUsername-key file permissions"
+    chroot $mountPoint /bin/chmod 0400 "/home/$extractUsername/$localhostName.$serverCommandUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$serverCommandUsername-key file permissions"
+    chroot $mountPoint /bin/chmod 0400 "/home/$extractUsername/$localhostName.$backupUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$backupUsername-key file permissions"
+    chroot $mountPoint /bin/chown "$root:$entryUsername" "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys"
+    chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/.keys/$extractUsername" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$extractUsername"
+    chroot $mountPoint /bin/chown "$monitorUsername:$monitorUsername" "/home/.keys/$monitorUsername" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$monitorUsername"
+    chroot $mountPoint /bin/chown "$previewUsername:$previewUsername" "/home/.keys/$previewUsername" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$previewUsername"
+    chroot $mountPoint /bin/chown "$serverCommandUsername:$serverCommandUsername" "/home/.keys/$serverCommandUsername" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$serverCommandUsername"
+    chroot $mountPoint /bin/chown "$backupUsername:$backupUsername" "/home/.keys/$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$backupUsername"
+    chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/.keys/$extractUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$extractUsername/authorized_keys"
+    chroot $mountPoint /bin/chown "$monitorUsername:$monitorUsername" "/home/.keys/$monitorUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$monitorUsername/authorized_keys"
+    chroot $mountPoint /bin/chown "$previewUsername:$previewUsername" "/home/.keys/$previewUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$previewUsername/authorized_keys"
+    chroot $mountPoint /bin/chown "$serverCommandUsername:$serverCommandUsername" "/home/.keys/$serverCommandUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$serverCommandUsername/authorized_keys"
+    chroot $mountPoint /bin/chown "$backupUsername:$backupUsername" "/home/.keys/$backupUsername/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$backupUsername/authorized_keys"
+    chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.$monitorUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$monitorUsername-key"
+    chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.$previewUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$previewUsername-key"
+    chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.$serverCommandUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$serverCommandUsername-key"
+    chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.$backupUsername-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$backupUsername-key"
+    log "INFO: SSH keys can be obtained through $extractUsername, but for only 4 hours"
 
     log "INFO: Causing changes to sshd and enabling certain users for remote login"
     chroot $mountPoint /bin/chmod 0640 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config file permissions to write"
-    if [ -z "$(chroot $mountPoint /bin/grep "AllowUsers" /etc/ssh/sshd_config)" ]; then chroot $mountPoint /bin/echo "AllowUsers REPLACEME" >> $mountPoint/ssh/sshd_config || log "UNEXPECTED: Could not include sshd restrictions on who can log in"; fi
-    chroot $mountPoint /bin/sed -i "s/^AllowUsers REPLACEME/AllowUsers $extractUsername@$localNetwork/$localNetmask $backupUsername@$localNetwork/$localNetmask $serverCommandUsername@$localNetwork/$localNetmask $previewUsername@$localNetwork/$localNetmask $monitorUsername@$localNetwork/$localNetmask/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not modify /etc/ssh/sshd_config to authorize which users can login via ssh"
+    if [ -z "$(chroot $mountPoint /bin/grep "AllowUsers" /etc/ssh/sshd_config)" ]; then chroot $mountPoint /bin/echo "AllowUsers REPLACEME" >> $mountPoint/etc/ssh/sshd_config || log "UNEXPECTED: Could not include sshd restrictions on who can log in"; fi
+    chroot $mountPoint /bin/sed -i "s/^AllowUsers REPLACEME/AllowUsers $extractUsername@$localNetwork\/$localNetmask $backupUsername@$localNetwork\/$localNetmask $serverCommandUsername@$localNetwork\/$localNetmask $previewUsername@$localNetwork\/$localNetmask $monitorUsername@$localNetwork\/$localNetmask/g" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not modify /etc/ssh/sshd_config to authorize which users can login via ssh"
     chroot $mountPoint /bin/chmod 0440 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config file permissions to read only"
 
-    log "INFO: Generating script to wipe out $extractUsername in 24-hours!"
+    log "INFO: Generating task to wipe out $extractUsername in 4-hours!"
+#rc-service atd start
+#echo -e "#!/bin/sh\nuserdel -f $extractUsername\nrm -rF /home/$extractUsername\nrm -rF /home/.keys/$extractUsername\nrc-service atd stop\nrm /etc/doas.d/tempUser.conf" > /etc/removal.sh
+#chmod 700 /tmp/removal.sh
+#chown cron:cron /tmp/removal.sh
+#at -f /tmp/removal.sh now + 4 hours
 
-    log "INFO: Locking root account and making any password invalid as login for root"
-    chroot $mountPoint /usr/bin/passwd -dl root 2>/dev/null || log "UNEXPECTED: Could not disable root user login"
+    log "INFO: Locking root account, and making certain restricted accounts have any password as invalid"
+    chroot $mountPoint /usr/bin/passwd -dl root 2>/dev/null || log "UNEXPECTED: Could not lock root user login"
+    chroot $mountPoint /usr/sbin/usermod -p '*' $extractUsername 2>/dev/null || log "UNEXPECTED: Could not disable user login for $extractUsername"
+    chroot $mountPoint /usr/sbin/usermod -p '*' $monitorUsername 2>/dev/null || log "UNEXPECTED: Could not disable user login for $monitorUsername"
+    chroot $mountPoint /usr/sbin/usermod -p '*' $previewUsername 2>/dev/null || log "UNEXPECTED: Could not disable user login for $previewUsername"
+    chroot $mountPoint /usr/sbin/usermod -p '*' $serverCommandUsername 2>/dev/null || log "UNEXPECTED: Could not disable user login for $serverCommandUsername"
+    chroot $mountPoint /usr/sbin/usermod -p '*' $backupUsername 2>/dev/null || log "UNEXPECTED: Could not disable user login for $backupUsername"
     chroot $mountPoint /usr/bin/chsh -s /sbin/nologin root 2>/dev/null || log "UNEXPECTED: Could not disable login shell for root account"
+
+# Affecting /home directory
+    log "INFO: Changing /home general permissions"
+
+# Chroot jail!
+    log "INFO: Creating chroot jails"
+
+# PAM!
+    log "INFO: Configurating PAM"
+
+# mdev!
+    log "INFO: Restricting mdev devices"
 
     log "INFO: Restarting services"
     chroot $mountPoint /sbin/rc-service chronyd restart || log "UNEXPECTED: Could not restart chronyd daemon"
-#    chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
+    chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
     chroot $mountPoint /usr/sbin/ufw enable 2>/dev/null || log "UNEXPECTED: ufw could not be enabled"
     chroot $mountPoint /sbin/rc-service ufw restart 2>/dev/null || log "UNEXPECTED: Could not restart ufw daemon"
     chroot $mountPoint /sbin/rc-service fail2ban restart 2>/dev/null || log "UNEXPECTED: Could not restart fail2ban daemon"
@@ -1914,12 +1961,13 @@ verifySSHD() {
     if [ -z "$(chroot $mountPoint /bin/grep "^RekeyLimit 256M 1h" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; RekeyLimit!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^SyslogFacility AUTH" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; SyslogFacility!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^LogLevel $sshLogging" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; LogLevel!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^LoginGraceTime 30" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; LoginGraceTime!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^LoginGraceTime 15" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; LoginGraceTime!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^PermitRootLogin no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PermitRootLogin!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^StrictModes yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; StrictModes!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^MaxAuthTries 2" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; MaxAuthTries!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^MaxSessions 2" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; MaxSessions!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^PubkeyAuthentication yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PubkeyAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; AuthorizedKeysFile!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^HostbasedAuthentication no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; HostbasedAuthentication!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^IgnoreUserKnownHosts no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; IgnoreUserKnownHosts!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^IgnoreRhosts yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; IgnoreRhosts!"; fi
@@ -1936,6 +1984,7 @@ verifySSHD() {
     if [ -z "$(chroot $mountPoint /bin/grep "^ClientAliveInterval 150" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; ClientAliveInterval!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^ClientAliveCountMax 2" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; ClientAliveCountMax!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^UseDNS no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; UseDNS!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^PidFile \/run\/sshd\/sshd.pid" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PidFile!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^PermitTunnel no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; PermitTunnel!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^Banner \/etc\/issue" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; Banner!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^#Subsystem" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; Subsystem!"; fi
@@ -1950,6 +1999,8 @@ verifySSHD() {
     if [ -z "$(chroot $mountPoint /bin/grep "^#HostKey /etc/ssh/ssh_host_ecdsa_key" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; HostKey ecdsa!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^HostKey /etc/ssh/ssh_host_ed25519_key" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; HostKey ed25519!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^#Include" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; Include!"; fi
+    if [ ! -d "$mountPoint/run/sshd" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; /run/sshd directory does not exist!"; fi
+    if [ ! -d "$mountPoint/home/.keys" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for; /home/.keys directory does not exist!"; fi
 
     # Check ssh_config configuration
     if [ -z "$(chroot $mountPoint /bin/grep "^    AddressFamily inet" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; AddressFamily!"; fi
@@ -1992,6 +2043,8 @@ verifySSHD() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sshd -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sshd"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /run/sshd -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /run/sshd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for sshd: $missing"; else echo "INFO: Not a single missed test for sshd!"; fi
@@ -2315,7 +2368,7 @@ verifyEtc() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/motd -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/motd"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/nsswitch.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/nsswitch.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/passwd -perm 0604 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/passwd"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/passwd- -perm 0600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/passwd-"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/passwd- -perm 0604 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/passwd-"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/profile -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/profile"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/protocols -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/protocols"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/rc.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/rc.conf"; fi
@@ -2323,7 +2376,7 @@ verifyEtc() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/securetty -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/securetty"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/services -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/services"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/shadow -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/shadow"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/shadow- -perm 0600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/shadow-"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/shadow- -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/shadow-"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/shells -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/shells"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/sysctl.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/sysctl.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/os-release -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc//usr/lib/os-release for /etc/os-release"; fi
@@ -2485,6 +2538,7 @@ verifyRestrictedUsers() {
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep shadow)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find shadow package"; fi
 
     # User existance checks
+    if [ -z "$(chroot $mountPoint /bin/grep at /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User at was not found"; fi
     if [ -z "$(chroot $mountPoint /bin/grep chrony /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User chrony was not found"; fi
 #    if [ -z "$(chroot $mountPoint /bin/grep $entryUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $entryUsername was not found"; fi
     if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $firewallUsername was not found"; fi
@@ -2574,7 +2628,7 @@ verifyRestrictedUsers() {
     if [ -z "$(chroot $mountPoint /bin/grep "^command_args=\"-u chrony \/usr\/sbin\/chronyd -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log\"$" /etc/init.d/chronyd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/chronyd service is misconfigured in command_args"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^command=\"\/usr\/bin\/doas\"$" /etc/init.d/sshd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/sshd service is misconfigured in command"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^command_args=\"-u $entryUsername \/usr\/sbin\/sshd \$\(command_args:-\$\(SSHD_OPTS:-\)\)\"$" /etc/init.d/sshd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/sshd service is misconfigured in command_args"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^FAIL2BAN=\"\/usr\/bin\/doas -u $fail2banUsername \/usr\/bin\/fail2ban-client \$\{FAIL2BAN_OPTIONS\}\"$" /etc/init.d/fail2ban 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/fail2ban service is misconfigured in FAIL2BAN"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^FAIL2BAN=\"\/usr\/bin\/doas -u $fail2banUsername \/usr\/bin\/fail2ban-client \${FAIL2BAN_OPTIONS}\"$" /etc/init.d/fail2ban 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: /etc/init.d/fail2ban service is misconfigured in FAIL2BAN"; fi
 
     # File ownership checks
     	# Other Executables
@@ -2589,11 +2643,11 @@ verifyRestrictedUsers() {
 	# Chronyd
     if [ ! -f "$mountPoint/var/log/chronyd.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/chronyd.log does not exist!"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/chronyd -user root -and -group chrony 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/chronyd"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/chronyd.log -user root -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/chronyd.log"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/chronyd.log -user chrony -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/chronyd.log"; fi
 
 	# SSHD
-    if [ -z "$(chroot $mountPoint /usr/bin/find /run/sshd.pid -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /run/sshd.pid"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/sshd -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/sshd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_config"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/sshd_config"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/moduli -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/moduli"; fi
@@ -2603,6 +2657,8 @@ verifyRestrictedUsers() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_ed25519_key.pub -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_ed25519_key.pub"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_rsa_key -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_rsa_key"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_host_rsa_key.pub -user $entryUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ssh/ssh_host_rsa_key.pub"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /run/sshd/sshd.pid -user $entryUsername -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /run/sshd/sshd.pid"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys -user root -and -group $entryUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys"; fi
 
         # Firewall
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw"; fi
@@ -2651,10 +2707,14 @@ verifyRestrictedUsers() {
         # Log gatherer
 
         # SSH keys
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/.ssh/authorized_keys -user $monitorUsername -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername/.ssh/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/.ssh/authorized_keys -user $previewUsername -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/.ssh/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/.ssh/authorized_keys -user $serverCommandUsername -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/.ssh/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/.ssh/authorized_keys -user $backupUsername -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$backupUsername/.ssh/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$monitorUsername -user $monitorUsername -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$monitorUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$previewUsername -user $previewUsername -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$previewUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$serverCommandUsername -user $serverCommandUsername -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$serverCommandUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$backupUsername -user $backupUsername -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$backupUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$monitorUsername/authorized_keys -user $monitorUsername -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$monitorUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$previewUsername/authorized_keys -user $previewUsername -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$previewUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$serverCommandUsername/authorized_keys -user $serverCommandUsername -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$serverCommandUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$backupUsername/authorized_keys -user $backupUsername -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$backupUsername/authorized_keys"; fi
 
     # File permissions changes within directories of /etc
     	# From executables: doas, ksh, PAM, and libcap
@@ -2669,6 +2729,8 @@ verifyRestrictedUsers() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/chsh -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/chsh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/chfn -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/chfn"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/chage -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/chage"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/at -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/at"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/batch -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/batch"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/vipw -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/vipw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/usermod -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/usermod"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/userdel -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/userdel"; fi
@@ -2688,6 +2750,8 @@ verifyRestrictedUsers() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/pam_timestamp_check -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/pam_timestamp_check"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/pam_namespace_helper -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/pam_namespace_helper"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/mkhomedir_helper -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/mkhomedir_helper"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/atd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/atd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/atrun -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/atrun"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/faillock -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/faillock"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/security/access.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/access.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/security/faillock.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/faillock.conf"; fi
@@ -2706,6 +2770,7 @@ verifyRestrictedUsers() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/security -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/pam.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/security/limits.d -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/limits.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/at.allow -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/at.allow"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/security/namespace.d -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/namespace.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/messages -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/messages"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/env -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/env"; fi
@@ -2720,6 +2785,7 @@ verifyRestrictedUsers() {
 #    if [ -z "$(chroot $mountPoint /usr/bin/find /run/sshd.pid -perm 0660 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /run/sshd.pid"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sshd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sshd"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys"; fi
 
         # Firewall
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/ufw -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/ufw"; fi
@@ -2741,14 +2807,14 @@ verifyRestrictedUsers() {
         # Log gatherer
 
         # SSH keys
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/.ssh -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$monitorUsername/.ssh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/.ssh -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/.ssh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/.ssh -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/.ssh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/.ssh -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$backupUsername/.ssh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/.ssh/authorized_keys -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$monitorUsername/.ssh/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/.ssh/authorized_keys -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/.ssh/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/.ssh/authorized_keys -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/.ssh/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/.ssh/authorized_keys -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$backupUsername/.ssh/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$monitorUsername -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$monitorUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$previewUsername -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$previewUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$serverCommandUsername -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$serverCommandUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$backupUsername -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$backupUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$monitorUsername/authorized_keys -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$monitorUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$previewUsername/authorized_keys -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$previewUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$serverCommandUsername/authorized_keys -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$serverCommandUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$backupUsername/authorized_keys -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$backupUsername/authorized_keys"; fi
 
     # Capabilities check
     if [ -z "$(chroot $mountPoint /usr/sbin/getcap /usr/sbin/chronyd | grep cap_sys_time 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Binary /usr/sbin/chronyd has incorrect capabilities set, or is missing"; fi
@@ -2769,15 +2835,19 @@ verifyRestrictedUsers() {
     if [ -z "$(chroot $mountPoint /bin/grep "^AllowUsers\(.*\)$backupUsername\(.*\)$" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for not whitelisting $backupUsername!"; fi
 
     # UFW root bypass check
-    if [ "$(chroot $mountPoint /bin/grep "    if 1 == 2 and uid != 0" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null)" != "$sshUsernameKey" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW still requires root access to be executed!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "    if 1 == 2 and uid != 0" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW still requires root access to be executed!"; fi
 
-    # Is $extractUsername missing?
+    # Is $extractUsername properely deleted?
     if [ ! -z "$(chroot $mountPoint /bin/grep $extractUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $extractUsername was found! This user should be deleted"; fi
 
-    # Is root account locked?
+    # Is root account locked, and password disabled for other accounts??
     if [ -z "$(chroot $mountPoint /bin/grep root /etc/passwd | grep /sbin/nologin)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Root user does not use /sbin/nologin shell!"; fi
     if [ ! -z "$(chroot $mountPoint /usr/bin/passwd -S root | grep 'root P')" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Root user account still has a password set!"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/passwd -S root | grep 'root L')" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Root user account is not locked!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $monitorUsername /etc/shadow | grep \*)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $monitorUsername user may still have a valid login!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $previewUsername /etc/shadow | grep \*)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $previewUsername user may still have a valid login!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $serverCommandUsername /etc/shadow | grep \*)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $serverCommandUsername user may still have a valid login!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/shadow | grep \*)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $backupUsername user may still have a valid login!"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for limiting users: $missing"; else echo "INFO: Not a single missed test for limiting users!"; fi
