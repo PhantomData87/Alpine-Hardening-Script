@@ -42,6 +42,7 @@
 # Restrict dns queires in /etc/resolv?
 # Add to ssh an option to install moduli file remotely
 # Check if ACPID service missing RTNETLINK1 affects acpi functions
+# Consider if /usr/lib requires chmod and chown modifications
 
 # Log meanings in this script:
 # INFO: States what is currently happening in the script.
@@ -1816,6 +1817,67 @@ configRestrictedUsers() {
     chroot $mountPoint /bin/chmod 00500 "/home/$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not change /home/$backupUsername directory permissions to read only"
 
 # PAM!
+# Reading: 
+# https://docs.oracle.com/cd/E19253-01/816-4557/pam-15/index.html
+# https://linux.die.net/man/8/pam_shells
+# https://linux.die.net/man/8/pam_permit
+# https://linux.die.net/man/8/pam_rootok
+# https://linux.die.net/man/5/pam.d
+# Paths that are important:
+# /usr/lib/pam.d/base-account
+# /usr/lib/pam.d/base-auth
+# /usr/lib/pam.d/base-password
+# /usr/lib/pam.d/base-session
+# /usr/lib/pam.d/base-session-noninteractive
+# /usr/lib/pam.d/login
+# /usr/lib/pam.d/other
+# /usr/lib/pam.d/su
+# /usr/lib/security/pam_access.so
+# /usr/lib/security/pam_canonicalize_user.so
+# /usr/lib/security/pam_debug.so
+# /usr/lib/security/pam_deny.so
+# /usr/lib/security/pam_echo.so
+# /usr/lib/security/pam_env.so
+# /usr/lib/security/pam_exec.so
+# /usr/lib/security/pam_faildelay.so
+# /usr/lib/security/pam_faillock.so
+# /usr/lib/security/pam_filter
+# /usr/lib/security/pam_filter.so
+# /usr/lib/security/pam_ftp.so
+# /usr/lib/security/pam_group.so
+# /usr/lib/security/pam_issue.so
+# /usr/lib/security/pam_keyinit.so
+# /usr/lib/security/pam_limits.so
+# /usr/lib/security/pam_listfile.so
+# /usr/lib/security/pam_localuser.so
+# /usr/lib/security/pam_loginuid.so
+# /usr/lib/security/pam_mail.so
+# /usr/lib/security/pam_mkhomedir.so
+# /usr/lib/security/pam_motd.so
+# /usr/lib/security/pam_namespace.so
+# /usr/lib/security/pam_nologin.so
+# /usr/lib/security/pam_permit.so
+# /usr/lib/security/pam_pwhistory.so
+# /usr/lib/security/pam_rootok.so
+# /usr/lib/security/pam_securetty.so
+# /usr/lib/security/pam_setquota.so
+# /usr/lib/security/pam_shells.so
+# /usr/lib/security/pam_stress.so
+# /usr/lib/security/pam_succeed_if.so
+# /usr/lib/security/pam_time.so
+# /usr/lib/security/pam_timestamp.so
+# /usr/lib/security/pam_umask.so
+# /usr/lib/security/pam_unix.so
+# /usr/lib/security/pam_usertype.so
+# /usr/lib/security/pam_warn.so
+# /usr/lib/security/pam_wheel.so
+# /usr/lib/security/pam_xauth.so
+# /etc/pam.d/chfn
+# /etc/pam.d/chpasswd
+# /etc/pam.d/chsh
+# /etc/pam.d/groupmems
+# /etc/pam.d/newusers
+# /etc/pam.d/shadow-utils
     log "INFO: Configurating PAM"
 
 # Chroot jail!
