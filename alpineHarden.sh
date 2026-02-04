@@ -34,6 +34,8 @@
 #Switch over to nftables by ditching UFW at some point
 #Look into /etc/lvm/lvm.conf & /etc/lvm/lvmlocal.conf
 #Figure out why chronyd is failing
+# Prevent ufw from logging into dmesg via rsyslog
+# Awall? Shorewall?
 # Have a clean way to resolve hard or symbolic file links permissions (besides copying the file)
 # Fix logo variables?
 # Figure out why a seperate sshd user spawning in sshd service as non-root still has trouble reading shadow (despite being given priviledges to do so)
@@ -45,14 +47,20 @@
 # Change server ports more easily
 # Immutable files? /var/log, configurations, /dev/log in sftp,
 # Better way to log ssh users? Multi-factor without PAM?
-# rksh is restricting sftp-server
 # mlocate to keep track of files?
 # Unified kernel image?
 # TCP wrapper? /etc/hosts.allow /etc/hosts.deny
-# Port Knocking
-# Redirect sftp output to sshd.log file or similar
-# Proper chroot for non-sftp users
-# Automatic fstab bind /home/%u/dev/log from /dev/log
+# Port Knocking; https://github.com/mrash/fwknop
+# Redirect sftp output to sshd.log file or similar via rsyslog or similar in /dev/log
+# Auto ldd to chroot environment ready script/function for auto update script 
+# Is removing dead usernames good practice?
+# Check inittab to implace restrict shell
+# Check /etc/busybox-paths.d/busybox
+# Proper /etc/limits.conf
+# set ulimit in sysctl via fs.file and alike (find if this is related to exclusively PAM or not), 
+# Password quality?,
+# Chroot exploit mitigation: https://github.com/remaskm/Chroot-Jail-Escape-Write-up
+# Proper chroot for non-sftp users: missing rksh cooperation
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -858,11 +866,7 @@ configKernel() {
 }
 
 # !!!
-# Is removing dead usernames good practice?
-
-# Check inittab to implace restrict shell
-# Check /etc/busybox-paths.d/busybox
-# https://wiki.alpinelinux.org/wiki/How_to_get_regular_stuff_working
+# Alpine hardening guide: https://wiki.alpinelinux.org/wiki/How_to_get_regular_stuff_working
 # Found executables via: find /usr/bin ! -perm 777 -and ! -perm 0500
 # Resources:
 # Creating restricted shells if missing: https://unix.stackexchange.com/questions/605646/how-do-you-install-rbash-in-centos-7
@@ -870,30 +874,26 @@ configKernel() {
 # Introduction to linux capabilities: https://blog.container-solutions.com/linux-capabilities-in-practice
 # Changing ssh private key: https://serverfault.com/questions/50775/how-do-i-change-my-private-key-passphrase
 # Disable root account: https://www.linuxfordevices.com/tutorials/linux/enable-disable-root-login-in-linux
-# Not resources: 
-# SSH server: ChrootDirectory
-# Password quality?,
-# Saying yes to pam: https://www.baeldung.com/linux/usepam-yes-ssh-effects
-# Forcing a limited set of commands on specific ssh users: https://shaner.life/the-little-known-ssh-forcecommand/
-# Proper /etc/limits.conf
-# set ulimit in sysctl via fs.file and alike (find if this is related to exclusively PAM or not), 
-# Interesting ideas; https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#libpam-tmpdir, https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#sudo_password_sniffing, https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#su_restrictions, https://0xffsec.com/handbook/shells/restricted-shells/, https://security.stackexchange.com/questions/187901/what-can-an-attacker-do-in-this-scenario-unwritable-bashrc-profile-etc, https://krython.com/post/configuring-system-log-files-alpine-linux, https://dev.to/sebos/using-chroot-to-restrict-linux-applications-for-enhanced-security-33b3, https://thelinuxcode.com/setup-linux-chroot-jails/
+# Saying yes to pam in ssh: https://www.baeldung.com/linux/usepam-yes-ssh-effects
+# Bad ssh force command advice (Can be overwritten): https://shaner.life/the-little-known-ssh-forcecommand/
+# Interesting ideas; https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#libpam-tmpdir, https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#sudo_password_sniffing, https://www.kicksecure.com/wiki/Dev/Strong_Linux_User_Account_Isolation#su_restrictions, https://0xffsec.com/handbook/shells/restricted-shells/, https://krython.com/post/configuring-system-log-files-alpine-linux
+# Chroot inspiration: https://dev.to/sebos/using-chroot-to-restrict-linux-applications-for-enhanced-security-33b3
+# Mount read fstab trick: https://www.shellhacks.com/remount-etc-fstab-without-reboot-linux/
 # SSHD resources that are worth keeping:
 # SSH audit tool: https://github.com/jtesta/ssh-audit
 # All cryptogrpahic functions supported by sshd: https://superuser.com/questions/1763269/how-to-disable-rsa-and-ecdsa-keys-in-openssh-server-on-fedora-linux
 # Hardening guide: https://medium.com/@jasonrigden/hardening-ssh-1bcb99cd4cef
 # Simplified hardening guide: https://www.sshaudit.com/hardening_guides.html
-# https://linux.die.net/man/7/capabilities
-# https://man.freebsd.org/cgi/man.cgi?query=doas.conf&sektion=5&format=html
+# Linux capabilities: https://linux.die.net/man/7/capabilities
+# Doas configuration manual: https://man.freebsd.org/cgi/man.cgi?query=doas.conf&sektion=5&format=html
+# SSH Match block: https://blog.matrixpost.net/using-match-directives-in-ssh/
 # Chroot ssh and sftp: https://itsfoss.gitlab.io/blog/how-to-configure-sshd-to-have-both-ssh-and-sftp-connection/
+# SSH Chroot bad advice: https://thelinuxcode.com/setup-linux-chroot-jails/
 # internal-sftp logging: https://serverfault.com/questions/73319/sftp-logging-is-there-a-way
 # internal-sftp additional arguments: https://man.openbsd.org/sftp-server#P
+# Choosing which low-level internal sftp functions from internal-sftp: https://unix.stackexchange.com/questions/523253/how-to-debug-trace-incoming-sftp-conversations
 # Problem: https://www.spinics.net/lists/openssh-unix-dev/msg06335.html
-# make setcap use -n option to limit only sshd user id
-# Capsh seems interesting, but need more practice or another way to prevent capabilities from clearing (libraries: libcap): current command: capsh --keep=1 --caps="cap_net_bind_service,cap_setuid,cap_setgid,cap_setpcap=pie" --ihn="cap_net_bind_service,cap_setuid,cap_setgid" --addamb="cap_net_bind_service,cap_setuid,cap_setgid,cap_setpcap" --secbits=240 --shell=/bin/sh --user=sshReceive -- -c /usr/sbin/sshd
-# Prevent ufw from logging into dmesg via rsyslog
-# Awall? Shorewall?
-# Resources worth keeping: 
+# Fstab bind: https://serverfault.com/questions/613179/how-do-i-do-mount-bind-in-etc-fstab, https://unix.stackexchange.com/questions/4897/providing-bin-and-lib-inside-a-chroot-jail, https://serverfault.com/questions/440426/sftp-file-symlinks-in-a-jailed-chrooted-directory
 # https://codelucky.com/ufw-advanced-linux-firewall/
 # https://wiki.alpinelinux.org/wiki/Nftables
 # https://wiki.alpinelinux.org/wiki/Category:Firewall
@@ -949,43 +949,30 @@ configLocalInstallation() {
     chroot $mountPoint /usr/sbin/addgroup $collectorUsername diskUtil 2>/dev/null || log "UNEXPECTED: Could not add diskUtil group to local archieve user"
     chroot $mountPoint /usr/sbin/addgroup $collectorUsername lvm 2>/dev/null || log "UNEXPECTED: Could not add lvm group to local archieve user"
     chroot $mountPoint /usr/sbin/addgroup $collectorUsername doas 2>/dev/null || log "UNEXPECTED: Could not add doas group to local archieve user"
-		# Creating privileged system user meant to detect any hacking attempts, and to log it
-    if [ -z "$(chroot $mountPoint /bin/grep $monitorUsername /etc/passwd)" ]; then
-        chroot $mountPoint /bin/mkdir -p /home/"$monitorUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $monitorUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$monitorUsername" -s /sbin/nologin -D $monitorUsername 2>/dev/null || log "CRITICAL: Could not create an account for monitoring the system"
-    fi
+
+    log "INFO: Creating missing users to interact remotely with system"
+		# Creating user meant to detect any hacking attempts, and to log it
+    if [ -z "$(chroot $mountPoint /bin/grep $monitorUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -h /home/"$monitorUsername" -s /sbin/nologin -D $monitorUsername 2>/dev/null || log "CRITICAL: Could not create an account for monitoring the system"; fi
     chroot $mountPoint /usr/sbin/addgroup $monitorUsername logread 2>/dev/null || log "UNEXPECTED: Could not add logread group to remote reading logging user"
     chroot $mountPoint /usr/sbin/addgroup $monitorUsername sshpub 2>/dev/null || log "UNEXPECTED: Could not add sshpub group to remote reading logging user"
     chroot $mountPoint /usr/sbin/addgroup $monitorUsername sshsftp 2>/dev/null || log "UNEXPECTED: Could not add sshsftp group to remote reading logging user"
-
-    log "INFO: Creating missing users to interact remotely with system"
 		# Creating user to display system status
-    if [ -z "$(chroot $mountPoint /bin/grep $previewUsername /etc/passwd)" ]; then
-        chroot $mountPoint /bin/mkdir -p /home/"$previewUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $previewUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$previewUsername" -s /bin/rksh -D $previewUsername 2>/dev/null || log "CRITICAL: Could not create an account for receiving status of system"
-    fi
+    if [ -z "$(chroot $mountPoint /bin/grep $previewUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -h /home/"$previewUsername" -s /bin/rksh -D $previewUsername 2>/dev/null || log "CRITICAL: Could not create an account for receiving status of system"; fi
     chroot $mountPoint /usr/sbin/addgroup $previewUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to output user"
+    chroot $mountPoint /usr/sbin/addgroup $previewUsername coreutils 2>/dev/null || log "UNEXPECTED: Could not add coreutils group to local archieve user"
     chroot $mountPoint /usr/sbin/addgroup $previewUsername sshpub 2>/dev/null || log "UNEXPECTED: Could not add sshpub group to output user"
 		# Creating user to execute a limited set of commands
-    if [ -z "$(chroot $mountPoint /bin/grep $serverCommandUsername /etc/passwd)" ]; then
-        chroot $mountPoint /bin/mkdir -p /home/"$serverCommandUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $serverCommandUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$serverCommandUsername" -s /bin/rksh -D $serverCommandUsername 2>/dev/null || log "CRITICAL: Could not create an account for issuing commands to server"
-    fi
+    if [ -z "$(chroot $mountPoint /bin/grep $serverCommandUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -h /home/"$serverCommandUsername" -s /bin/rksh -D $serverCommandUsername 2>/dev/null || log "CRITICAL: Could not create an account for issuing commands to server"; fi
     chroot $mountPoint /usr/sbin/addgroup $serverCommandUsername rshell 2>/dev/null || log "UNEXPECTED: Could not add rshell group to command user"
+    chroot $mountPoint /usr/sbin/addgroup $serverCommandUsername coreutils 2>/dev/null || log "UNEXPECTED: Could not add coreutils group to local archieve user"
     chroot $mountPoint /usr/sbin/addgroup $serverCommandUsername cmdUtil 2>/dev/null || log "UNEXPECTED: Could not add cmdUtil group to command user"
     chroot $mountPoint /usr/sbin/addgroup $serverCommandUsername sshpub 2>/dev/null || log "UNEXPECTED: Could not add sshpub group to command user"
 		# Creating sftp user to retrieve backup data 
-    if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/passwd)" ]; then
-        chroot $mountPoint /bin/mkdir -p /home/"$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $backupUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$backupUsername" -s /sbin/nologin -D $backupUsername 2>/dev/null || log "CRITICAL: Could not create an account for backing up important data"
-    fi
+    if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -h /home/"$backupUsername" -s /sbin/nologin -D $backupUsername 2>/dev/null || log "CRITICAL: Could not create an account for backing up important data"; fi
     chroot $mountPoint /usr/sbin/addgroup $backupUsername sshpub 2>/dev/null || log "UNEXPECTED: Could not add sshpub group to backup maintainer user"
     chroot $mountPoint /usr/sbin/addgroup $backupUsername sshsftp 2>/dev/null || log "UNEXPECTED: Could not add sshsftp group to backup maintainer user"
 		# Creating temporary user to extract secrets from
-    if [ -z "$(chroot $mountPoint /bin/grep $extractUsername /etc/passwd)" ]; then
-        chroot $mountPoint /bin/mkdir -p /home/"$extractUsername" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $extractUsername"
-        chroot $mountPoint /usr/sbin/adduser -h /home/"$extractUsername" -s /sbin/nologin -D $extractUsername 2>/dev/null || log "CRITICAL: Could not create an account for extracting sensitive data"
-    fi
+    if [ -z "$(chroot $mountPoint /bin/grep $extractUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -h /home/"$extractUsername" -s /sbin/nologin -D $extractUsername 2>/dev/null || log "CRITICAL: Could not create an account for extracting sensitive data"; fi
     chroot $mountPoint /usr/sbin/addgroup $extractUsername sshpub 2>/dev/null || log "UNEXPECTED: Could not add sshpub group to extracing sensitive data user"
     chroot $mountPoint /usr/sbin/addgroup $extractUsername sshsftp 2>/dev/null || log "UNEXPECTED: Could not add sshsftp group to extracing sensitive data user"
 
@@ -1003,6 +990,7 @@ configLocalInstallation() {
 
     log "INFO: Permitting root to cause changes to certain files"
     chroot $mountPoint /bin/chmod u+w /etc/issue 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/issue be modified by root"
+    chroot $mountPoint /bin/chmod u+w /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/fstab be modified by root"
     chroot $mountPoint /bin/chmod u+w /etc/motd 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/motd be modified by root"
     chroot $mountPoint /bin/chmod u+w /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/inittab be modified by root"
     chroot $mountPoint /bin/chmod u+w /etc/securetty 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/securetty be modified by root"
@@ -1018,6 +1006,79 @@ configLocalInstallation() {
     chroot $mountPoint /bin/chmod u+w /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to writable"
     if [ -f "$mountPoint/etc/fail2ban/jail.local" ]; then chroot $mountPoint /bin/chmod u+w /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not guanratee local jail permissions are writable"; fi
     chroot $mountPoint /bin/chmod u+w /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change fail2ban configuration file permissions to writable"
+    
+    log "INFO: Creating missing files for logging or chroot"
+		# mkdir
+    chroot $mountPoint /bin/mkdir -p /var/run/acpid 2>/dev/null || log "UNEXPECTED: Could not create directory for acpid pid file"
+    chroot $mountPoint /bin/mkdir -p /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not create directory for fail2ban pid file"
+    chroot $mountPoint /bin/mkdir -p /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd pid file"
+    chroot $mountPoint /bin/mkdir -p "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory as /home/.keys"
+    for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
+        chroot $mountPoint /bin/mkdir -p "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $i"
+        chroot $mountPoint /bin/mkdir -p "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not create syslog hook directory for mounted dev file"
+        chroot $mountPoint /bin/mkdir -p "/home/.keys/$i" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $i"
+    done
+    for i in $previewUsername $serverCommandUsername; do
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/usr" 2>/dev/null || log "CRITICAL: Could not make a new usr directory for $i"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/usr/lib" 2>/dev/null || log "CRITICAL: Could not make a new usr/lib directory for $i"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/lib" 2>/dev/null || log "CRITICAL: Could not make a new lib directory for $i"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/bin" 2>/dev/null || log "CRITICAL: Could not make a new bin directory for $i"
+    done
+    	# touch
+    chroot $mountPoint /bin/touch /var/log/sshd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for sshd service"
+    chroot $mountPoint /bin/touch /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for chronyd service"
+    chroot $mountPoint /bin/touch /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for fail2ban service"
+    chroot $mountPoint /bin/touch /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "CRITICAL: Could not generate a sqlite3 database for fail2ban"
+    chroot $mountPoint /bin/touch /etc/fail2ban/jail.local 2>/dev/null || log "CRITICAL: Failed to create configuration file for fail2ban"
+    for i in $previewUsername $serverCommandUsername; do
+    	chroot $mountPoint /bin/touch "/home/$i/bin/rksh" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; rksh"
+    	chroot $mountPoint /bin/touch "/home/$i/bin/echo" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; echo"
+    	chroot $mountPoint /bin/touch "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; ld-musl-aarch64.so.1"
+    	chroot $mountPoint /bin/touch "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; libncursesw.so.6"
+    	chroot $mountPoint /bin/touch "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; libcrypto.so.3"
+    	chroot $mountPoint /bin/touch "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; libacl.so.1"
+    	chroot $mountPoint /bin/touch "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; libattr.so.1"
+    	chroot $mountPoint /bin/touch "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; libutmps.so.0.1"
+    	chroot $mountPoint /bin/touch "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; libskarnet.so.2.14"
+    done
+#    for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
+#        chroot $mountPoint /bin/touch "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not create syslog hook on mounted dev file"
+#    done
+
+    log "INFO: Chroot bindings added to fstab"
+		# Modifying fstab to bind files to certain locations in home director for $previewUsername & $serverCommandUsername
+    for i in $previewUsername $serverCommandUsername; do
+        if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/ksh\t\/home\/$i\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/bin/ksh\t/home/$i/bin/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include bin/rksh in fstab for $i user"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/coreutils\t\/home\/$i\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/bin/coreutils\t/home/$i/bin/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include bin/echo in fstab for $i user"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/lib/ld-musl-aarch64.so.1\t/home/$i/lib/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include lib/ld-musl-aarch64.so.1 in fstab for $i user"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libncursesw.so.6\t/home/$i/usr/lib/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libncursesw.so.6 in fstab for $i user"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libcrypto.so.3\t/home/$i/usr/lib/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libcrypto.so.3 in fstab for $i user"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libacl.so.1\t/home/$i/usr/lib/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libacl.so.1 in fstab for $i user"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libattr.so.1\t/home/$i/usr/lib/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libattr.so.1 in fstab for $i user"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libutmps.so.0.1\t/home/$i/usr/lib/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libutmps.so.0.1 in fstab for $i user"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libskarnet.so.2.14\t/home/$i/usr/lib/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libskarnet.so.2.14 in fstab for $i user"; fi
+    done
+    	# Adding /home directory binds for logging
+#    for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
+#    	if [ -z "$(chroot $mountPoint /bin/grep "^\/dev\/log\t/home/$i/dev/log\tnone\tauto,dev,relatime,noexec,noiversion,nosuid,rw,async,nouser,nosymfollow,bind\t0\t0" /etc/fstab)" ]; then ; fi
+#    done
+    	# Remove any bindings that exist in home directory temporarely
+    for i in $previewUsername $serverCommandUsername; do
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; ld-musl-aarch64.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; libncursesw.so.6"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libcrypto.so.3"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libacl.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libattr.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libutmps.so.0.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libskarnet.so.2.14"; fi
+    done
+
+# !!! RKSH CONFIG FILE
+# Resource: https://www.ibm.com/docs/en/aix/7.2.0?topic=shell-restricted-korn
+# Fix sftp issue form using rksh
+    log "INFO: Rksh configuration for: $previewUsername and $serverCommandUsername"
 
 # !!! PAM
 # Reading: 
@@ -1040,19 +1101,6 @@ configLocalInstallation() {
 # Check for pam: ldd /bin/login,
 # no output means no pam
     log "INFO: Configurating PAM"
-
-# !!! Chroot jail
-# Resource: https://github.com/remaskm/Chroot-Jail-Escape-Write-up
-# Binding: https://serverfault.com/questions/440426/sftp-file-symlinks-in-a-jailed-chrooted-directory
-# File binding inspiration: https://unix.stackexchange.com/questions/4897/providing-bin-and-lib-inside-a-chroot-jail
-# Chroot weakness: https://y198nt.github.io/posts/chroot_jailbreak/
-# Best practices: https://thelinuxcode.com/setup-linux-chroot-jails/
-    log "INFO: Creating chroot jails"
-
-# !!! RKSH CONFIG FILE
-# Resource: https://www.ibm.com/docs/en/aix/7.2.0?topic=shell-restricted-korn
-# Fix sftp issue form using rksh
-    log "INFO: Rksh configuration for each user"
 
     # Issue banner & motd. Inspiration: https://linux-audit.com/the-real-purpose-of-login-banners-on-linux/
     log "INFO: Changing /etc/issue and /etc/motd"
@@ -1109,8 +1157,6 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 
 # !!! SSHD
     log "INFO: Configurating SSH"
-		# Lockingdown and creating user-based sshd_config
-
 	# Modifying sshd profile
     chroot $mountPoint /bin/echo "# Standard sshd_config options
 Port $sshPort
@@ -1163,7 +1209,7 @@ PidFile /var/run/sshd/sshd.pid
 PermitTunnel no
 #VersionAddendum none
 Banner /etc/issue
-Subsystem sftp internal-sftp
+Subsystem sftp internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read
 
 # AlpineHarden.sh additions
 DisableForwarding yes
@@ -1184,21 +1230,13 @@ Match User $serverCommandUsername
     ForceCommand /bin/echo \"You did it! You are logged in!\"
 Match User $backupUsername
     ChrootDirectory /home/$backupUsername
-    ForceCommand internal-sftp -R -l $sftpLogging
+    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read
 Match User $monitorUsername
     ChrootDirectory /home/$monitorUsername
-    ForceCommand internal-sftp -R -l $sftpLogging
+    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read
 Match User $extractUsername
     ChrootDirectory /home/$extractUsername
-    ForceCommand internal-sftp -R -l $sftpLogging" > $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not create sshd_config profile"
-#https://blog.matrixpost.net/using-match-directives-in-ssh/
-#https://www.man7.org/linux/man-pages/man5/sshd_config.5.html
-#previewUsername (no shell basically)
-#backupUsername (sftp)
-#serverCommandUsername (limited shell, lol)
-#monitorUsername (sftp?)
-#extractUsername (sftp)
-
+    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read" > $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not create sshd_config profile"
 		# Lockdown ssh_config
     echo "Host *
     AddressFamily inet
@@ -1220,13 +1258,6 @@ Match User $extractUsername
     Tunnel no
     UsePrivilegedPort no
     PubkeyAuthentication yes" > $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file"
-		# Create storage place of ssh keys
-    chroot $mountPoint /bin/mkdir -p "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory as /home/.keys"
-    chroot $mountPoint /bin/mkdir -p "/home/.keys/$extractUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $extractUsername"
-    chroot $mountPoint /bin/mkdir -p "/home/.keys/$monitorUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $monitorUsername"
-    chroot $mountPoint /bin/mkdir -p "/home/.keys/$previewUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $previewUsername"
-    chroot $mountPoint /bin/mkdir -p "/home/.keys/$serverCommandUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $serverCommandUsername"
-    chroot $mountPoint /bin/mkdir -p "/home/.keys/$backupUsername" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $backupUsername"
 		# Generate ssh keys for authorized users
     if [ ! -f "$mountPoint/home/.keys/$extractUsername/authorized_keys" ]; then chroot $mountPoint /bin/echo "$sshUsernameKey" > "$mountPoint/home/.keys/$extractUsername/authorized_keys" || log "CRITICAL: Failed to add ssh public key to /home/.keys for $extractUsername"; fi
     if [ ! -f "$mountPoint/home/.keys/$monitorUsername/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$monitorUsername-key" -t ed25519 -P "$tempSshPass" || log "CRITICAL: Could not generate sshd key for $monitorUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$monitorUsername-key.pub /home/.keys/$monitorUsername/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $monitorUsername"; fi
@@ -1303,8 +1334,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/sed -i "s/            if statinfo.st_uid != 0/            if 1 == 2 and statinfo.st_uid != 0/1" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null || log "UNEXPECTED: Could not turn off warning of certain files owned by non-root account in ufw"
 
     log "INFO: Configurating fail2ban"
-		# Fail2ban file creation
-    chroot $mountPoint /bin/touch /etc/fail2ban/jail.local || log "CRITICAL: Failed to create configuration file for fail2ban"    
+		# Fail2ban file creation   
     chroot $mountPoint /bin/echo -e '[INCLUDES]\nbefore = paths-debian.conf\n' > $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to include other relevant standard jail settings"
     chroot $mountPoint /bin/echo -e '[DEFAULT]\nbantime = 1h\nfindtime = 1h\nmaxretry = 3\nbantime.increment = true\nbantime.maxtime = 6000\nbantime.factor = 2\nbantime.overalljails = true\nignorecommand =\nmaxmatches = %(maxretry)s\nbackend = auto\nusedns = warn\nlogencoding = auto\nenabled = false\nmode = normal\nfilter = %(__name__)s[mode=%(mode)s]\n' >> $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to declare default jail settings"
     chroot $mountPoint /bin/echo -e 'destemail=root@localhost\nsender = root@<fq-hostname>\nmta = sendmail\nprotocol = tcp\nchain = <known/chain>\nport = 0:65535\nfail2ban_agent = Fail2Ban%(fail2ban_version)s\nbanaction = iptables-multiport\nbanaction_allports = iptables_allports\naction_ = %(banaction)s[port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]\naction_mw = %(action)s%(mta)s-whois[sender="%(sender)", dest="%(destemail)s", protocol="%(protocol)s", chain="%(chain)s"]\naction_mwl = %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]\naction_xarf = %(action)sxarf-login-attack[service=%(__name__), logpath="%(logpath)s", port="%(port)s""]\naction_cf_mwl = cloudflare[cfuser="%(cfemail)s", cftoken="%(cfapikey)s"] %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]\naction_blocklist_de = blocklist_de[email="%(sender)s", service="%(__name__)s", apikey="%(blocklist_de_apikey)s", agent="%(fail2ban_agent)s"]\naction_abuseipdb = abuseipdb\naction = %(action_)s' >> $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Mostly failed to declare email and management settings for jail"
@@ -1339,20 +1369,17 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
 #chmod 700 /tmp/removal.sh
 #chown cron:cron /tmp/removal.sh
 #at -f /tmp/removal.sh now + 4 hours
-    log "INFO: Creating script to delete $extractUsername in 4 hours!"
+    log "INFO: Created script to delete $extractUsername in 4 hours!"
 
     log "INFO: Setting permissions on /bin executables"
     chroot $mountPoint /bin/chmod 0510 /bin/busybox 2>/dev/null || log "UNEXPECTED: Could not change permissions for; busybox"
-    chroot $mountPoint /bin/chmod 0500 /bin/coreutils 2>/dev/null || log "UNEXPECTED: Could not change permissions for; coreutils"
+    chroot $mountPoint /bin/chmod 0510 /bin/coreutils 2>/dev/null || log "UNEXPECTED: Could not change permissions for; coreutils"
     chroot $mountPoint /bin/chmod 0500 /bin/rc-status 2>/dev/null || log "UNEXPECTED: Could not change permissions for; rc-status"
     chroot $mountPoint /bin/chmod 0500 /bin/setpriv 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setpriv"
     chroot $mountPoint /bin/chmod 0500 /bin/dmesg 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dmesg"
     chroot $mountPoint /bin/chmod 0500 /bin/kmod 2>/dev/null || log "UNEXPECTED: Could not change permissions for; kmod"
     chroot $mountPoint /bin/chmod 4510 /bin/bbsuid 2>/dev/null || log "UNEXPECTED: Could not change permissions for; bbsuid" # !!! Reconsider its permissions
-    # Ensuring rksh exist by creating a copy of ksh
-    chroot $mountPoint /bin/cp /bin/ksh /bin/rksh --update=none 2>/dev/null || log "CRITICAL: Could not create rksh to facilitate restricted ksh shell when users login in"
-    chroot $mountPoint /bin/chmod 0400 /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/ksh file permissions"
-    chroot $mountPoint /bin/chmod 0510 /bin/rksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/rksh file permissions"
+    chroot $mountPoint /bin/chmod 0510 /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/ksh file permissions"
     chroot $mountPoint /bin/chmod 4510 /bin/su 2>/dev/null || log "UNEXPECTED: Could not change permissions for; su"
     chroot $mountPoint /bin/chmod 0500 /bin/login 2>/dev/null || log "UNEXPECTED: Could not change permissions for; login"
 
@@ -1840,21 +1867,14 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0444 "/usr/share/zoneinfo/$timezone" 2>/dev/null || log "UNEXPECTED: Could not change /usr/share/zoneinfo/$timezone file permissions for /etc/localtime"
 
     log "INFO: Changing anything else remaining in /var"
-    chroot $mountPoint /bin/mkdir -p /var/run/acpid 2>/dev/null || log "UNEXPECTED: Could not create directory for acpid pid file"
-    chroot $mountPoint /bin/mkdir -p /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not create directory for fail2ban pid file"
-    chroot $mountPoint /bin/mkdir -p /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd pid file"
     chroot $mountPoint /bin/chmod 00750 /var/run/acpid 2>/dev/null || log "UNEXPECTED: Could not change /var/run/acpid directory permissions"
     chroot $mountPoint /bin/chmod 00750 /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not change /var/run/sshd directory permissions"
-    chroot $mountPoint /bin/touch /var/log/sshd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for sshd service"
     chroot $mountPoint /bin/chmod 0240 /var/log/sshd.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/sshd.log file permissions"
     chroot $mountPoint /bin/chmod 0750 /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /var/run/fail2ban directory permissions"
     chroot $mountPoint /bin/chmod 0240 /var/log/acpid.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/acpid.log file permissions"
-    chroot $mountPoint /bin/touch /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for chronyd service"
     chroot $mountPoint /bin/chmod 0240 /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/chronyd.log file permissions"
-    chroot $mountPoint /bin/touch /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for fail2ban service"
     chroot $mountPoint /bin/chmod 240 /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/fail2ban.log file permissions"
     chroot $mountPoint /bin/chmod 0640 /var/log/messages 2>/dev/null || log "UNEXPECTED: Could not change /var/log/messages file permissions"
-    chroot $mountPoint /bin/touch /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not generate a sqlite3 database for fail2ban"
     chroot $mountPoint /bin/chmod 0460 /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change /var/lib/fail2ban/fail2ban.sqlite3 file permissions"
 
     log "INFO: Setting home files and directories"
@@ -1862,17 +1882,31 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 00550 /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/ directory permissions"
         # Permissions of: SSH authorization directories, SSH authorization file
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
-        chroot $mountPoint /bin/mkdir -p "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not create syslog hook directory for mounted dev file"
-        chroot $mountPoint /bin/touch "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not create syslog hook on mounted dev file"
         chroot $mountPoint /bin/chmod 00550 "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i directory permissions"
         chroot $mountPoint /bin/chmod 00510 "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev directory permissions"
-        chroot $mountPoint /bin/chmod 0510 "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev/log file permissions"
+#        chroot $mountPoint /bin/chmod 0510 "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev/log file permissions"
         chroot $mountPoint /bin/chmod 00501 "/home/.keys/$i/" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$i/ directory permissions"
         chroot $mountPoint /bin/chmod 0404 "/home/.keys/$i/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$i/authorized_keys file permission"
     done
-	# SSH private key permissions for each user
+		# SSH private key permissions for each user
     for i in $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
         chroot $mountPoint /bin/chmod 0400 "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$i-key file permissions"
+    done
+		# SSH chroot environment with shell
+    for i in $previewUsername $serverCommandUsername; do
+        chroot $mountPoint /bin/chmod 00501 "/home/$i/usr" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr directory permission"
+        chroot $mountPoint /bin/chmod 00501 "/home/$i/usr/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib directory permission"
+        chroot $mountPoint /bin/chmod 00501 "/home/$i/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib directory permission"
+        chroot $mountPoint /bin/chmod 00501 "/home/$i/bin" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin directory permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/rksh file permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/echo file permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib/ld-musl-aarch64.so.1 file permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libncursesw.so.6 file permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libcrypto.so.3 file permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libacl.so.1 file permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libattr.so.1 file permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libutmps.so.0.1 file permission"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libskarnet.so.2.14 file permission"
     done
 
     log "INFO: Finalalizing directory permissions"
@@ -1950,11 +1984,12 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chown "$fail2banUsername:logread" /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/fail2ban.log"
     chroot $mountPoint /bin/chown "$fail2banUsername:$fail2banUsername" /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/run/fail2ban"
         # General files used by more than one service
-    chroot $mountPoint /bin/chown root:rshell /bin/rksh 2>/dev/null || log "UNEXPECTED: Could not change ownership of /bin/rksh file"
     chroot $mountPoint /bin/chown root:logread /var/log/messages 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/messages"
     chroot $mountPoint /bin/chown root:python /usr/bin/env 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/env"
     chroot $mountPoint /bin/chown root:python /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/python3.12"
+    chroot $mountPoint /bin/chown root:rshell /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /bin/ksh"
     chroot $mountPoint /bin/chown root:busybox /bin/busybox 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /bin/busybox"
+    chroot $mountPoint /bin/chown root:coreutils /bin/coreutils 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /bin/coreutils"
     chroot $mountPoint /bin/chown root:iptables /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/xtables-nft-multi"
     chroot $mountPoint /bin/chown root:logrotate /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/logrotate"
     chroot $mountPoint /bin/chown root:readGroup /etc/group 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/group"
@@ -1964,12 +1999,28 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
         chroot $mountPoint /bin/chown "root:$i" "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$i"
         chroot $mountPoint /bin/chown "$i:$i" "/home/.keys/$i" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$i"
         chroot $mountPoint /bin/chown "root:$i" "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$i/dev"
-        chroot $mountPoint /bin/chown "root:$i" "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$i/dev/log"
+#        chroot $mountPoint /bin/chown "root:$i" "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$i/dev/log"
         chroot $mountPoint /bin/chown "$i:$i" "/home/.keys/$i/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$i/authorized_keys"
     done
-	# SSH private key ownership for each user
+		# SSH private key ownership for each user
     for i in $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
         chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$i-key"
+    done
+		# SSH chroot environment with shell
+    for i in $previewUsername $serverCommandUsername; do
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr directory ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib directory ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib directory ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/bin" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin directory ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/rksh file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/echo file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib/ld-musl-aarch64.so.1 file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libncursesw.so.6 file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libcrypto.so.3 file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libacl.so.1 file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libattr.so.1 file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libutmps.so.0.1 file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libskarnet.so.2.14 file ownership"
     done
 
     log "INFO: Granting root capabilities to certain executables" # Changing file ownership removes prior capabilities, thus is belongs here
@@ -1982,7 +2033,8 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /sbin/rc-update add ufw default 2>/dev/null || log "UNEXPECTED: Could not add ufw to launch automatically"
     chroot $mountPoint /sbin/rc-update add fail2ban default 2>/dev/null || log "INFO: Fail2ban was already added to boot"
 
-    log "INFO: Restarting services"
+    log "INFO: Restarting services and mounts"
+    chroot $mountPoint /bin/mount -a 2>/dev/null || log "UNEXPECTED: Could not properly ensure everything has been mounted accordingly"
     chroot $mountPoint /sbin/rc-service acpid restart || log "UNEXPECTED: Could not restart acpid daemon"
     chroot $mountPoint /sbin/rc-service chronyd restart || log "UNEXPECTED: Could not restart chronyd daemon"
     chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
@@ -2112,15 +2164,16 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep doas-doc)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find doas-doc package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep libcap-getcap)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find libcap-getcap package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep libcap-setcap)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find libcap-setcap package"; fi
-    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep loksh)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find loksh package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep shadow)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find shadow package"; fi
-    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep acpid)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find acpid package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep loksh)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find loksh package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep \{at\})" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find \'at\' package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep acpid)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find acpid package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep ufw)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find ufw package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep nftables)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find nftables package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep fail2ban)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find fail2ban package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep openssh-server-pam)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find openssh-server-pam package"; fi
-    
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep util-linux-login)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find util-linux-login package"; fi
+
     # User existance checks
     if [ -z "$(chroot $mountPoint /bin/grep at /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User at was not found"; fi
     if [ -z "$(chroot $mountPoint /bin/grep $powerUsername /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $powerUsername was not found"; fi
@@ -2163,6 +2216,63 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep $loggerUsername /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group $loggerUsername was not found"; fi
     if [ -z "$(chroot $mountPoint /bin/grep $backgroundUsername /etc/group)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Group $backgroundUsername was not found"; fi
 
+    # File and directory existance check
+    if [ -f "$mountPoint/etc/init.d/ufw.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/init.d/ufw.apk-new should not exist!"; fi
+    if [ -f "$mountPoint/etc/ufw/ufw.conf.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/ufw/ufw.conf.apk-new should not exist!"; fi
+    if [ -f "$mountPoint/etc/default/ufw.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/default/ufw.apk-new should not exist!"; fi
+    if [ ! -f "$mountPoint/etc/fail2ban/jail.local" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is misconfigured; /etc/fail2ban/jail.local file should exist!"; fi
+    if [ ! -d "$mountPoint/var/run/acpid" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: ACPID is misconfigured; /var/run/acpid directory should exist!"; fi
+    if [ ! -d "$mountPoint/var/run/sshd" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /var/run/sshd directory should exist!"; fi
+    if [ ! -d "$mountPoint/var/run/fail2ban" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is misconfigured; /var/run/fail2ban directory should exist!"; fi
+    if [ ! -f "$mountPoint/var/lib/fail2ban/fail2ban.sqlite3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is misconfigured; /var/lib/fail2ban/fail2ban.sqlite3 file should exist!"; fi
+    if [ ! -f "$mountPoint/var/log/fail2ban.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/fail2ban.log should exist!"; fi
+    if [ ! -f "$mountPoint/var/log/sshd.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/sshd.log should exist!"; fi
+    if [ ! -f "$mountPoint/var/log/chronyd.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/chronyd.log should exist!"; fi
+    if [ ! -f "$mountPoint/var/log/acpid.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/acpid.log should exist!"; fi
+    if [ ! -d "$mountPoint/home/.keys" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/.keys/$monitorUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$monitorUsername directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/.keys/$previewUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$previewUsername directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/.keys/$serverCommandUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$serverCommandUsername directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/.keys/$backupUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$backupUsername directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/.keys/$monitorUsername/authorized_keys" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$monitorUsername/authorized_keys directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/.keys/$previewUsername/authorized_keys" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$previewUsername/authorized_keys directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/.keys/$serverCommandUsername/authorized_keys" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$serverCommandUsername/authorized_keys directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/.keys/$backupUsername/authorized_keys" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$backupUsername/authorized_keys directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$monitorUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$monitorUsername directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$previewUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$serverCommandUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$backupUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$backupUsername directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$monitorUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$monitorUsername/dev directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$previewUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/dev directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$serverCommandUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/dev directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$backupUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$backupUsername/dev directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$previewUsername/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/lib directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$previewUsername/usr" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$previewUsername/usr/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$previewUsername/bin" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/bin/rksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin/rksh directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/bin/echo" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin/echo directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/lib/ld-musl-aarch64.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/lib/ld-musl-aarch64.so.1 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libncursesw.so.6" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libncursesw.so.6 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libcrypto.so.3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libcrypto.so.3 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libacl.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libacl.so.1 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libattr.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libattr.so.1 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libutmps.so.0.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libutmps.so.0.1 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libskarnet.so.2.14" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libskarnet.so.2.14 directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$serverCommandUsername/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/lib directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$serverCommandUsername/usr" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$serverCommandUsername/usr/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$serverCommandUsername/bin" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/rksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/rksh directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/echo" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/echo directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/lib/ld-musl-aarch64.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/lib/ld-musl-aarch64.so.1 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libncursesw.so.6" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libncursesw.so.6 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libcrypto.so.3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libcrypto.so.3 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libacl.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libacl.so.1 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libattr.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libattr.so.1 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libutmps.so.0.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libutmps.so.0.1 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libskarnet.so.2.14" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libskarnet.so.2.14 directory should exist!"; fi
+    
     # User in certain group checks
 	# Syslogd
 	# Acpid
@@ -2194,9 +2304,11 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep sshsftp /etc/group | grep $monitorUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $monitorUsername was not found in group sshsftp"; fi
     	# Preview stats of server
     if [ -z "$(chroot $mountPoint /bin/grep rshell /etc/group | grep $previewUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $previewUsername was not found in group rshell"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep coreutils /etc/group | grep $previewUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $previewUsername was not found in group coreutils"; fi
     if [ -z "$(chroot $mountPoint /bin/grep sshpub /etc/group | grep $previewUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $previewUsername was not found in group sshpub"; fi
         # Remote execute command
     if [ -z "$(chroot $mountPoint /bin/grep rshell /etc/group | grep $serverCommandUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $serverCommandUsername was not found in group rshell"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep coreutils /etc/group | grep $serverCommandUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $serverCommandUsername was not found in group coreutils"; fi
     if [ -z "$(chroot $mountPoint /bin/grep cmdUtil /etc/group | grep $serverCommandUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $serverCommandUsername was not found in group cmdUtil"; fi
     if [ -z "$(chroot $mountPoint /bin/grep sshpub /etc/group | grep $serverCommandUsername)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User $serverCommandUsername was not found in group sshpub"; fi
         # Backup files user
@@ -2303,10 +2415,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "^AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedKeysFile!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^PidFile \/var\/run\/sshd\/sshd.pid" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; PidFile!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^Subsystem sftp internal-sftp" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for Subsystenm; Missing internal-sftp!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "ForceCommand internal-sftp -R -l $sftpLogging$" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for internal-sftp; sftp is not read only and incorrect logging level!"; fi
-    if [ ! -f "$mountPoint/etc/init.d/sshd" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /etc/init.d/sshd file is missing!"; fi
-    if [ ! -d "$mountPoint/var/run/sshd" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /var/run/sshd directory should exist!"; fi
-    if [ ! -d "$mountPoint/home/.keys" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys directory does not exist!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read$" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for internal-sftp; sftp is not read only and incorrect logging level!"; fi
 
     # Check ssh_config configuration
     if [ -z "$(chroot $mountPoint /bin/grep "^    AddressFamily inet" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; AddressFamily!"; fi
@@ -2373,11 +2482,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-limit -j REJECT' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for rate limiting"; fi
     if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-limit-accept -j ACCEPT' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for rate limiting"; fi
 
-    # Existance of redundant UFW files?
-    if [ -f "$mountPoint/etc/init.d/ufw.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/init.d/ufw.apk-new should not exist!"; fi
-    if [ -f "$mountPoint/etc/ufw/ufw.conf.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/ufw/ufw.conf.apk-new should not exist!"; fi
-    if [ -f "$mountPoint/etc/default/ufw.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/default/ufw.apk-new should not exist!"; fi
-
     # UFW root bypass check
     if [ -z "$(chroot $mountPoint /bin/grep "    if 1 == 2 and uid != 0" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW still requires root access to be executed!"; fi
 
@@ -2404,14 +2508,13 @@ verifyLocalInstallation() {
 
     # Checking /bin permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/busybox -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/busybox"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/coreutils -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/coreutils"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/coreutils -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/coreutils"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/rc-status -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/rc-status"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/setpriv -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/setpriv"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/dmesg -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/dmesg"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/kmod -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/kmod"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/bbsuid -perm 4510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/bbsuid"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/ksh -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/ksh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/rksh -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/rksh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/ksh -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/ksh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/su -perm 4510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/su"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/login -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/login"; fi
 
@@ -2816,9 +2919,9 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw/ufw-init"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init-functions -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw/ufw-init-functions"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init-functions -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init-functions; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init-functions -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init-functions"; fi
 
     # Checking /usr/share permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/share/zoneinfo/$timezone -perm 0444 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/share/zoneinfo/$timezone for /etc/localtime"; fi
@@ -2859,10 +2962,18 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/dev -perm 510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/dev"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/dev -perm 510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/dev"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/dev -perm 510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$backupUsername/dev"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/dev/log -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$monitorUsername/dev/log"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/dev/log -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/dev/log"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/dev/log -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/dev/log"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/dev/log -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$backupUsername/dev/log"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/dev/log -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$monitorUsername/dev/log"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/dev/log -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/dev/log"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/dev/log -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/dev/log"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/dev/log -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$backupUsername/dev/log"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/usr -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/usr"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/usr/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/usr/lib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/lib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/bin -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/bin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/usr -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/usr"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/usr/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/usr/lib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/lib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/bin"; fi
 
     # Common directories near root permission check
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc -perm 751 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc"; fi
@@ -2877,8 +2988,9 @@ verifyLocalInstallation() {
 
     # File ownership checks
     	# Other Files
-    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/rksh -user root -and -group rshell 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/rksh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/ksh -user root -and -group rshell 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/ksh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/busybox -user root -and -group busybox 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/busybox"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/coreutils -user root -and -group coreutils 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/coreutils"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/messages -user root -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/messages"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/env -user root -and -group python 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/env"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/python3.12 -user root -and -group python 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/python3.12"; fi
@@ -2902,7 +3014,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/acpid.log -user $powerUsername -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/acpid.log"; fi
 
 	# Chronyd
-    if [ ! -f "$mountPoint/var/log/chronyd.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/chronyd.log does not exist!"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/chronyd -user root -and -group chrony 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/chronyd"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/chronyd.log -user chrony -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/chronyd.log"; fi
 
@@ -2919,9 +3030,17 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ssh/ssh-pkcs11-helper -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ssh/ssh-pkcs11-helper"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ssh/sshd-auth -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ssh/sshd-auth"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ssh/sshd-session -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ssh/sshd-session"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /var/run/sshd -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/run/sshd"; 
+    if [ -z "$(chroot $mountPoint /usr/bin/find /var/run/sshd -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/run/sshd"; fi 
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/sshd.log -user root -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/sshd.log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys -user root -and -group sshpub 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$monitorUsername -user $monitorUsername -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$monitorUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$previewUsername -user $previewUsername -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$previewUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$serverCommandUsername -user $serverCommandUsername -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$serverCommandUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$backupUsername -user $backupUsername -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$backupUsername"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$monitorUsername/authorized_keys -user $monitorUsername -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$monitorUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$previewUsername/authorized_keys -user $previewUsername -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$previewUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$serverCommandUsername/authorized_keys -user $serverCommandUsername -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$serverCommandUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$backupUsername/authorized_keys -user $backupUsername -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$backupUsername/authorized_keys"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername -user root -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername -user root -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername -user root -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername"; fi
@@ -2930,30 +3049,38 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/dev -user root -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/dev"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/dev -user root -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/dev"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/dev -user root -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$backupUsername/dev"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/dev/log -user root -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername/dev/log"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/dev/log -user root -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/dev/log"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/dev/log -user root -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/dev/log"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/dev/log -user root -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$backupUsername/dev/log"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/dev/log -user root -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername/dev/log"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/dev/log -user root -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/dev/log"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/dev/log -user root -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/dev/log"; fi
+#    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/dev/log -user root -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$backupUsername/dev/log"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/usr -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/usr"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/usr/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/usr/lib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/lib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/bin -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/bin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/usr -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/usr"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/usr/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/usr/lib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/lib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin"; fi
 
         # Firewall
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ssh -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/ssh; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/apk -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/apk; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ntp -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/ntp; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/dns -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/dns; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.init -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before.init; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before.rules; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before6.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before6.rules; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.init -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after.init; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after.rules; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after6.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after6.rules; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/sysctl.conf -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/sysctl.conf; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/default/ufw; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/ufw; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/ufw.conf -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/ufw.conf; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user.rules -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/user.rules; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user6.rules -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/user6.rules; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ssh -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/ssh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/apk -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/apk"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ntp -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/ntp"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/dns -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/dns"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.init -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before.init"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before6.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before6.rules":; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.init -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after.init"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after6.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after6.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/sysctl.conf -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/sysctl.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/default/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/ufw.conf -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/ufw.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user.rules -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/user.rules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user6.rules -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/user6.rules"; fi
 
         # Fail2ban
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-client -user root -and -group $fail2banUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/fail2ban-client"; fi
@@ -2978,20 +3105,50 @@ verifyLocalInstallation() {
 
         # Log gatherer
 
-        # SSH keys
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$monitorUsername -user $monitorUsername -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$monitorUsername"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$previewUsername -user $previewUsername -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$previewUsername"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$serverCommandUsername -user $serverCommandUsername -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$serverCommandUsername"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$backupUsername -user $backupUsername -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$backupUsername"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$monitorUsername/authorized_keys -user $monitorUsername -and -group $monitorUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$monitorUsername/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$previewUsername/authorized_keys -user $previewUsername -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$previewUsername/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$serverCommandUsername/authorized_keys -user $serverCommandUsername -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$serverCommandUsername/authorized_keys"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/.keys/$backupUsername/authorized_keys -user $backupUsername -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/.keys/$backupUsername/authorized_keys"; fi
-
     # Service existance check
-    if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i "^sshd$" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: sshd should be removed from rc list"; fi
+    if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i sshd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: sshd should be added to rc list"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Ufw is yet to be added to rc list"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i fail2ban 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is yet to be added to rc list"; fi
+
+    # Fstab check
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/ksh\t\/home\/$previewUsername\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /bin/ksh to /home/$previewUsername/bin/rksh"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/coreutils\t\/home\/$previewUsername\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /bin/coreutils to /home/$previewUsername/bin/echo"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/lib\/ld-musl-aarch64.so.1\t\/home\/$previewUsername\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /lib/ld-musl-aarch64.so.1 to /home/$previewUsername/lib/ld-musl-aarch64.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libncursesw.so.6\t\/home\/$previewUsername\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libncursesw.so.6 to /home/$previewUsername/usr/lib/libncursesw.so.6"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libcrypto.so.3\t\/home\/$previewUsername\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libcrypto.so.3 to /home/$previewUsername/usr/lib/libcrypto.so.3"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libacl.so.1\t\/home\/$previewUsername\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libacl.so.1 to /home/$previewUsername/usr/lib/libacl.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libattr.so.1\t\/home\/$previewUsername\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libattr.so.1 to /home/$previewUsername/usr/lib/libattr.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libutmps.so.0.1\t\/home\/$previewUsername\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libutmps.so.0.1 to /home/$previewUsername/usr/lib/libutmps.so.0.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$previewUsername\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libskarnet.so.2.14 to /home/$previewUsername/usr/lib/libskarnet.so.2.14"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/ksh\t\/home\/$serverCommandUsername\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /bin/ksh to /home/$serverCommandUsername/bin/rksh"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/coreutils\t\/home\/$serverCommandUsername\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /bin/coreutils to /home/$serverCommandUsername/bin/echo"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/lib\/ld-musl-aarch64.so.1\t\/home\/$serverCommandUsername\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /lib/ld-musl-aarch64.so.1 to /home/$serverCommandUsername/lib/ld-musl-aarch64.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libncursesw.so.6\t\/home\/$serverCommandUsername\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libncursesw.so.6 to /home/$serverCommandUsername/usr/lib/libncursesw.so.6"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libcrypto.so.3\t\/home\/$serverCommandUsername\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libcrypto.so.3 to /home/$serverCommandUsername/usr/lib/libcrypto.so.3"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libacl.so.1\t\/home\/$serverCommandUsername\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libacl.so.1 to /home/$serverCommandUsername/usr/lib/libacl.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libattr.so.1\t\/home\/$serverCommandUsername\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libattr.so.1 to /home/$serverCommandUsername/usr/lib/libattr.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libutmps.so.0.1\t\/home\/$serverCommandUsername\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libutmps.so.0.1 to /home/$serverCommandUsername/usr/lib/libutmps.so.0.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$serverCommandUsername\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libskarnet.so.2.14 to /home/$serverCommandUsername/usr/lib/libskarnet.so.2.14"; fi
+        
+    # Mounted files check for chroot environment
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/bin/rksh " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /bin/ksh to /home/$previewUsername/bin/rksh"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/bin/echo " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /bin/coreutils to /home/$previewUsername/bin/echo"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /lib/ld-musl-aarch64.so.1 to /home/$previewUsername/lib/ld-musl-aarch64.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libncursesw.so.6 to /home/$previewUsername/usr/lib/libncursesw.so.6"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libcrypto.so.3 to /home/$previewUsername/usr/lib/libcrypto.so.3"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libacl.so.1 to /home/$previewUsername/usr/lib/libacl.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libattr.so.1 to /home/$previewUsername/usr/lib/libattr.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libutmps.so.0.1 to /home/$previewUsername/usr/lib/libutmps.so.0.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libskarnet.so.2.14 to /home/$previewUsername/usr/lib/libskarnet.so.2.14"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/bin/rksh " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /bin/ksh to /home/$serverCommandUsername/bin/rksh"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/bin/echo " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /bin/coreutils to /home/$serverCommandUsername/bin/echo"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /lib/ld-musl-aarch64.so.1 to /home/$serverCommandUsername/lib/ld-musl-aarch64.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libncursesw.so.6 to /home/$serverCommandUsername/usr/lib/libncursesw.so.6"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libcrypto.so.3 to /home/$serverCommandUsername/usr/lib/libcrypto.so.3"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libacl.so.1 to /home/$serverCommandUsername/usr/lib/libacl.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libattr.so.1 to /home/$serverCommandUsername/usr/lib/libattr.so.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libutmps.so.0.1 to /home/$serverCommandUsername/usr/lib/libutmps.so.0.1"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libskarnet.so.2.14 to /home/$serverCommandUsername/usr/lib/libskarnet.so.2.14"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for local installation: $missing"; else echo "INFO: Not a single missed test for local installation!"; fi
