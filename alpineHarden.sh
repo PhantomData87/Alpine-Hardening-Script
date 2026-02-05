@@ -60,7 +60,7 @@
 # set ulimit in sysctl via fs.file and alike (find if this is related to exclusively PAM or not), 
 # Password quality?,
 # Chroot exploit mitigation: https://github.com/remaskm/Chroot-Jail-Escape-Write-up
-# Proper chroot for non-sftp users: missing rksh cooperation
+# Change /etc/issue for $extractUsername
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -170,7 +170,7 @@ export namingJustNum=true # Choose "true" or "false" to indicate partioning nami
 # Variables for pre setup (Leave it alone)
 gAlpineSetup=false
 gPartition=false
-gKernelSetup=false
+gKernelPartition=false
 
 # Variables for post setup (Leave it alone)
 gKernel=false
@@ -296,7 +296,7 @@ interpretArgs() {
         -v|--verbose) verbose=true;;
         --alpineConfig) gAlpineSetup=true;;
         --partition) gPartition=true;;
-        --formatKernel) gKernelSetup=true;;
+        --formatKernel) gKernelPartition=true;;
         --local) gLocal=true;;
         --remote) gRemote=true;;
         --kernel) gKernel=true;;
@@ -319,7 +319,7 @@ interpretArgs() {
     fi
 
     # No option selected?
-    if ! $pre && ! $post && ! $verify && ! $rmAlpine && ! $gKernelSetup; then
+    if ! $pre && ! $post && ! $verify && ! $rmAlpine && ! $gKernelPartition; then
         echo 'BAD FORMAT: Must provide an action!'
         printHelp
         exit
@@ -410,7 +410,7 @@ printVariables() {
     echo "File locations; Log: $logFile | Mount: $mountPoint"
     echo ""
     echo "Script configuration:"
-    echo "Mode; Pre: $pre | Post: $post | Verify: $verify | Delete: $rmAlpine | Verbosity: $verbose | Fresh kernel installation: $gKernelSetup"
+    echo "Mode; Pre: $pre | Post: $post | Verify: $verify | Delete: $rmAlpine | Verbosity: $verbose | Fresh kernel installation: $gKernelPartition"
     echo "Script; Remote logging server address: $logIP"
 
     # Last chance to back out
@@ -421,209 +421,6 @@ printVariables() {
             [Nn]* ) exit;;
         esac
     done
-}
-
-# Detect mount point
-mountFind() {
-    # Check if primary variables are already set, if so then exit prematurely
-    if [ ! -z "$mountDevice" ] && [ ! -z "$packageDevice" ]; then return 0; fi
-
-    # Notify script
-    log "INFO: Started to find block devices!"
-    local devName=""
-    local devBlock=""
-    local devSize=""
-    local devLabel=""
-    local choiceMain=""
-    local skip=false
-    local blockFormatSize=1024
-
-    # Let user read list printed from above, and have user manually specify which device to use
-    while true; do
-        # Print a list of possible devices
-        echo "Device		Size		Label"
-        cat /proc/partitions | grep -ivE ram\|loop\|major\|dm\- | while read -r devDevice; do
-            if [ "$devDevice" = '' ]; then continue; fi
-            devName=$(echo $devDevice | awk -F ' {1,}' '{print($4)}')
-            devBlock=$(echo $devDevice | awk -F ' {1,}' '{print($3)}')
-            devSize=$(awk "BEGIN {if ((($devBlock*$blockFormatSize)/1073741824) > 1) {print (($devBlock*$blockFormatSize)/1073741824) \" GB\"} else {print (($devBlock*$blockFormatSize)/1048576) \" MB\"}}")
-            devLabel=$(ls -l /dev/disk/by-label/ | grep -w $devName)
-            echo "$devName	$devSize	$devLabel"
-        done
-
-        # User selection for core device
-        while [ -z "$choiceMain" ]; do
-            read -p "From the list above. Specify the device to be primarely used [Type 'no' to abort]: " choiceMain
-            case $choiceMain in
-                NO ) exit;;
-                No ) exit;;
-                nO ) exit;;
-                no ) exit;;
-                *) break;;
-            esac
-        done
-
-        # User selection for core device
-        while [ -z "$choiceAports" ]; do
-            read -p "From the list above. Specify where systemm packages are stored [Type 'no' to abort, type 'skip' to ignore]: " choiceAports
-            case $choiceAports in
-                NO ) exit;;
-                No ) exit;;
-                nO ) exit;;
-                no ) exit;;
-                skip ) skip=true;;
-                *) break;;
-            esac
-        done
-
-        # Check if device exists
-        if [ ! -e "/dev/$choiceMain" ]; then choiceMain=''; fi
-        if [ ! -e "/dev/$choiceAports" ] && ! $skip; then choiceAports=''; fi
-        if [ ! -z "$choiceMain" ] && [ ! -z "$choiceAports" ]; then break; else log "UNEXPECTED: The block device does not exist"; fi
-    done
-
-    # Determine if partition type has a p or not: https://unix.stackexchange.com/questions/500887/given-a-block-device-how-to-detect-if-names-of-partitions-must-contain-p
-    if [ ! -z "$(echo $choiceMain | grep -E -o [1234567890]*$)" ]; then export namingJustNum=false; else export namingJustNum=true; fi
-    if [ ! -z "$(echo $choiceAports | grep -E -o [1234567890]*$)" ]; then export packageNamingJustNum=false; else export packageNamingJustNum=true; fi
-    export mountDevice="/dev/$choiceMain"
-    export packageDevice="/dev/$choiceAports"
-
-    echo "INFO: User input will no longer be required. (Unless deleting installation, or setting up the kernel for the first time)"
-    log "INFO: Device to be affected: $mountDevice | Kernel located in device: $packageDevice | Affected device does not have 'p' in partition? : $namingJustNum | kernel storage device does not have 'p' in partition? : $packageNamingJustNum"
-    log "INFO: Finished finding block devices"
-}
-
-kernelExternalMount() {
-    # Find where to find mounted devices
-    mountFind
-
-    # Check if kernel mounting is warranted, if so then mount
-    if [ ! "$packageDevice" = "/dev/skip" ] && [ -z "$(mount | grep -i $packageDevice)" ]; then
-        # Check home directory existance, then mount
-        if [ -d "$mountPoint/home/maintain" ]; then 
-            if $packageNamingJustNum; then chroot $mountPoint /bin/mount -t xfs "$packageDevice$kernelPartitionStart" /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount kernel partition to $mountPoint/home/maintain"; else chroot $mountPoint /bin/mount -t xfs "$packageDevice$p$kernelPartitionStart" /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount kernel partition to $mountPoint/home/maintain"; fi
-        else log "INFO: Kernel storage device can't mount to $mountPoint/home/maintain"; fi
-    else log "INFO: Kernel storage devices skipped, or already mounted!"; fi
-}
-
-# Safely mount expected drives and prepare chroot environment
-mountAlpine() {
-    # Find where to find mounted devices
-    mountFind
-
-    # Check if mountpoint is current filesystem
-    if [ "$mountPoint" = "/" ]; then log "INFO: Nothing to mount! Mount point is set to current filesystem root."; return 0; fi
-
-    # Check if drives are already mounted at mount pount ($mountPoint)
-    if [ ! -z "$(mount | grep -i $mountPoint)" ]; then log "INFO: Atleast some drives are already mounted!"; return 0; fi
-    log "INFO: Started mounting alpine!"
-
-    # Start mounting the whole alpine directory
-    log "INFO: Started mounting partitions to expected regions"
-    vgchange -ay 2>/dev/null || log "CRITICAL: Could not enable logical partitions"
-    mkdir -p "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to write $mountPoint or it already exists"
-    mount -t ext4 /dev/"$lvmName"/"$localhostName".root "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to mount $lvmName to $mountPoint"
-    mkdir -p "$mountPoint"/boot 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/boot"
-    mkdir -p "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/boot/efi"
-    mkdir -p "$mountPoint"/home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint"
-    mkdir -p "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint"
-    mount -t ext4 /dev/"$lvmName"/"$localhostName".home "$mountPoint"/home 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount $lvmName to $mountPoint"
-    if $namingJustNum; then mount -t vfat "$mountDevice$partitionStart" "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount efi partition to $mountPoint/boot/efi"; else mount -t vfat "$mountDevice$p$partitionStart" "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount efi partition to $mountPoint/boot/efi"; fi
-    mount -t ext4 /dev/"$lvmName"/"$localhostName".var "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var partition to $mountPoint/var"
-    mkdir -p "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/var"
-    mkdir -p "$mountPoint"/var/tmp 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/var"
-    mount -t ext4 /dev/"$lvmName"/"$localhostName".var.log "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/log partition to $mountPoint/var/log"
-    mount -t ext4 /dev/"$lvmName"/"$localhostName".var.tmp "$mountPoint"/var/tmp 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/tmp partition to $mountPoint/var/tmp"
-    log "INFO: Finish mounting partitions to expected regions"
-
-    # Required for a valid chroot environment
-    log "INFO: Preparing chroot environment"
-    mkdir -p "$mountPoint"/proc 2>/dev/null || log "UNEXPECTED: Could not create /proc directory for chroot environment"
-    mkdir -p "$mountPoint"/sys 2>/dev/null || log "UNEXPECTED: Could not create /sys directory for chroot environment"
-    mkdir -p "$mountPoint"/dev 2>/dev/null || log "UNEXPECTED: Could not create /dev directory for chroot environment"
-    mkdir -p "$mountPoint"/run 2>/dev/null || log "UNEXPECTED: Could not create /run directory for chroot environment"
-    mount -t proc proc "$mountPoint"/proc 2>/dev/null || log log "CRITICAL: Could not make /proc available in chroot environment"
-    mount -o bind /sys "$mountPoint"/sys 2>/dev/null || log "CRITICAL: Could not make /sys available in chroot environment"
-    mount -o bind /dev "$mountPoint"/dev 2>/dev/null || log "CRITICAL: Could not make /dev available in chroot environment"
-    mount -o bind /run "$mountPoint"/run 2>/dev/null || log "CRITICAL: Could not make /run available in chroot environment"
-    log "INFO: Finished setting up bindings for chroot environment"
-
-    # Finish mounting
-    log "INFO: Finished mounting alpine!"
-}
-
-# Safely umount expected drives and prepare chroot environment
-unmountAlpine() {
-    # Find where to find mounted devices
-    mountFind
-
-    # Check if kernel un-mounting is warranted, if so then mount
-    if [ ! "$packageDevice" = "/dev/skip" ] && [ ! -z "$(mount | grep -i $packageDevice)" ]; then
-        # Check home directory existance, then mount
-        if [ -d "$mountPoint/home/maintain" ]; then chroot $mountPoint /bin/umount /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to umount kernel partition from $mountPoint/home/maintain"; else log "INFO: Kernel storage device can't umount to $mountPoint/home/maintain"; fi
-    else log "INFO: Kernel storage devices skipped, or already un-mounted!"; fi
-
-    # Check if mountpoint is current filesystem
-    if [ "$mountPoint" = "/" ]; then log "INFO: Nothing to umount! Mount point is set to current filesystem root."; return 0; fi
-
-    # Check if drives are already unmounted at mount pount ($mountPoint)
-    if [ -z "$(mount | grep -i $mountPoint)" ]; then log "INFO: Drives are already unmounted!"; return 0; fi
-
-    # Unmoount devices from known chroot environment
-    log "INFO: Started umount-ing alpine!"
-    vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions to unmount partitions"
-    umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"
-    umount "$mountPoint"/var/tmp 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/tmp"
-    umount "$mountPoint"/var/log 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/log"
-    umount "$mountPoint"/var 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var"
-    umount "$mountPoint"/home/maintain 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home/maintain"
-    umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"
-    umount "$mountPoint"/proc 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/proc"
-    umount "$mountPoint"/sys 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/sys"
-    umount "$mountPoint"/dev 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/dev"
-    umount "$mountPoint"/run 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/run"
-    umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
-    log "INFO: Finished unmounting alpine environment"
-
-    # Finish unmounting
-    log "INFO: Finished umount-ing alpine!"
-}
-
-# Reset partitions and installation on detected drive
-removeAlpine() {
-    # Find where to find mounted devices
-    mountFind
-
-    # Check if mountpoint is current filesystem
-    if [ "$mountPoint" = "/" ]; then log "INFO: Nothing to delete! Mount point is set to current filesystem root."; return 0; fi
-
-    # Check if partitions exist
-    if [ -z "$(ls $mountDevice* | grep 2)" ]; then echo "SYSTEM TEST MISMATCH: Device does not have a second partition, thus it was already deleted"; exit; fi
-
-    # Ask the user if they wish to delete alpine
-    while true; do
-        read -p "Delete alpine installation found in $mountPoint from $mountDevice device? y/n: " yn
-        case $yn in
-            [Yy]* ) break;;
-            [Nn]* ) return 0;;
-        esac
-    done
-
-    # Unmount drives if they are still present
-    log "INFO: Started removing alpine installation on $mountDevice media"
-    unmountAlpine
-    rmdir "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not remove $mountPoint"
-
-    # Remove vg and pv recognition from lvm
-    vgremove "$lvmName" || log "UNEXPECTED: Could not remove $lvmname as a valid recognized name from system"
-    if $namingJustNum; then pvremove "$mountDevice$(($partitionStart+1))" || log "UNEXPECTED: Could not remove lvm signature from physical device"; else pvremove "$mountDevice$p$(($partitionStart+1))" || log "UNEXPECTED: Could not remove lvm signature from physical device"; fi
-
-    # Remove recognized partitions from device
-    if $namingJustNum; then parted -a optimal "$mountDevice" 'rm 2' 2>/dev/null || log "CRITICAL: Could not remove LVM partition 2 on physical device"; else parted -a optimal "$mountDevice" 'rm 3' 2>/dev/null || log "CRITICAL: Could not remove LVM partition 3 on physical device"; fi
-    if $namingJustNum; then parted -a optimal "$mountDevice" 'rm 1' 2>/dev/null || log "CRITICAL: Could not remove EFI partition 1 on physical device"; else parted -a optimal "$mountDevice" 'rm 2' 2>/dev/null || log "CRITICAL: Could not remove EFI partition 2 on physical device"; fi
-
-    # Confirmation message
-    log "INFO: Finished removing alpine installation on $mountDevice media"
 }
 
 setupAlpine() {
@@ -661,208 +458,41 @@ setupAlpine() {
     log "INFO: Almost finished default alpine installation!"
 }
 
-# Inspired by: https://techgirlkb.guru/2019/08/how-to-create-cis-compliant-partitions-on-aws/
-setupDisks() {
-    # Find where to find mounted devices
-    mountFind
-
-    # Install software
-    log "INFO: Installing required software"
-    apk add parted lvm2 e2fsprogs xfsprogs || log "CRITICAL: Could not install all software"
-
-    log "INFO: Started partitioning disk on $mountDevice"
+# Prepare low level devices for high level abstraction of configLocalInstallation()
+defineMount() {
+    log "INFO: Checking if user requested for local installation (Same disk installation = skip Alpine install & mounting)"
     
-    # Partition the device
-    local s="s"
-    parted -a optimal "$mountDevice" 'unit s' 2>/dev/null || log "INFO: Could not set unit when partitioning disks"
-    parted -a optimal "$mountDevice" "mkpart primary fat32 $partitionSector$s 1050623s" 2>/dev/null
-    parted -a optimal "$mountDevice" "set $partitionStart boot on" 2>/dev/null || log "UNEXPECTED: Could not declare $partitionStart partition as boot drive"; 
-    parted -a optimal "$mountDevice" 'mkpart primary ext4 1050624s 100%' 2>/dev/null || log "CRITICAL: Could not declare final partition as LVM"
-    parted -a optimal "$mountDevice" "set $(($partitionStart+1)) lvm on" 2>/dev/null
-    parted -a optimal "$mountDevice" "align-check optimal $partitionStart" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of boot partition"
-    parted -a optimal "$mountDevice" "align-check optimal $(($partitionStart+1))" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of partitions"
-    mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service"
+    log "INFO: Checking if user requested for kernel to be prepared (External disk installation = enable kernel installation)"
 
-    log "INFO: Partitioning completed"
+	log "INFO: Considering existing block devices"
+	
+	log "INFO: User choice confirmed"
 
-    # Setup LVM environment
-    if $namingJustNum; then pvcreate -ff "$mountDevice$(($partitionStart+1))" || log "CRITICAL: Could not declare lvm partition signature"; else pvcreate -ff "$mountDevice$p$(($partitionStart+1))" || log "CRITICAL: Could not declare lvm partition signature"; fi
-    if $namingJustNum; then vgcreate "$lvmName" "$mountDevice$(($partitionStart+1))" || log "CRITICAL: Could not declare lvm logical group"; else vgcreate "$lvmName" "$mountDevice$p$(($partitionStart+1))" || log "CRITICAL: Could not declare lvm logical group"; fi
-    log "INFO: Created pv and vg device"
-    lvcreate -n "$localhostName".root -L "$rootSize" "$lvmName" || log "CRITICAL: Could not make root partition"
-    log "INFO: Created root partition"
-    lvcreate -n "$localhostName".home -L "$homeSize" "$lvmName" || log "UNEXPECTED: Coild not make home partition"
-    log "INFO: Created home partition"
-    lvcreate -n "$localhostName".var -L "$varSize" "$lvmName" || log "UNEXPECTED: Could not make var partition"
-    log "INFO: Created var partition"
-    lvcreate -n "$localhostName".var.tmp -L "$varTmpSize" "$lvmName" || log "UNEXPECTED: Could not make var/tmp partition"
-    log "INFO: Created var/tmp partition"
-    lvcreate -n "$localhostName".var.log -L "$varLogSize" "$lvmName" || log "UNEXPECTED: Could not make var/log partition"
-    log "INFO: Created var/log partition"
-    rc-update add lvm 2>/dev/null || log "UNEXPECTED: Did not add lvm services to rc"
-    vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions"
-    log "INFO: Finished LVM setup"
+	# Alpine installation
+    log "INFO: Checking if this is a fresh installation"
+	
+    log "INFO: Started formatting Alpine disk!"
+	
+	log "INFO: Mounting all Alpine partitions"
+	
+	log "INFO: Checking if Alpine is installed"
+	
+	log "INFO: Installing Alpine on disk"
 
-    # Format drives
-    if $namingJustNum; then mkfs.vfat "$mountDevice$partitionStart" 2>/dev/null || log "CRITICAL: Could not format boot partition"; else mkfs.vfat "$mountDevice$p$partitionStart" 2>/dev/null || log "CRITICAL: Could not format boot partition"; fi
-    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".home 2>/dev/null || log "UNEXPECTED: Could not format home partition"
-    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".root 2>/dev/null || log "CRITICAL: Could not format root partition"
-    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var 2>/dev/null || log "UNEXPECTED: Could not format var partition"
-    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var.log 2>/dev/null || log "UNEXPECTED: Could not format var/log partition"
-    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var.tmp 2>/dev/null || log "UNEXPECTED: Could not format var/tmp partition"
-    log "INFO: Finished formatting"
 
-    # Mount drives to correct configuration
-    mountAlpine
-
-    # Execute setup-disk command provided by alpine
-    setup-disk "$mountPoint" || log "CRITICAL: Did not install setup to $namingJustNum"
-    log "INFO: Default alpine provided installation completed"
-
-    # Change fstab file configuration
-    log "INFO: Modifying fstab file"
-    chroot $mountPoint /bin/sed -i "s/tmpfs\t\/tmp\ttmpfs\tnosuid,nodev\t0\t0/tmpfs\t\/tmp\ttmpfs\tnoatime,nodev,noexec,nosuid,size\=512m\t0\t0/g" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    chroot $mountPoint /bin/echo -e "tmpfs\t/dev/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0" >> /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime,noatime,acl,user_xattr,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-
-    # Ensure grub has no timeout when booting into it's menu
-    chroot $mountPoint /bin/sed -i 's/GRUB_TIMEOUT=\(.*\)/GRUB_TIMEOUT=0/g' /etc/default/grub || log "UNEXPECTED: Could not lower timeout for grub configuration"
-    chroot $mountPoint /bin/chmod 400 /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
-
-    # Confirmation message
-    log "INFO: Finished partitioning disk on $mountDevice" /dev/"$lvmName"/"$localhostName"
-}
-
-formatKernel() {
-    # Find where to find mounted devices
-    log "INFO: Checking requirements to setup kernel"
-    mountFind
-    if [ "$choiceAports" = "skip" ]; then log "INFO: No block device specified to install kernel in"; return 0; fi
-
-    log "INFO: Setting up kernel to: $packageDevice. Begin formatting it"
-    chroot $mountPoint /sbin/apk add xfsprogs parted 2>/dev/null || log "CRITICAL: Could not install required software"
-    chroot $mountPoint /usr/sbin/parted -a optimal "$packageDevice" "mkpart primary xfs $kernelPartitionSector$(echo s) 100%" 2>/dev/null || log "CRITICAL: Could not declare kernel block device partition"
-    chroot $mountPoint /usr/sbin/parted -a optimal "$packageDevice" 'align-check optimal 1' 2>/dev/null || log "UNEXPECTED: Could not optimize placement of kernel block partition"
-    if $packageNamingJustNum; then chroot $mountPoint /sbin/mkfs.xfs -f "$packageDevice$kernelPartitionStart" 2>/dev/null || log "CRITICAL: Could not format kernel block device"; else chroot $mountPoint /sbin/mkfs.xfs -f "$packageDevice$p$kernelPartitionStart" 2>/dev/null || log "CRITICAL: Could not format kernel block device"; fi
+	# Kernel secondary disk installation
+    log "INFO: Checking if kernel already exists"
     
-    log "INFO: Mounting kernel storage device to /home/maintain directory"
-    chroot $mountPoint /bin/mkdir -p /home/maintain 2>/dev/null || log "UNEXPECTED: Could not create home directory to mount towards"
-    kernelExternalMount
-    
-    log 'INFO: Finished preparing kernel storage device. Moving onto automatic configuration from configKernel()'
-    configKernel
-}
-
-# Modify kernel with ncurses-dev; chroot /mnt/alpine /usr/bin/make menuconfig -C /home/maintain/aports/main/linux-lts/src/linux-6.12
-configKernel() {
-    if [ "$choiceAports" = 'skip' ]; then log "BAD FORMAT: Skipping kernel configuration due to lacking a kernel storage device"; return 0; fi
-    if [ ! -f "$mountPoint/home/maintain/linuxConfig.config" ]; then log "BAD FORMAT: There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/maintain/"; echo "There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/maintain/"; return 0; fi
-
-    log "INFO: Installing required tools for this section"
-    chroot $mountPoint /sbin/apk add alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "CRITICAL: Could not install required packages for kernel"
-
-    if [ -z "$(chroot $mountPoint /bin/grep $buildUsername /etc/passwd)" ]; then
-        log "INFO: Setting up $buildUsername user"
-        chroot $mountPoint /bin/mkdir -p /home/maintain 2>/dev/null || log "UNEXPECTED: Could not make a new directory"
-        chroot $mountPoint /usr/sbin/adduser -h /home/maintain -S -D -s /sbin/nologin $buildUsername 2>/dev/null || log "CRITICAL: Could not create an account for building the kernel"
-        chroot $mountPoint /usr/sbin/addgroup $buildUsername abuild 2>/dev/null || log "CRITICAL: Could not include $buildUsername into abuild group"
-        chroot $mountPoint /usr/sbin/addgroup $buildUsername wheel 2>/dev/null || log "UNEXPECTED: Could not include $buildUsername into admin group"
-    fi
-
-    if [ ! -d "$mountPoint/home/maintain/aports/.git" ]; then
-        log "INFO: Obtaining github repo to install kernel"
-        chroot $mountPoint /bin/chown "$buildUsername:root" /home/maintain 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
-        chroot $mountPoint /usr/bin/git -C /home/maintain clone git://git.alpinelinux.org/aports.git || log "CRITICAL: Could not obtain github repo to install kernel"
-    fi
-
-    log "INFO: Restricting directories"
-    chroot $mountPoint /bin/chmod 760 /home/maintain 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain directory"
-    chroot $mountPoint /bin/chmod 760 /home/maintain/aports 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports directory"
-    chroot $mountPoint /bin/chmod 760 /home/maintain/aports/main 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports/main directory"
-    chroot $mountPoint /bin/chmod 760 /home/maintain/aports/main/linux-lts 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports/main/linux-lts directory"
-
-    log "INFO: Synchronizing github repo"
-    if [ -f "$mountPoint/home/maintain/aports/.git/index.lock" ]; then chroot $mountPoint /bin/rm /home/maintain/aports/.git/index.lock 2>/dev/null || log "INFO: Unable to remove git lock"; fi
-    if [ -d "$mountPoint/home/maintain/aports/main/linux-lts/src" ]; then chroot $mountPoint /bin/rm -R /home/maintain/aports/main/linux-lts/src 2>/dev/null || log "INFO: Unable to remove old kenrel source files"; log "INFO: Finished removing old src directory in aports/main/linux-lts"; fi
-    if [ -d "$mountPoint/home/maintain/aports/main/linux-lts/pkg" ]; then chroot $mountPoint /bin/rm -R /home/maintain/aports/main/linux-lts/pkg 2>/dev/null || log "INFO: Unable to remove old kenrel built files"; log "INFO: Finished removing old pkg directory in aports/main/linux-lts"; fi
-    chroot $mountPoint /usr/bin/git config --global --add safe.directory /home/maintain/aports || log "UNEXPECTED: Could not guanratee that git thinks /home/maintain/aports is safe directory"
-    chroot $mountPoint /usr/bin/git -C /home/maintain/aports reset --hard "$gitPackageCommitHash" || log "UNEXPECTED: Could not set branch to expected kernel version $kernelVersion"
-    chroot $mountPoint /bin/chown "$buildUsername:root" -R /home/maintain 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
-    chroot $mountPoint /bin/chmod +x /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "CRITICAL: Could not enable execution to APKBUILD"
-    local archType="$(uname -m)"
-
-    log "INFO: Enabling Doas configuration for $buildUsername to execute some commands with doas"
-    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild-keygen args -a -i -n" > $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuilld-keygen permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/echo "permit nopass :wheel cmd mkdir" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide mkdir permissions to members apart of wheel group"
-    chroot $mountPoint /bin/echo "permit nopass :wheel cmd cp" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide cp permissions to members apart of wheel group"
-    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/maintain/aports/main/linux-lts checksum" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild checksum permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/maintain/aports/main/linux-lts -crK" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild build permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/chmod 0400 /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/kernelBuild.conf file permissions"
-
-
-    if [ ! -f "$mountPoint/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" ] || [ ! -f "$mountPoint/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" ]; then
-        log "INFO: Obtaining kernel patches based on linux hardening alpine guide"
-        chroot $mountPoint /usr/bin/wget -O "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" "$hardeningPatchUrl.patch" || log "UNEXPECTED: Could not download patch into kernel"
-        chroot $mountPoint /usr/bin/wget -O "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" "$hardeningPatchUrl.patch.sig" || log "UNEXPECTED: Couldd not download patch signature key into kernel"
-        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel patch file is owned by $buildUsername"
-        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel patch signature file is owned by $buildUsername"
-    fi
-
-    if [ -z "$(chroot $mountPoint /bin/ls /etc/apk/keys | grep -v alpine-devel)" ]; then
-        log "INFO: Generating signing key"
-        chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild-keygen -a -i -n || log "UNEXPECTED: Could not generate keys for $buildUsername"
-        chroot $mountPoint /bin/chmod a+r /etc/apk/keys/* 2>/dev/null || log "UNEXPECTED: Could not enable keys stored in /etc/apk/keys to be read by $buildUsername"
-    fi
-
-    log "INFO: Configurating APKBUILD file to include only relevant files"
-    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/lts.aarch64.config\n\tlts.armv7.config\n\tlts.loongarch64.config\n\tlts.ppc64le.config\n\tlts.riscv64.config\n\tlts.s390x.config\n\tlts.x86.config\n\tlts.x86_64.config/REPLACEME.patch1\n\tREPLACEME.patch2\n\tlts.REPLACEME.config/g' /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source first configuration"
-    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/virt.aarch64.config\n\tvirt.armv7.config\n\tvirt.ppc64le.config\n\tvirt.x86.config\n\tvirt.x86_64.config/virt.REPLACEME.config/g' /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source second configuration"
-    chroot $mountPoint /bin/sed -i "s/lts.REPLACEME.config/lts.$archType.config/1" /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source second configuration"
-    chroot $mountPoint /bin/sed -i "s/virt.REPLACEME.config/virt.$archType.config/1" /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source third configuration"
-    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch1/0098-linux-hardened-v$kernelVersion.patch/1" /home/maintain/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optinal hardening patch file"
-    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch2/0099-linux-hardened-v$kernelVersion.patch.sig/1" /home/maintain/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optional hardening patch signature file"
-
-    # Ensure we have the right kernel configuration file
-    if [ "$(chroot $mountPoint /usr/bin/md5sum /home/maintain/linuxConfig.config)" != "$(chroot $mountPoint /usr/bin/md5sum /home/maintain/aports/main/linux-lts/lts.$archType.config)" ]; then
-        # Move the new file
-        log "INFO: Moving file linuxConfig.config into lts.$archType.config with the following md5sum: $(chroot $mountPoint /usr/bin/md5sum /home/maintain/linuxConfig.config) = $(chroot $mountPoint /usr/bin/md5sum /home/maintain/aports/main/linux-lts/lts.$archType.config)"
-        chroot $mountPoint /bin/cp /home/maintain/linuxConfig.config "/home/maintain/aports/main/linux-lts/lts.$archType.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"
-        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/lts.$archType.config" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel config file is owned by $buildUsername"
-    fi
-
-    log "INFO: Performing checksum on everything"
-    chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C /home/maintain/aports/main/linux-lts checksum || log "UNEXPECTED: Could not compile checksum of everything modified so far"
-
-    if [ -z "$(chroot $mountPoint /sbin/apk list | grep linux-lts | grep $kernelVersion | grep installed)" ]; then
-        if [ ! -d "$mountPoint/home/maintain/packages/main/$archType" ]; then
-    	    if [ -z "$(chroot $mountPoint /bin/ls /home/maintain/packages/main/"$archType" | grep -v linux-lts)" ]; then
-    		log "INFO: Compiling kernel at; $(date)"
-    		time -o /tmp/compileTime chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C /home/maintain/aports/main/linux-lts -crK 2>&1 | tee /tmp/kernelLog || log "CRITICAL: Could not finish compiling kernel"
-    		
-                log "INFO: The kernel took to compile: $(cat /tmp/compileTime)"
-    		rm /tmp/compileTime || log "UNEXPECTED: Could not remove temporary file to keep track the length of time it took the kernel to compile"
-    	    fi
-        fi
- 	log "INFO: Installing kernel at; $(date)"
-    	chroot $mountPoint /sbin/apk del linux-lts || log "CRITICAL: Could not remove existing kernel for new installation"
-    	chroot $mountPoint /sbin/apk update --repository "/home/maintain/packages/main/" || log "CRITICAL: Could not update repository for new installation"
-    	chroot $mountPoint /sbin/apk add --repository "/home/maintain/packages/main/" linux-lts="$kernelVersion-r0" || log "CRITICAL: Could not install kernel $kernelVersion to local system"
-    fi
-
-    log "INFO: Cleaning up kernel files and modifications"
-    chroot $mountPoint /bin/rm /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Permission doas file has not been deleted to enforce principle of least priviledge"
-    chroot $mountPoint /sbin/apk del alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "UNEXPECTED: Could not remove development build packages"
-
-    log "INFO: Modifying grub with new kernel parameters"
-    chroot $mountPoint /bin/chmod u+w /etc/default/grub || log "UNEXPECTED: Could not set to 600 permission on /etc/default/grub"
-    chroot $mountPoint /bin/sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="modules=sd=mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100"/g' /etc/default/grub || log "UNEXPECTED: Could not implement kernel parameters that enforce security"
-    chroot $mountPoint /bin/chmod u-w /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
-    chroot $mountPoint /usr/sbin/update-grub || log "UNEXPECTED: Could not implement changes for grub"
-
-    log "INFO: Kernel modifications have been succesfully configured!"
+    log "INFO: Started formatting Kernel disk!"
+	
+	log "INFO: Mounting kernel partitions in home directory"
+	
+	log "INFO: Checking if kernel is latest version or higher from secondary disk"
+	
+	log "INFO: Installing Kernel on secondary disk"
+	
+	
+	log "INFO: Finish preparing block devices"
 }
 
 # !!!
@@ -1023,6 +653,7 @@ configLocalInstallation() {
     	chroot $mountPoint /bin/mkdir -p "/home/$i/usr/lib" 2>/dev/null || log "CRITICAL: Could not make a new usr/lib directory for $i"
     	chroot $mountPoint /bin/mkdir -p "/home/$i/lib" 2>/dev/null || log "CRITICAL: Could not make a new lib directory for $i"
     	chroot $mountPoint /bin/mkdir -p "/home/$i/bin" 2>/dev/null || log "CRITICAL: Could not make a new bin directory for $i"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not make a new dev/pts directory for $i; pts"
     done
     	# touch
     chroot $mountPoint /bin/touch /var/log/sshd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for sshd service"
@@ -1057,6 +688,7 @@ configLocalInstallation() {
     	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libattr.so.1\t/home/$i/usr/lib/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libattr.so.1 in fstab for $i user"; fi
     	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libutmps.so.0.1\t/home/$i/usr/lib/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libutmps.so.0.1 in fstab for $i user"; fi
     	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libskarnet.so.2.14\t/home/$i/usr/lib/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libskarnet.so.2.14 in fstab for $i user"; fi
+        if [ -z "$(chroot $mountPoint /bin/grep "^\/dev\/pts\t\/home\/$i\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/dev/pts\t/home/$i/dev/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include dev/pts in fstab for $i user"; fi
     done
     	# Adding /home directory binds for logging
 #    for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
@@ -1073,12 +705,17 @@ configLocalInstallation() {
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libattr.so.1"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libutmps.so.0.1"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libskarnet.so.2.14"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
     done
 
-# !!! RKSH CONFIG FILE
+# !!! ? RKSH CONFIG FILE
 # Resource: https://www.ibm.com/docs/en/aix/7.2.0?topic=shell-restricted-korn
 # Fix sftp issue form using rksh
     log "INFO: Rksh configuration for: $previewUsername and $serverCommandUsername"
+    echo "#!/bin/rksh
+print \"You have connected succesfully! Built-in commands will be here soon.\"" > $mountPoint/home/$previewUsername/bin/greeting.ksh 2>/dev/null || log "CRITICAL: Could not create greeting script for $previewUsername"
+    echo "#!/bin/rksh
+print \"You have connected succesfully! Built-in commands will be here soon.\"" > $mountPoint/home/$serverCommandUsername/bin/greeting.ksh 2>/dev/null || log "CRITICAL: Could not create greeting script for $serverCommandUsername"
 
 # !!! PAM
 # Reading: 
@@ -1219,15 +856,15 @@ Ciphers aes256-gcm@openssh.com,aes256-ctr
 KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com
 MACs hmac-sha2-512-etm@openssh.com
 PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com
-AllowUsers $previewUsername@$localNetwork/$localNetmask $backupUsername@$localNetwork/$localNetmask $serverCommandUsername@$localNetwork/$localNetmask $monitorUsername@$localNetwork/$localNetmask $extractUsername@$localNetwork/$localNetmask
+AllowUsers $previewUsername@$localNetwork/$localNetmask $backupUsername@$localNetwork/$localNetmask $serverCommandUsername@$localNetwork/$localNetmask $monitorUsername@$localNetwork/$localNetmask
 
 #SFTP server configuration
 Match User $previewUsername
     ChrootDirectory /home/$previewUsername
-    ForceCommand /bin/echo \"You did it! You are logged in!\"
+    ForceCommand greeting.ksh
 Match User $serverCommandUsername
     ChrootDirectory /home/$serverCommandUsername
-    ForceCommand /bin/echo \"You did it! You are logged in!\"
+    ForceCommand greeting.ksh
 Match User $backupUsername
     ChrootDirectory /home/$backupUsername
     ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read
@@ -1235,6 +872,7 @@ Match User $monitorUsername
     ChrootDirectory /home/$monitorUsername
     ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read
 Match User $extractUsername
+    AllowUsers $extractUsername@$localNetwork/$localNetmask
     ChrootDirectory /home/$extractUsername
     ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read" > $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not create sshd_config profile"
 		# Lockdown ssh_config
@@ -1898,8 +1536,10 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
         chroot $mountPoint /bin/chmod 00501 "/home/$i/usr/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib directory permission"
         chroot $mountPoint /bin/chmod 00501 "/home/$i/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib directory permission"
         chroot $mountPoint /bin/chmod 00501 "/home/$i/bin" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin directory permission"
+        chroot $mountPoint /bin/chmod 00000 "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev/pts directory permission"
         chroot $mountPoint /bin/chmod 0000 "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/rksh file permission"
         chroot $mountPoint /bin/chmod 0000 "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/echo file permission"
+        chroot $mountPoint /bin/chmod 0550 "/home/$i/bin/greeting.ksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/greeting.ksh file permission"
         chroot $mountPoint /bin/chmod 0000 "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib/ld-musl-aarch64.so.1 file permission"
         chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libncursesw.so.6 file permission"
         chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libcrypto.so.3 file permission"
@@ -2012,8 +1652,10 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
         chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib directory ownership"
         chroot $mountPoint /bin/chown root:root "/home/$i/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib directory ownership"
         chroot $mountPoint /bin/chown root:root "/home/$i/bin" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin directory ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev/pts directory ownership"
         chroot $mountPoint /bin/chown root:root "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/rksh file ownership"
         chroot $mountPoint /bin/chown root:root "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/echo file ownership"
+        chroot $mountPoint /bin/chown "root:$i" "/home/$i/bin/greeting.ksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/greeting.ksh file ownership"
         chroot $mountPoint /bin/chown root:root "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib/ld-musl-aarch64.so.1 file ownership"
         chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libncursesw.so.6 file ownership"
         chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libcrypto.so.3 file ownership"
@@ -2052,49 +1694,113 @@ configRemoteCapabilities() {
     log "INFO: One day"
 }
 
-# Needs scripting; kernel.yama.ptrace_scope, kernel.modules_disabled, user.max_user_namespaces?, kernel.warn_limit
-verifyKernel() {
-    local missing=0
+# Modify kernel manually with ncurses-dev; chroot /mnt/alpine /usr/bin/make menuconfig -C /home/maintain/aports/main/linux-lts/src/linux-6.12
+configKernel() {
+    if [ "$choiceAports" = 'skip' ]; then log "BAD FORMAT: Skipping kernel configuration due to lacking a kernel storage device"; return 0; fi
+    if [ ! -f "$mountPoint/home/maintain/linuxConfig.config" ]; then log "BAD FORMAT: There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/maintain/"; echo "There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/maintain/"; return 0; fi
 
-    # Ownership check
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong directory ownership for /home/maintain"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/lts.$archType.config" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/lts.$archType.config"; fi
+    log "INFO: Installing required tools for this section"
+    chroot $mountPoint /sbin/apk add alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "CRITICAL: Could not install required packages for kernel"
 
-    # Directory permission verification
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports/main -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports/main"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports/main/linux-lts -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports/main/linux-lts"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep $buildUsername /etc/passwd)" ]; then
+        log "INFO: Setting up $buildUsername user"
+        chroot $mountPoint /bin/mkdir -p /home/maintain 2>/dev/null || log "UNEXPECTED: Could not make a new directory"
+        chroot $mountPoint /usr/sbin/adduser -h /home/maintain -S -D -s /sbin/nologin $buildUsername 2>/dev/null || log "CRITICAL: Could not create an account for building the kernel"
+        chroot $mountPoint /usr/sbin/addgroup $buildUsername abuild 2>/dev/null || log "CRITICAL: Could not include $buildUsername into abuild group"
+        chroot $mountPoint /usr/sbin/addgroup $buildUsername wheel 2>/dev/null || log "UNEXPECTED: Could not include $buildUsername into admin group"
+    fi
 
-    # Checking for sysctls based on KSPP (Kernel Self Protection Project): https://kspp.github.io/Recommended_Settings#kernel-command-line-options
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.kptr_restrict 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.kptr_restrict 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.kptr_restrict is not greater or equal to 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.dmesg_restrict 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.dmesg_restrict 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.dmesg_restrict != 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.modules_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.modules_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.modules_disabled != 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.perf_event_paranoid 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.perf_event_paranoid 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.perf_event_paranoid is not greater or equal to 2"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.kexec_load_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.kexec_load_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.kexec_load_disabled != 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.randomize_va_space 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.randomize_va_space 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.randomize_va_space != 2"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.yama.ptrace_scope 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "3" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.yama.ptrace_scope 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.yama.ptrace_scope != 3"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl user.max_user_namespaces 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl user.max_user_namespaces 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; user.max_user_namespaces != 0"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl dev.tty.ldisc_autoload 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl dev.tty.ldisc_autoload 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; dev.tty.ldisc_autoload != 0"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl dev.tty.legacy_tiocsti 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl dev.tty.legacy_tiocsti 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; dev.tty.legacy_tiocsti != 0"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.unprivileged_bpf_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.unprivileged_bpf_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.unprivileged_bpf_disabled != 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.warn_limit 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.warn_limit 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.warn_limit is not greater or equal to 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl kernel.oops_limit 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.oops_limit 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.oops_limit is not greater or equal to 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl net.core.bpf_jit_harden 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl net.core.bpf_jit_harden 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; net.core.bpf_jit_harden != 2"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl vm.unprivileged_userfaultfd 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl vm.unprivileged_userfaultfd 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; vm.unprivileged_userfaultfd != 0"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_symlinks 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_symlinks 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_symlinks != 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_hardlinks 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_hardlinks 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_hardlinks != 1"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_fifos 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_fifos 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_fifos != 2"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_regular 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_regular 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_regular != 2"; fi
-    if [ "$(chroot $mountPoint /sbin/sysctl fs.suid_dumpable 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.suid_dumpable 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.suid_dumpable != 0"; fi
+    if [ ! -d "$mountPoint/home/maintain/aports/.git" ]; then
+        log "INFO: Obtaining github repo to install kernel"
+        chroot $mountPoint /bin/chown "$buildUsername:root" /home/maintain 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
+        chroot $mountPoint /usr/bin/git -C /home/maintain clone git://git.alpinelinux.org/aports.git || log "CRITICAL: Could not obtain github repo to install kernel"
+    fi
 
-    # Grub linux cmdline based on KSSP
-    if [ -z "$(chroot $mountPoint /bin/grep 'modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100' /etc/default/grub | grep 'GRUB_CMDLINE_LINUX_DEFAULT' 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Linux kernel command line has not been properely set in grub"; fi
+    log "INFO: Restricting directories"
+    chroot $mountPoint /bin/chmod 760 /home/maintain 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain directory"
+    chroot $mountPoint /bin/chmod 760 /home/maintain/aports 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports directory"
+    chroot $mountPoint /bin/chmod 760 /home/maintain/aports/main 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports/main directory"
+    chroot $mountPoint /bin/chmod 760 /home/maintain/aports/main/linux-lts 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports/main/linux-lts directory"
 
-    # Report total missed test, if above 0
-    if [ "$missing" != '0' ]; then echo "INFO: Missed tests for kernel: $missing"; else echo "INFO: Not a single missed test for kernel!"; fi
+    log "INFO: Synchronizing github repo"
+    if [ -f "$mountPoint/home/maintain/aports/.git/index.lock" ]; then chroot $mountPoint /bin/rm /home/maintain/aports/.git/index.lock 2>/dev/null || log "INFO: Unable to remove git lock"; fi
+    if [ -d "$mountPoint/home/maintain/aports/main/linux-lts/src" ]; then chroot $mountPoint /bin/rm -R /home/maintain/aports/main/linux-lts/src 2>/dev/null || log "INFO: Unable to remove old kenrel source files"; log "INFO: Finished removing old src directory in aports/main/linux-lts"; fi
+    if [ -d "$mountPoint/home/maintain/aports/main/linux-lts/pkg" ]; then chroot $mountPoint /bin/rm -R /home/maintain/aports/main/linux-lts/pkg 2>/dev/null || log "INFO: Unable to remove old kenrel built files"; log "INFO: Finished removing old pkg directory in aports/main/linux-lts"; fi
+    chroot $mountPoint /usr/bin/git config --global --add safe.directory /home/maintain/aports || log "UNEXPECTED: Could not guanratee that git thinks /home/maintain/aports is safe directory"
+    chroot $mountPoint /usr/bin/git -C /home/maintain/aports reset --hard "$gitPackageCommitHash" || log "UNEXPECTED: Could not set branch to expected kernel version $kernelVersion"
+    chroot $mountPoint /bin/chown "$buildUsername:root" -R /home/maintain 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
+    chroot $mountPoint /bin/chmod +x /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "CRITICAL: Could not enable execution to APKBUILD"
+    local archType="$(uname -m)"
+
+    log "INFO: Enabling Doas configuration for $buildUsername to execute some commands with doas"
+    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild-keygen args -a -i -n" > $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuilld-keygen permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass :wheel cmd mkdir" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide mkdir permissions to members apart of wheel group"
+    chroot $mountPoint /bin/echo "permit nopass :wheel cmd cp" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide cp permissions to members apart of wheel group"
+    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/maintain/aports/main/linux-lts checksum" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild checksum permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/maintain/aports/main/linux-lts -crK" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild build permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/chmod 0400 /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/kernelBuild.conf file permissions"
+
+
+    if [ ! -f "$mountPoint/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" ] || [ ! -f "$mountPoint/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" ]; then
+        log "INFO: Obtaining kernel patches based on linux hardening alpine guide"
+        chroot $mountPoint /usr/bin/wget -O "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" "$hardeningPatchUrl.patch" || log "UNEXPECTED: Could not download patch into kernel"
+        chroot $mountPoint /usr/bin/wget -O "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" "$hardeningPatchUrl.patch.sig" || log "UNEXPECTED: Couldd not download patch signature key into kernel"
+        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel patch file is owned by $buildUsername"
+        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel patch signature file is owned by $buildUsername"
+    fi
+
+    if [ -z "$(chroot $mountPoint /bin/ls /etc/apk/keys | grep -v alpine-devel)" ]; then
+        log "INFO: Generating signing key"
+        chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild-keygen -a -i -n || log "UNEXPECTED: Could not generate keys for $buildUsername"
+        chroot $mountPoint /bin/chmod a+r /etc/apk/keys/* 2>/dev/null || log "UNEXPECTED: Could not enable keys stored in /etc/apk/keys to be read by $buildUsername"
+    fi
+
+    log "INFO: Configurating APKBUILD file to include only relevant files"
+    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/lts.aarch64.config\n\tlts.armv7.config\n\tlts.loongarch64.config\n\tlts.ppc64le.config\n\tlts.riscv64.config\n\tlts.s390x.config\n\tlts.x86.config\n\tlts.x86_64.config/REPLACEME.patch1\n\tREPLACEME.patch2\n\tlts.REPLACEME.config/g' /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source first configuration"
+    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/virt.aarch64.config\n\tvirt.armv7.config\n\tvirt.ppc64le.config\n\tvirt.x86.config\n\tvirt.x86_64.config/virt.REPLACEME.config/g' /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source second configuration"
+    chroot $mountPoint /bin/sed -i "s/lts.REPLACEME.config/lts.$archType.config/1" /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source second configuration"
+    chroot $mountPoint /bin/sed -i "s/virt.REPLACEME.config/virt.$archType.config/1" /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source third configuration"
+    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch1/0098-linux-hardened-v$kernelVersion.patch/1" /home/maintain/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optinal hardening patch file"
+    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch2/0099-linux-hardened-v$kernelVersion.patch.sig/1" /home/maintain/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optional hardening patch signature file"
+
+    # Ensure we have the right kernel configuration file
+    if [ "$(chroot $mountPoint /usr/bin/md5sum /home/maintain/linuxConfig.config)" != "$(chroot $mountPoint /usr/bin/md5sum /home/maintain/aports/main/linux-lts/lts.$archType.config)" ]; then
+        # Move the new file
+        log "INFO: Moving file linuxConfig.config into lts.$archType.config with the following md5sum: $(chroot $mountPoint /usr/bin/md5sum /home/maintain/linuxConfig.config) = $(chroot $mountPoint /usr/bin/md5sum /home/maintain/aports/main/linux-lts/lts.$archType.config)"
+        chroot $mountPoint /bin/cp /home/maintain/linuxConfig.config "/home/maintain/aports/main/linux-lts/lts.$archType.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"
+        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/lts.$archType.config" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel config file is owned by $buildUsername"
+    fi
+
+    log "INFO: Performing checksum on everything"
+    chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C /home/maintain/aports/main/linux-lts checksum || log "UNEXPECTED: Could not compile checksum of everything modified so far"
+
+    if [ -z "$(chroot $mountPoint /sbin/apk list | grep linux-lts | grep $kernelVersion | grep installed)" ]; then
+        if [ ! -d "$mountPoint/home/maintain/packages/main/$archType" ]; then
+    	    if [ -z "$(chroot $mountPoint /bin/ls /home/maintain/packages/main/"$archType" | grep -v linux-lts)" ]; then
+    		log "INFO: Compiling kernel at; $(date)"
+    		time -o /tmp/compileTime chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C /home/maintain/aports/main/linux-lts -crK 2>&1 | tee /tmp/kernelLog || log "CRITICAL: Could not finish compiling kernel"
+    		
+                log "INFO: The kernel took to compile: $(cat /tmp/compileTime)"
+    		rm /tmp/compileTime || log "UNEXPECTED: Could not remove temporary file to keep track the length of time it took the kernel to compile"
+    	    fi
+        fi
+ 	log "INFO: Installing kernel at; $(date)"
+    	chroot $mountPoint /sbin/apk del linux-lts || log "CRITICAL: Could not remove existing kernel for new installation"
+    	chroot $mountPoint /sbin/apk update --repository "/home/maintain/packages/main/" || log "CRITICAL: Could not update repository for new installation"
+    	chroot $mountPoint /sbin/apk add --repository "/home/maintain/packages/main/" linux-lts="$kernelVersion-r0" || log "CRITICAL: Could not install kernel $kernelVersion to local system"
+    fi
+
+    log "INFO: Cleaning up kernel files and modifications"
+    chroot $mountPoint /bin/rm /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Permission doas file has not been deleted to enforce principle of least priviledge"
+    chroot $mountPoint /sbin/apk del alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "UNEXPECTED: Could not remove development build packages"
+
+    log "INFO: Modifying grub with new kernel parameters"
+    chroot $mountPoint /bin/chmod u+w /etc/default/grub || log "UNEXPECTED: Could not set to 600 permission on /etc/default/grub"
+    chroot $mountPoint /bin/sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="modules=sd=mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100"/g' /etc/default/grub || log "UNEXPECTED: Could not implement kernel parameters that enforce security"
+    chroot $mountPoint /bin/chmod u-w /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
+    chroot $mountPoint /usr/sbin/update-grub || log "UNEXPECTED: Could not implement changes for grub"
+
+    log "INFO: Kernel modifications have been succesfully configured!"
 }
 
 verifyInstallSetup() {
@@ -2244,34 +1950,38 @@ verifyLocalInstallation() {
     if [ ! -d "$mountPoint/home/$backupUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$backupUsername directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$monitorUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$monitorUsername/dev directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$previewUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/dev directory should exist!"; fi
-    if [ ! -d "$mountPoint/home/$serverCommandUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/dev directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$backupUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$backupUsername/dev directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$serverCommandUsername/dev" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/dev directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$previewUsername/dev/pts" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/dev/pts directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$serverCommandUsername/dev/pts" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/dev/pts directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$previewUsername/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/lib directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$previewUsername/usr" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$previewUsername/usr/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$previewUsername/bin" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/bin/rksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin/rksh directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/bin/echo" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin/echo directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/lib/ld-musl-aarch64.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/lib/ld-musl-aarch64.so.1 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libncursesw.so.6" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libncursesw.so.6 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libcrypto.so.3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libcrypto.so.3 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libacl.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libacl.so.1 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libattr.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libattr.so.1 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libutmps.so.0.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libutmps.so.0.1 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libskarnet.so.2.14" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libskarnet.so.2.14 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/bin/rksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin/rksh file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/bin/echo" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin/echo file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/bin/greeting.ksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/bin/greeting.ksh file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/lib/ld-musl-aarch64.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/lib/ld-musl-aarch64.so.1 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libncursesw.so.6" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libncursesw.so.6 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libcrypto.so.3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libcrypto.so.3 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libacl.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libacl.so.1 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libattr.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libattr.so.1 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libutmps.so.0.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libutmps.so.0.1 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$previewUsername/usr/lib/libskarnet.so.2.14" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$previewUsername/usr/lib/libskarnet.so.2.14 file should exist!"; fi
     if [ ! -d "$mountPoint/home/$serverCommandUsername/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/lib directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$serverCommandUsername/usr" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$serverCommandUsername/usr/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$serverCommandUsername/bin" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/rksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/rksh directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/echo" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/echo directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/lib/ld-musl-aarch64.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/lib/ld-musl-aarch64.so.1 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libncursesw.so.6" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libncursesw.so.6 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libcrypto.so.3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libcrypto.so.3 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libacl.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libacl.so.1 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libattr.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libattr.so.1 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libutmps.so.0.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libutmps.so.0.1 directory should exist!"; fi
-    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libskarnet.so.2.14" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libskarnet.so.2.14 directory should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/rksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/rksh file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/echo" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/echo file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/greeting.ksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/greeting.ksh file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/lib/ld-musl-aarch64.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/lib/ld-musl-aarch64.so.1 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libncursesw.so.6" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libncursesw.so.6 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libcrypto.so.3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libcrypto.so.3 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libacl.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libacl.so.1 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libattr.so.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libattr.so.1 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libutmps.so.0.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libutmps.so.0.1 file should exist!"; fi
+    if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libskarnet.so.2.14" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libskarnet.so.2.14 file should exist!"; fi
     
     # User in certain group checks
 	# Syslogd
@@ -2409,7 +2119,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "^KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KexAlgorithms!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^MACs hmac-sha2-512-etm@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; MACs!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; PubkeyAcceptedKeyTypes!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^AllowUsers $previewUsername@$localNetwork/$localNetmask $backupUsername@$localNetwork/$localNetmask $serverCommandUsername@$localNetwork/$localNetmask $monitorUsername@$localNetwork/$localNetmask $extractUsername@$localNetwork/$localNetmask$" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured; AllowUsers!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^AllowUsers $previewUsername@$localNetwork/$localNetmask $backupUsername@$localNetwork/$localNetmask $serverCommandUsername@$localNetwork/$localNetmask $monitorUsername@$localNetwork/$localNetmask" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured; AllowUsers!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^Port $sshPort" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; Port number!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^HostKey \/etc\/ssh\/ssh_host_ed25519_key" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; HostKey!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedKeysFile!"; fi
@@ -2970,10 +2680,12 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/usr/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/usr/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/bin -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/bin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/bin/greeting.ksh -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/bin/greeting.ksh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/usr -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/usr"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/usr/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/usr/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/bin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin/greeting.ksh -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/bin/greeting.ksh"; fi
 
     # Common directories near root permission check
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc -perm 751 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc"; fi
@@ -3057,10 +2769,12 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/usr/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/usr/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/bin -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/bin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$previewUsername/bin/greeting.ksh -user root -and -group $previewUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$previewUsername/bin/greeting.ksh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/usr -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/usr"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/usr/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/usr/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin/greeting.ksh -user root -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin/greeting.ksh"; fi
 
         # Firewall
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw"; fi
@@ -3120,6 +2834,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libattr.so.1\t\/home\/$previewUsername\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libattr.so.1 to /home/$previewUsername/usr/lib/libattr.so.1"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libutmps.so.0.1\t\/home\/$previewUsername\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libutmps.so.0.1 to /home/$previewUsername/usr/lib/libutmps.so.0.1"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$previewUsername\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libskarnet.so.2.14 to /home/$previewUsername/usr/lib/libskarnet.so.2.14"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/dev\/pts\t\/home\/$previewUsername\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /dev/pts to /home/$previewUsername/dev/pts"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/ksh\t\/home\/$serverCommandUsername\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /bin/ksh to /home/$serverCommandUsername/bin/rksh"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/coreutils\t\/home\/$serverCommandUsername\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /bin/coreutils to /home/$serverCommandUsername/bin/echo"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/lib\/ld-musl-aarch64.so.1\t\/home\/$serverCommandUsername\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /lib/ld-musl-aarch64.so.1 to /home/$serverCommandUsername/lib/ld-musl-aarch64.so.1"; fi
@@ -3129,6 +2844,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libattr.so.1\t\/home\/$serverCommandUsername\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libattr.so.1 to /home/$serverCommandUsername/usr/lib/libattr.so.1"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libutmps.so.0.1\t\/home\/$serverCommandUsername\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libutmps.so.0.1 to /home/$serverCommandUsername/usr/lib/libutmps.so.0.1"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$serverCommandUsername\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /usr/lib/libskarnet.so.2.14 to /home/$serverCommandUsername/usr/lib/libskarnet.so.2.14"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/dev\/pts\t\/home\/$serverCommandUsername\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /dev/pts to /home/$serverCommandUsername/dev/pts"; fi
         
     # Mounted files check for chroot environment
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/bin/rksh " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /bin/ksh to /home/$previewUsername/bin/rksh"; fi
@@ -3140,6 +2856,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libattr.so.1 to /home/$previewUsername/usr/lib/libattr.so.1"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libutmps.so.0.1 to /home/$previewUsername/usr/lib/libutmps.so.0.1"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libskarnet.so.2.14 to /home/$previewUsername/usr/lib/libskarnet.so.2.14"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$previewUsername/dev/pts " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /dev/pts to /home/$previewUsername/dev/pts"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/bin/rksh " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /bin/ksh to /home/$serverCommandUsername/bin/rksh"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/bin/echo " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /bin/coreutils to /home/$serverCommandUsername/bin/echo"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /lib/ld-musl-aarch64.so.1 to /home/$serverCommandUsername/lib/ld-musl-aarch64.so.1"; fi
@@ -3149,6 +2866,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libattr.so.1 to /home/$serverCommandUsername/usr/lib/libattr.so.1"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libutmps.so.0.1 to /home/$serverCommandUsername/usr/lib/libutmps.so.0.1"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /usr/lib/libskarnet.so.2.14 to /home/$serverCommandUsername/usr/lib/libskarnet.so.2.14"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$serverCommandUsername/dev/pts " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /dev/pts to /home/$serverCommandUsername/dev/pts"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for local installation: $missing"; else echo "INFO: Not a single missed test for local installation!"; fi
@@ -3161,11 +2879,58 @@ verifyRemoteCapabilities() {
     log "INFO: One day"
 }
 
+# Needs scripting; kernel.yama.ptrace_scope, kernel.modules_disabled, user.max_user_namespaces?, kernel.warn_limit
+verifyKernel() {
+    local missing=0
+
+    # Ownership check
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong directory ownership for /home/maintain"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find "/home/maintain/aports/main/linux-lts/lts.$archType.config" -user $buildUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/maintain/aports/main/linux-lts/lts.$archType.config"; fi
+
+    # Directory permission verification
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports/main -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports/main"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/maintain/aports/main/linux-lts -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/maintain/aports/main/linux-lts"; fi
+
+    # Checking for sysctls based on KSPP (Kernel Self Protection Project): https://kspp.github.io/Recommended_Settings#kernel-command-line-options
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.kptr_restrict 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.kptr_restrict 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.kptr_restrict is not greater or equal to 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.dmesg_restrict 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.dmesg_restrict 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.dmesg_restrict != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.modules_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.modules_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.modules_disabled != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.perf_event_paranoid 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.perf_event_paranoid 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.perf_event_paranoid is not greater or equal to 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.kexec_load_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.kexec_load_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.kexec_load_disabled != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.randomize_va_space 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.randomize_va_space 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.randomize_va_space != 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.yama.ptrace_scope 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "3" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.yama.ptrace_scope 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.yama.ptrace_scope != 3"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl user.max_user_namespaces 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl user.max_user_namespaces 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; user.max_user_namespaces != 0"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl dev.tty.ldisc_autoload 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl dev.tty.ldisc_autoload 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; dev.tty.ldisc_autoload != 0"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl dev.tty.legacy_tiocsti 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl dev.tty.legacy_tiocsti 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; dev.tty.legacy_tiocsti != 0"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.unprivileged_bpf_disabled 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.unprivileged_bpf_disabled 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.unprivileged_bpf_disabled != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.warn_limit 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.warn_limit 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.warn_limit is not greater or equal to 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl kernel.oops_limit 2>/dev/null | awk '{print $3}' 2>/dev/null)" -lt "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl kernel.oops_limit 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; kernel.oops_limit is not greater or equal to 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl net.core.bpf_jit_harden 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl net.core.bpf_jit_harden 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; net.core.bpf_jit_harden != 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl vm.unprivileged_userfaultfd 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl vm.unprivileged_userfaultfd 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; vm.unprivileged_userfaultfd != 0"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_symlinks 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_symlinks 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_symlinks != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_hardlinks 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "1" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_hardlinks 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_hardlinks != 1"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_fifos 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_fifos 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_fifos != 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_regular 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_regular 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_regular != 2"; fi
+    if [ "$(chroot $mountPoint /sbin/sysctl fs.suid_dumpable 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.suid_dumpable 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.suid_dumpable != 0"; fi
+
+    # Grub linux cmdline based on KSSP
+    if [ -z "$(chroot $mountPoint /bin/grep 'modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100' /etc/default/grub | grep 'GRUB_CMDLINE_LINUX_DEFAULT' 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Linux kernel command line has not been properely set in grub"; fi
+
+    # Report total missed test, if above 0
+    if [ "$missing" != '0' ]; then echo "INFO: Missed tests for kernel: $missing"; else echo "INFO: Not a single missed test for kernel!"; fi
+}
+
 # Execution path
 main() {
     # Read from environment
     interpretArgs $@
     if [ $(whoami) != "root" ]; then echo "SYSTEM TEST MISMATCH: Required root priviledges"; log "SYSTEM TEST MISMATCH: Insufficient permission to execute alpineVerify.sh"; exit; fi
+    
+    # Show user current settings
     printVariables
     
     # Check if no specific tests are set, to enable usage on everything
@@ -3173,43 +2938,35 @@ main() {
         gAlpineSetup=true; gPartition=true; gLocal=true; gRemote=true;
     fi
 
-    # Pre-installation
-    if $pre; then
-	    log "INFO: Started pre-setup!"
-	    if $gAlpineSetup; then setupAlpine; fi
-	    if $gPartition; then setupDisks; fi
-            log "INFO: Finished pre-setup!"
-    fi
+    # Pre-installation (affecting live iso)
+    if $pre; then setupAlpine; fi
+    
+    # Setup environment: check pre-setup is finished
+    defineMount
 
-    # Optional kernel installation
-    if $gKernelSetup; then formatKernel; fi
-
-    # Post installation
+    # Post installation: check setup is finished
     if $post; then
 	    log "INFO: Started post-setup!"
-            mountAlpine
 	    if $gLocal; then configLocalInstallation; fi
 	    if $gRemote; then configRemoteCapabilities; fi
-	    if $gKernel; then kernelExternalMount; configKernel; fi
-            log "INFO: Finished post-setup!"
+	    if $gKernel; then configKernel; fi
+        log "INFO: Finished post-setup!"
     fi
 
-    # Verification of installation
+    # Full Verification of installation
     if $verify; then
 	    log "INFO: Verifying changes!"
-            mountAlpine
 	    if $gAlpineSetup || $gPartition; then verifyInstallSetup; fi
 	    if $gLocal; then verifyLocalInstallation; fi
 	    if $gRemote; then verifyRemoteCapabilities; fi
             log "INFO: Finished verifying changes!"
     fi
 
-    # Mention the following if $extractUsername exists:
-	    # Mention important ssh private key files exist in one location, and $tempSshPass reminder
-
     # Remove alpine installation (yes, even if it was just literally installed)
     if $rmAlpine; then log "INFO: Started execution to remove alpine from mount point"; removeAlpine; fi
     log "INFO: Finished executing script!"
+    
+    echo "To obtain generated ssh keys and other authentication files. Proceed with the following command: sftp -P $sshPort -i /path/to/private/key $extractUsername@[machineIP]"
 }
 
 main "$@"

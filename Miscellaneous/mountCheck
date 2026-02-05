@@ -1,0 +1,158 @@
+#!/bin/sh
+
+# Flags
+gLocal=true # mountPoint at "/"?
+gKernelUnmodified=true # Skip kernel compile & installation?
+gPartition=false
+gKernelPartition=false
+
+# Values to search
+bootPartition=""
+lvmPartition=""
+kernelPartition=""
+
+
+# Log function
+log() {
+    local message="$(date '+%Y-%m-%d %H:%M:%S'): $1" 2>/dev/null
+    echo "$message" 2>/dev/null
+}
+
+# !!! De-construct setup-disks script to permit seperate boot and lvm partitioning
+defineMount() {
+	# Function behavior & User choice
+    log "INFO: Checking if user wants local installation (Same disk installation = skip Alpine install & mounting)"
+    local disableAlpineInstall=false
+    if $gLocal; then disableAlpineInstall=true; gPartition=false; fi # Local installation prohibits: drive partitioning & alpine setup-disk installation
+
+    log "INFO: Checking if user wants kernel to be updated (External disk installation = enable kernel installation)"
+    local disableKernelReplacement=false
+    if $gKernelUnmodified; then disableKernelReplacement=true; gKernelPartition=false; fi # If not considering kernel; then skip all kernel functions, formatting, and mounting
+
+	log "INFO: Considering existing block devices"
+		# User accepts risks
+	local bootSectorChosen=true
+	local lvmSectorChosen=true
+	local kernelSectorChosen=true
+		# User acknowledgement if partition requires formatting
+	local bootExist=true
+	local lvmExist=true
+	local kernelExist=true
+	if [ ! -b "$bootPartition" ] || [ ! -b "$lvmPartition" ]; then bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; fi
+	if [ ! -b "$kernelPartition" ]; then kernelSectorChosen=false; kernelExist=false; fi
+	
+	# Display list of devices, and consider each of the three important mount & format locations: boot, lvm, and kernel.
+	local devBlockSize=1024 # /proc/partitions shows size in 1024-byte blocks; https://unix.stackexchange.com/questions/512945/what-units-are-the-values-in-proc-partitions-and-sys-dev-block-block-size
+	local devName=""
+	local devBlock=""
+	local devLabel=""
+	while ! $disableAlpineInstall || ! $disableKernelReplacement; do
+		# Show devices list with size and possible label included
+	    local showAgain=false
+		echo -e "Device     \tSize     \tLabel (if it exists)\n"
+		cat /proc/partitions | grep -ivE ram\|loop\|major\|dm\- | while read -r statLine; do
+			if [ "$statLine" = '' ]; then continue; fi
+            devName="$(echo $statLine | awk -F ' {1,}' '{print($4)}')"
+           	devBlock="$(echo $statLine | awk -F ' {1,}' '{print($3)}')"
+            devBlock="$(awk "BEGIN {if ((($devBlock*$devBlockSize)/1073741824) > 1) {print (($devBlock*$devBlockSize)/1073741824) \" GB\"} else {print (($devBlock*$devBlockSize)/1048576) \" MB\"}}")"
+            devLabel="$(ls -l /dev/disk/by-label/ | grep -w $devName)"
+            echo -e "$devName     \t$devBlock     \t$devLabel"
+        done
+        
+        # Determine location of boot sector, and consider requests that are yet to be formatted
+        while ! $disableAlpineInstall && ! $bootSectorChosen && ! $showAgain; do
+            if [ -z "$bootPartition" ]; then read -p "From the list above. Specify destination for boot partition [Type 'a' to abort, or 'l' to show list]: " bootPartition; fi
+            bootPartition="/dev/$bootPartition" # Append /dev/
+            case $bootPartition in
+                a ) exit;;
+                A ) exit;;
+                l ) showAgain=true;;
+                L ) showAgain=true;;
+                *) 
+                	# Test if valid device, and then test if partition is a partion and not the full entire device
+                	if [ -b "$bootPartition" ]; 
+                		then if [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then bootSectorChosen=true; bootExist=true; fi
+                		else if [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && $gPartition; then echo "Device at $bootPartition partition currently does not exist, will format due to gPartion being specified as $gPartition"; bootSectorChosen=true; bootExist=false; else echo "Either didn't provide a valid partition that currently exists with gPartion disabled, or didn't specify partition number"; bootPartition=""; fi
+                	fi
+                	;;
+            esac
+        done
+        
+        # Determine location of lvm sector, and consider requests that are yet to be formatted
+        while ! $disableAlpineInstall && ! $lvmSectorChosen && ! $showAgain; do
+            if [ -z "$lvmPartition" ]; then read -p "From the list above. Specify destination for lvm partition [Type 'a' to abort, or 'l' to show list]: " lvmPartition; fi
+            lvmPartition="/dev/$lvmPartition" # Append /dev/
+            case $lvmPartition in
+                a ) exit;;
+                A ) exit;;
+                l ) showAgain=true;;
+                L ) showAgain=true;;
+                *) 
+                	# Test if valid device, and then test if partition is a partion and not the full entire device
+                	if [ -b "$lvmPartition" ]; 
+                		then if [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then lvmSectorChosen=true; lvmExist=true; fi
+                		else if [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && $gPartition; then echo "Device at $lvmPartition partition currently does not exist, will format due to gPartion being specified as $gPartition"; lvmSectorChosen=true; lvmExist=false; else echo "Either didn't provide a valid partition that currently exists with gPartion disabled, or didn't specify partition number"; lvmPartition=""; fi
+                	fi
+                	;;
+            esac
+        done
+        
+        # Determine location of kernel sector, and consider requests that are yet to be formatted
+        while ! $disableKernelReplacement && ! $kernelSectorChosen && ! $showAgain; do
+            if [ -z "$kernelPartition" ]; then read -p "From the list above. Specify destination for kernel partition [Type 'a' to abort, or 'l' to show list]: " kernelPartition; fi
+            kernelPartition="/dev/$kernelPartition" # Append /dev/
+            case $kernelPartition in
+                a ) exit;;
+                A ) exit;;
+                l ) showAgain=true;;
+                L ) showAgain=true;;
+                *) 
+                	# Test if valid device, and then test if partition is a partion and not the full entire device
+                	if [ -b "$kernelPartition" ]; 
+                		then if [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then kernelSectorChosen=true; kernelExist=true; fi
+                		else if [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && $gKernelPartition; then echo "Device at $kernelPartition partition currently does not exist, will format due to gKernelPartition being specified as $gKernelPartition"; kernelSectorChosen=true; kernelExist=false; else echo "Either didn't provide a valid partition that currently exists with gPartion disabled, or didn't specify partition number"; fi
+                	fi
+                	;;
+            esac
+        done
+	done
+	log "INFO: Boot partition at $bootPartition; does it currently exist? $bootExist, formatting enabled? $gPartition"
+	log "INFO: Boot partition at $lvmPartition; does it currently exist? $lvmExist, formatting enabled? $gPartition"
+	log "INFO: Boot partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition"
+
+#	log "INFO: User choice confirmed"
+
+	# Alpine installation
+#    log "INFO: Checking if this is a fresh installation"
+	
+#    log "INFO: Started formatting Alpine disk!"
+	
+#	log "INFO: Mounting all Alpine partitions"
+	
+#	log "INFO: Checking if Alpine is installed"
+	
+#	log "INFO: Installing Alpine on disk"
+
+
+	# Kernel secondary disk installation
+#   log "INFO: Checking if kernel already exists"
+    
+#    log "INFO: Started formatting Kernel disk!"
+	
+#	log "INFO: Mounting kernel partitions in home directory"
+	
+#	log "INFO: Checking if kernel is latest version or higher from secondary disk"
+	
+#	log "INFO: Installing Kernel on secondary disk"
+		
+# 	log "INFO: Finish preparing block devices"
+}
+
+# Test case: All valid paths
+gLocal=false
+gKernelUnmodified=false
+
+bootPartition=""
+lvmPartition=""
+kernelPartition=""
+defineMount
