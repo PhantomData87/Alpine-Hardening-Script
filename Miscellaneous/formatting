@@ -1,0 +1,301 @@
+I2ttLe7iaxi6UoLaZ64JW5lDUw5VYMxr
+# !!!: mountAlpine used in setupDisk
+
+mountFind():kernelExternalMount, mountAlpine, unmountAlpine, removeAlpine, setupDisks
+sets:mountDevice, packageDevice
+
+obsolete: namingJustNum, mountDevice, partitionStart
+replace: bootPartition, lvmPartition, 
+
+
+Most important variable: $mountPoint
+
+
+defineMount
+
+
+
+
+	    if $gPartition; then setupDisks; fi
+
+
+
+
+
+formatKernel() {
+    # Find where to find mounted devices
+    log "INFO: Checking requirements to setup kernel"
+    if [ "$choiceAports" = "skip" ]; then log "INFO: No block device specified to install kernel in"; return 0; fi
+
+    log "INFO: Setting up kernel to: $packageDevice. Begin formatting it"
+    chroot $mountPoint /sbin/apk add xfsprogs parted 2>/dev/null || log "CRITICAL: Could not install required software"
+    chroot $mountPoint /usr/sbin/parted -a optimal "$packageDevice" "mkpart primary xfs $kernelPartitionSector$(echo s) 100%" 2>/dev/null || log "CRITICAL: Could not declare kernel block device partition"
+    chroot $mountPoint /usr/sbin/parted -a optimal "$packageDevice" 'align-check optimal 1' 2>/dev/null || log "UNEXPECTED: Could not optimize placement of kernel block partition"
+    if $packageNamingJustNum; then chroot $mountPoint /sbin/mkfs.xfs -f "$packageDevice$kernelPartitionStart" 2>/dev/null || log "CRITICAL: Could not format kernel block device"; else chroot $mountPoint /sbin/mkfs.xfs -f "$packageDevice$p$kernelPartitionStart" 2>/dev/null || log "CRITICAL: Could not format kernel block device"; fi
+    
+    log 'INFO: Finished preparing kernel storage device. Moving onto automatic configuration from configKernel()'
+    configKernel
+}
+
+
+
+# Inspired by: https://techgirlkb.guru/2019/08/how-to-create-cis-compliant-partitions-on-aws/
+setupDisks() {
+    # Install software
+    log "INFO: Installing required software"
+    apk add parted lvm2 e2fsprogs xfsprogs || log "CRITICAL: Could not install all software"
+
+    log "INFO: Started partitioning disk on $mountDevice"
+    
+    # Partition the device
+    local s="s"
+    parted -a optimal "$mountDevice" 'unit s' 2>/dev/null || log "INFO: Could not set unit when partitioning disks"
+    parted -a optimal "$mountDevice" "mkpart primary fat32 $partitionSector$s 1050623s" 2>/dev/null
+    parted -a optimal "$mountDevice" "set $partitionStart boot on" 2>/dev/null || log "UNEXPECTED: Could not declare $partitionStart partition as boot drive"; 
+    parted -a optimal "$mountDevice" 'mkpart primary ext4 1050624s 100%' 2>/dev/null || log "CRITICAL: Could not declare final partition as LVM"
+    parted -a optimal "$mountDevice" "set $(($partitionStart+1)) lvm on" 2>/dev/null
+    parted -a optimal "$mountDevice" "align-check optimal $partitionStart" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of boot partition"
+    parted -a optimal "$mountDevice" "align-check optimal $(($partitionStart+1))" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of partitions"
+    mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service"
+
+    log "INFO: Partitioning completed"
+
+    # Setup LVM environment
+    if $namingJustNum; then pvcreate -ff "$mountDevice$(($partitionStart+1))" || log "CRITICAL: Could not declare lvm partition signature"; else pvcreate -ff "$mountDevice$p$(($partitionStart+1))" || log "CRITICAL: Could not declare lvm partition signature"; fi
+    if $namingJustNum; then vgcreate "$lvmName" "$mountDevice$(($partitionStart+1))" || log "CRITICAL: Could not declare lvm logical group"; else vgcreate "$lvmName" "$mountDevice$p$(($partitionStart+1))" || log "CRITICAL: Could not declare lvm logical group"; fi
+    log "INFO: Created pv and vg device"
+    lvcreate -n "$localhostName".root -L "$rootSize" "$lvmName" || log "CRITICAL: Could not make root partition"
+    log "INFO: Created root partition"
+    lvcreate -n "$localhostName".home -L "$homeSize" "$lvmName" || log "UNEXPECTED: Coild not make home partition"
+    log "INFO: Created home partition"
+    lvcreate -n "$localhostName".var -L "$varSize" "$lvmName" || log "UNEXPECTED: Could not make var partition"
+    log "INFO: Created var partition"
+    lvcreate -n "$localhostName".var.tmp -L "$varTmpSize" "$lvmName" || log "UNEXPECTED: Could not make var/tmp partition"
+    log "INFO: Created var/tmp partition"
+    lvcreate -n "$localhostName".var.log -L "$varLogSize" "$lvmName" || log "UNEXPECTED: Could not make var/log partition"
+    log "INFO: Created var/log partition"
+    rc-update add lvm 2>/dev/null || log "UNEXPECTED: Did not add lvm services to rc"
+    vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions"
+    log "INFO: Finished LVM setup"
+
+    # Format drives
+    if $namingJustNum; then mkfs.vfat "$mountDevice$partitionStart" 2>/dev/null || log "CRITICAL: Could not format boot partition"; else mkfs.vfat "$mountDevice$p$partitionStart" 2>/dev/null || log "CRITICAL: Could not format boot partition"; fi
+    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".home 2>/dev/null || log "UNEXPECTED: Could not format home partition"
+    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".root 2>/dev/null || log "CRITICAL: Could not format root partition"
+    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var 2>/dev/null || log "UNEXPECTED: Could not format var partition"
+    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var.log 2>/dev/null || log "UNEXPECTED: Could not format var/log partition"
+    mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var.tmp 2>/dev/null || log "UNEXPECTED: Could not format var/tmp partition"
+    log "INFO: Finished formatting"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # Execute setup-disk command provided by alpine
+    setup-disk "$mountPoint" || log "CRITICAL: Did not install setup to $namingJustNum"
+    log "INFO: Default alpine provided installation completed"
+
+    # Change fstab file configuration
+    log "INFO: Modifying fstab file"
+    chroot $mountPoint /bin/sed -i "s/tmpfs\t\/tmp\ttmpfs\tnosuid,nodev\t0\t0/tmpfs\t\/tmp\ttmpfs\tnoatime,nodev,noexec,nosuid,size\=512m\t0\t0/g" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    chroot $mountPoint /bin/echo -e "tmpfs\t/dev/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0" >> /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime,noatime,acl,user_xattr,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+
+    # Ensure grub has no timeout when booting into it's menu
+    chroot $mountPoint /bin/sed -i 's/GRUB_TIMEOUT=\(.*\)/GRUB_TIMEOUT=0/g' /etc/default/grub || log "UNEXPECTED: Could not lower timeout for grub configuration"
+    chroot $mountPoint /bin/chmod 400 /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
+
+    # Confirmation message
+    log "INFO: Finished partitioning disk on $mountDevice" /dev/"$lvmName"/"$localhostName"
+}
+
+# Detect mount point
+mountFind() {
+    # Check if primary variables are already set, if so then exit prematurely
+    if [ ! -z "$mountDevice" ] && [ ! -z "$packageDevice" ]; then return 0; fi
+
+    # Notify script
+    log "INFO: Started to find block devices!"
+    local devName=""
+    local devBlock=""
+    local devSize=""
+    local devLabel=""
+    local choiceMain=""
+    local skip=false
+    local blockFormatSize=1024 # /proc/partitions shows size in 1024-byte blocks; https://unix.stackexchange.com/questions/512945/what-units-are-the-values-in-proc-partitions-and-sys-dev-block-block-size
+
+    # Let user read list printed from above, and have user manually specify which device to use
+    while true; do
+        # User selection for core device
+        while [ -z "$choiceMain" ]; do
+            read -p "From the list above. Specify the device to be primarely used [Type 'no' to abort]: " choiceMain
+            case $choiceMain in
+                NO ) exit;;
+                No ) exit;;
+                nO ) exit;;
+                no ) exit;;
+                *) break;;
+            esac
+        done
+
+        # User selection for core device
+        while [ -z "$choiceAports" ]; do
+            read -p "From the list above. Specify where systemm packages are stored [Type 'no' to abort, type 'skip' to ignore]: " choiceAports
+            case $choiceAports in
+                NO ) exit;;
+                No ) exit;;
+                nO ) exit;;
+                no ) exit;;
+                skip ) skip=true;;
+                *) break;;
+            esac
+        done
+
+        # Check if device exists
+        if [ ! -e "/dev/$choiceMain" ]; then choiceMain=''; fi
+        if [ ! -e "/dev/$choiceAports" ] && ! $skip; then choiceAports=''; fi
+        if [ ! -z "$choiceMain" ] && [ ! -z "$choiceAports" ]; then break; else log "UNEXPECTED: The block device does not exist"; fi
+    done
+
+    # Determine if partition type has a p or not: https://unix.stackexchange.com/questions/500887/given-a-block-device-how-to-detect-if-names-of-partitions-must-contain-p
+    if [ ! -z "$(echo $choiceMain | grep -E -o [1234567890]*$)" ]; then export namingJustNum=false; else export namingJustNum=true; fi
+    if [ ! -z "$(echo $choiceAports | grep -E -o [1234567890]*$)" ]; then export packageNamingJustNum=false; else export packageNamingJustNum=true; fi
+    export mountDevice="/dev/$choiceMain"
+    export packageDevice="/dev/$choiceAports"
+
+    echo "INFO: User input will no longer be required. (Unless deleting installation, or setting up the kernel for the first time)"
+    log "INFO: Device to be affected: $mountDevice | Kernel located in device: $packageDevice | Affected device does not have 'p' in partition? : $namingJustNum | kernel storage device does not have 'p' in partition? : $packageNamingJustNum"
+    log "INFO: Finished finding block devices"
+}
+
+
+# Safely mount expected drives and prepare chroot environment
+mountAlpine() {
+    # Check if mountpoint is current filesystem
+    if [ "$mountPoint" = "/" ]; then log "INFO: Nothing to mount! Mount point is set to current filesystem root."; return 0; fi
+
+    # Check if drives are already mounted at mount pount ($mountPoint)
+    if [ ! -z "$(mount | grep -i $mountPoint)" ]; then log "INFO: Atleast some drives are already mounted!"; return 0; fi
+    log "INFO: Started mounting alpine!"
+
+    # Start mounting the whole alpine directory
+    log "INFO: Started mounting partitions to expected regions"
+    vgchange -ay 2>/dev/null || log "CRITICAL: Could not enable logical partitions"
+    mkdir -p "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to write $mountPoint or it already exists"
+    mount -t ext4 /dev/"$lvmName"/"$localhostName".root "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to mount $lvmName to $mountPoint"
+    mkdir -p "$mountPoint"/boot 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/boot"
+    mkdir -p "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/boot/efi"
+    mkdir -p "$mountPoint"/home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint"
+    mkdir -p "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint"
+    mount -t ext4 /dev/"$lvmName"/"$localhostName".home "$mountPoint"/home 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount $lvmName to $mountPoint"
+    if $namingJustNum; then mount -t vfat "$mountDevice$partitionStart" "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount efi partition to $mountPoint/boot/efi"; else mount -t vfat "$mountDevice$p$partitionStart" "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount efi partition to $mountPoint/boot/efi"; fi
+    mount -t ext4 /dev/"$lvmName"/"$localhostName".var "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var partition to $mountPoint/var"
+    mkdir -p "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/var"
+    mkdir -p "$mountPoint"/var/tmp 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/var"
+    mount -t ext4 /dev/"$lvmName"/"$localhostName".var.log "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/log partition to $mountPoint/var/log"
+    mount -t ext4 /dev/"$lvmName"/"$localhostName".var.tmp "$mountPoint"/var/tmp 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/tmp partition to $mountPoint/var/tmp"
+    log "INFO: Finish mounting partitions to expected regions"
+
+    # Required for a valid chroot environment
+    log "INFO: Preparing chroot environment"
+    mkdir -p "$mountPoint"/proc 2>/dev/null || log "UNEXPECTED: Could not create /proc directory for chroot environment"
+    mkdir -p "$mountPoint"/sys 2>/dev/null || log "UNEXPECTED: Could not create /sys directory for chroot environment"
+    mkdir -p "$mountPoint"/dev 2>/dev/null || log "UNEXPECTED: Could not create /dev directory for chroot environment"
+    mkdir -p "$mountPoint"/run 2>/dev/null || log "UNEXPECTED: Could not create /run directory for chroot environment"
+    mount -t proc proc "$mountPoint"/proc 2>/dev/null || log log "CRITICAL: Could not make /proc available in chroot environment"
+    mount -o bind /sys "$mountPoint"/sys 2>/dev/null || log "CRITICAL: Could not make /sys available in chroot environment"
+    mount -o bind /dev "$mountPoint"/dev 2>/dev/null || log "CRITICAL: Could not make /dev available in chroot environment"
+    mount -o bind /run "$mountPoint"/run 2>/dev/null || log "CRITICAL: Could not make /run available in chroot environment"
+    log "INFO: Finished setting up bindings for chroot environment"
+
+    # Finish mounting
+    log "INFO: Finished mounting alpine!"
+}
+
+# Reset partitions and installation on detected drive
+removeAlpine() {
+    # Check if mountpoint is current filesystem
+    if [ "$mountPoint" = "/" ]; then log "INFO: Nothing to delete! Mount point is set to current filesystem root."; return 0; fi
+
+    # Check if partitions exist
+    if [ -z "$(ls $mountDevice* | grep 2)" ]; then echo "SYSTEM TEST MISMATCH: Device does not have a second partition, thus it was already deleted"; exit; fi
+
+    # Ask the user if they wish to delete alpine
+    while true; do
+        read -p "Delete alpine installation found in $mountPoint from $mountDevice device? y/n: " yn
+        case $yn in
+            [Yy]* ) break;;
+            [Nn]* ) return 0;;
+        esac
+    done
+
+    # Unmount drives if they are still present
+    if [ ! "$packageDevice" = "/dev/skip" ] && [ ! -z "$(mount | grep -i $packageDevice)" ]; then
+        # Check home directory existance, then mount
+        if [ -d "$mountPoint/home/maintain" ]; then chroot $mountPoint /bin/umount /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to umount kernel partition from $mountPoint/home/maintain"; else log "INFO: Kernel storage device can't umount to $mountPoint/home/maintain"; fi
+    else log "INFO: Kernel storage devices skipped, or already un-mounted!"; fi
+
+    # Check if drives are already unmounted at mount pount ($mountPoint)
+    if [ -z "$(mount | grep -i $mountPoint)" ]; then log "INFO: Drives are already unmounted!"; return 0; fi
+
+    # Unmoount devices from known chroot environment
+    log "INFO: Started umount-ing alpine!"
+    vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions to unmount partitions"
+    umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"
+    umount "$mountPoint"/var/tmp 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/tmp"
+    umount "$mountPoint"/var/log 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/log"
+    umount "$mountPoint"/var 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var"
+    umount "$mountPoint"/home/maintain 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home/maintain"
+    umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"
+    umount "$mountPoint"/proc 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/proc"
+    umount "$mountPoint"/sys 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/sys"
+    umount "$mountPoint"/dev 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/dev"
+    umount "$mountPoint"/run 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/run"
+    umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
+    rmdir "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not remove $mountPoint"
+
+    # Remove vg and pv recognition from lvm
+    vgremove "$lvmName" || log "UNEXPECTED: Could not remove $lvmname as a valid recognized name from system"
+    if $namingJustNum; then pvremove "$mountDevice$(($partitionStart+1))" || log "UNEXPECTED: Could not remove lvm signature from physical device"; else pvremove "$mountDevice$p$(($partitionStart+1))" || log "UNEXPECTED: Could not remove lvm signature from physical device"; fi
+
+    # Remove recognized partitions from device
+    if $namingJustNum; then parted -a optimal "$mountDevice" 'rm 2' 2>/dev/null || log "CRITICAL: Could not remove LVM partition 2 on physical device"; else parted -a optimal "$mountDevice" 'rm 3' 2>/dev/null || log "CRITICAL: Could not remove LVM partition 3 on physical device"; fi
+    if $namingJustNum; then parted -a optimal "$mountDevice" 'rm 1' 2>/dev/null || log "CRITICAL: Could not remove EFI partition 1 on physical device"; else parted -a optimal "$mountDevice" 'rm 2' 2>/dev/null || log "CRITICAL: Could not remove EFI partition 2 on physical device"; fi
+
+    # Confirmation message
+    log "INFO: Finished removing alpine installation on $mountDevice media"
+}
+
+
+
+
+    # Optional kernel installation
+    if $gKernelSetup; then formatKernel; fi
+    
+
+    log "INFO: Mounting kernel storage device to /home/maintain directory"
+    chroot $mountPoint /bin/mkdir -p /home/maintain 2>/dev/null || log "UNEXPECTED: Could not create home directory to mount towards"
+    kernelExternalMount
+
+kernelExternalMount() {
+    # Check if kernel mounting is warranted, if so then mount
+    if [ ! "$packageDevice" = "/dev/skip" ] && [ -z "$(mount | grep -i $packageDevice)" ]; then
+        # Check home directory existance, then mount
+        if [ -d "$mountPoint/home/maintain" ]; then 
+            if $packageNamingJustNum; then chroot $mountPoint /bin/mount -t xfs "$packageDevice$kernelPartitionStart" /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount kernel partition to $mountPoint/home/maintain"; else chroot $mountPoint /bin/mount -t xfs "$packageDevice$p$kernelPartitionStart" /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount kernel partition to $mountPoint/home/maintain"; fi
+        else log "INFO: Kernel storage device can't mount to $mountPoint/home/maintain"; fi
+    else log "INFO: Kernel storage devices skipped, or already mounted!"; fi
+}
