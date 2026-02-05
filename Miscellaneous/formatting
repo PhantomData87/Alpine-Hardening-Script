@@ -122,66 +122,6 @@ setupDisks() {
     log "INFO: Finished partitioning disk on $mountDevice" /dev/"$lvmName"/"$localhostName"
 }
 
-# Detect mount point
-mountFind() {
-    # Check if primary variables are already set, if so then exit prematurely
-    if [ ! -z "$mountDevice" ] && [ ! -z "$packageDevice" ]; then return 0; fi
-
-    # Notify script
-    log "INFO: Started to find block devices!"
-    local devName=""
-    local devBlock=""
-    local devSize=""
-    local devLabel=""
-    local choiceMain=""
-    local skip=false
-    local blockFormatSize=1024 # /proc/partitions shows size in 1024-byte blocks; https://unix.stackexchange.com/questions/512945/what-units-are-the-values-in-proc-partitions-and-sys-dev-block-block-size
-
-    # Let user read list printed from above, and have user manually specify which device to use
-    while true; do
-        # User selection for core device
-        while [ -z "$choiceMain" ]; do
-            read -p "From the list above. Specify the device to be primarely used [Type 'no' to abort]: " choiceMain
-            case $choiceMain in
-                NO ) exit;;
-                No ) exit;;
-                nO ) exit;;
-                no ) exit;;
-                *) break;;
-            esac
-        done
-
-        # User selection for core device
-        while [ -z "$choiceAports" ]; do
-            read -p "From the list above. Specify where systemm packages are stored [Type 'no' to abort, type 'skip' to ignore]: " choiceAports
-            case $choiceAports in
-                NO ) exit;;
-                No ) exit;;
-                nO ) exit;;
-                no ) exit;;
-                skip ) skip=true;;
-                *) break;;
-            esac
-        done
-
-        # Check if device exists
-        if [ ! -e "/dev/$choiceMain" ]; then choiceMain=''; fi
-        if [ ! -e "/dev/$choiceAports" ] && ! $skip; then choiceAports=''; fi
-        if [ ! -z "$choiceMain" ] && [ ! -z "$choiceAports" ]; then break; else log "UNEXPECTED: The block device does not exist"; fi
-    done
-
-    # Determine if partition type has a p or not: https://unix.stackexchange.com/questions/500887/given-a-block-device-how-to-detect-if-names-of-partitions-must-contain-p
-    if [ ! -z "$(echo $choiceMain | grep -E -o [1234567890]*$)" ]; then export namingJustNum=false; else export namingJustNum=true; fi
-    if [ ! -z "$(echo $choiceAports | grep -E -o [1234567890]*$)" ]; then export packageNamingJustNum=false; else export packageNamingJustNum=true; fi
-    export mountDevice="/dev/$choiceMain"
-    export packageDevice="/dev/$choiceAports"
-
-    echo "INFO: User input will no longer be required. (Unless deleting installation, or setting up the kernel for the first time)"
-    log "INFO: Device to be affected: $mountDevice | Kernel located in device: $packageDevice | Affected device does not have 'p' in partition? : $namingJustNum | kernel storage device does not have 'p' in partition? : $packageNamingJustNum"
-    log "INFO: Finished finding block devices"
-}
-
-
 # Safely mount expected drives and prepare chroot environment
 mountAlpine() {
     # Check if mountpoint is current filesystem

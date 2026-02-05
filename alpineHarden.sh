@@ -530,6 +530,7 @@ defineMount() {
 # https://dev.to/caffinecoder54/creating-a-lightweight-linux-firewall-with-ufw-and-fail2ban-35po
 # https://www.linode.com/community/questions/11143/top-tip-firewalld-and-ipset-country-blacklist
 # https://wiki.nftables.org/wiki-nftables/index.php/Matching_packet_headers & https://home.regit.org/netfilter-en/nftables-quick-howto/ (minimum packet size is 28 - 36 bytes)
+# Determine if partition type has a p or not: https://unix.stackexchange.com/questions/500887/given-a-block-device-how-to-detect-if-names-of-partitions-must-contain-p
 # Other packages and commands of interest: agetty (agetty), lsof & lsfd (util-linux-misc)
 configLocalInstallation() {
     log "INFO: Installing packages"
