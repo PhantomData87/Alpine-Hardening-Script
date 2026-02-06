@@ -60,7 +60,9 @@
 # set ulimit in sysctl via fs.file and alike (find if this is related to exclusively PAM or not), 
 # Password quality?,
 # Chroot exploit mitigation: https://github.com/remaskm/Chroot-Jail-Escape-Write-up
-# Change /etc/issue for $extractUsername
+# Add remaining size check when formatting and partitioning disks
+# Check that partitions are incrementally increasing
+# Test defineMount function
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -73,6 +75,38 @@
 
 # Expensive operations:
 export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires a lot of space (~3.6Gb), and time (significantly more on embedded devices in the order of a month wait).
+
+# Sort later
+# Flags set by user
+gLocal=true # mountPoint at "/"? Otherwise in /mnt
+gKernelUnmodified=true # Skip kernel mounting & replacement? Otherwise in $mountPoint/home/$buildUsername
+gPartition=false # Intention to reset or create new partitions of Alpine disk
+gKernelPartition=false # Intention to reset or create new partitions of Kernel disk storage
+partitionSector="6144" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
+kernelPartitionSector="2048" # USED IF IT IS A NEW DISK. Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
+# Must include units: "B", "kB", "MB", "KiB", "MiB", "GB", "GiB", "TB", "TiB", "PB", "PiB", "EB", "EiB", or Sectors: "s"
+lvmFull=true # Will Alpine installation use entire disk? Or a portion of disk?
+bootSize="1G"
+lvmSize="0G" # Required if lvmFull is set to false
+rootSize="2G"
+homeSize="4M"
+varSize="2G"
+varTmpSize="1G"
+varLogSize="5G"
+
+# Values to search, or be set by user
+	# Devices
+bootPartition=""
+lvmPartition=""
+kernelPartition=""
+	# Files to mount
+mountPoint=""
+
+
+
+
+
+
 
 # Alpine configuration variables (CHANGE THESE)
 export logFile="/tmp/hardeningAlpine.log"
@@ -423,6 +457,428 @@ printVariables() {
     done
 }
 
+# Reset partitions and installation on detected drive
+removeAlpine() {
+    # Check if mountpoint is current filesystem
+    if $gLocal; then log "INFO: Nothing to delete! Mount point is set to current filesystem root."; return 0; fi
+
+    # Check if both partitions exist
+    if [ ! -b "$bootPartition" ] || [ ! -b "$lvmPartition" ]; then echo "SYSTEM TEST MISMATCH: There appears to be no device to delete"; exit; fi
+
+    # Ask the user if they wish to delete alpine
+    while true; do
+        read -p "Delete alpine installation found in $mountPoint from $mountDevice device? y/n: " yn
+        case $yn in
+            [Yy]* ) break;;
+            [Nn]* ) return 0;;
+        esac
+    done
+
+    # Unmoount devices from known chroot environment
+    log "INFO: Started umount-ing alpine!"
+    vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions to unmount partitions"
+    for i in $previewUsername $serverCommandUsername; do
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; ld-musl-aarch64.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; libncursesw.so.6"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libcrypto.so.3"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libacl.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libattr.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libutmps.so.0.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libskarnet.so.2.14"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
+    done
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/boot/efi " 2>/dev/null)" ]; then umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var/tmp " 2>/dev/null)" ]; then umount "$mountPoint"/var/tmp 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/tmp"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var/log " 2>/dev/null)" ]; then umount "$mountPoint"/var/log 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/log"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var " 2>/dev/null)" ]; then umount "$mountPoint"/var 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/maintain " 2>/dev/null)" ]; then umount "$mountPoint"/home/maintain 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home/maintain"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home " 2>/dev/null)" ]; then umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/proc " 2>/dev/null)" ]; then umount "$mountPoint"/proc 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/proc"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/sys " 2>/dev/null)" ]; then umount "$mountPoint"/sys 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/sys"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/dev " 2>/dev/null)" ]; then umount "$mountPoint"/dev 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/dev"; fi
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/run " 2>/dev/null)" ]; then umount "$mountPoint"/run 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/run"; fi
+    umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"; fi
+    rmdir "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not remove $mountPoint"
+
+    # Remove vg and pv recognition from lvm
+    vgremove "$lvmName" || log "UNEXPECTED: Could not remove $lvmname as a valid recognized name from system"
+    pvremove "$lvmPartition" || log "UNEXPECTED: Could not remove lvm signature from physical device"
+
+    # Remove recognized partitions from device
+    local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
+    local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
+    local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
+    local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
+    if $namingJustNum; then parted -a optimal "$deviceBoot" "rm $partBootNumber" 2>/dev/null || log "CRITICAL: Could not remove EFI partition $partBootNumber on physical device"
+    if $namingJustNum; then parted -a optimal "$deviceLvm" "rm $partLvmNumber" 2>/dev/null || log "CRITICAL: Could not remove LVM partition $partLvmNumber on physical device"
+
+    # Confirmation message
+    log "INFO: Finished removing alpine installation on $mountDevice media"
+}
+
+# !!! De-construct setup-disks script to permit seperate boot and lvm partitioning
+defineMount() {
+	# Function behavior & User choice
+	log "INFO: Considering existing block devices"
+		# Increasing readability
+    local disableAlpineInstall=false
+    local disableKernelReplacement=false
+		# User accepts risks
+	local bootSectorChosen=true
+	local lvmSectorChosen=true
+	local kernelSectorChosen=true
+		# User acknowledgement if partition requires formatting
+	local bootExist=true
+	local lvmExist=true
+	local kernelExist=true
+    	# Check with global flags
+    if $gLocal; then disableAlpineInstall=true; gPartition=false; bootSectorChosen=true; lvmSectorChosen=true; bootExist=false; lvmExist=false; bootPartition="[self]"; lvmPartition="[self]"; mountPoint="/"; fi # Local installation prohibits: drive partitioning & alpine setup-disk installation
+    if $gKernelUnmodified; then disableKernelReplacement=true; gKernelPartition=false; kernelSectorChosen=true; kernelExist=false; kernelPartition="[nowhere]"; fi # If not considering kernel; then skip all kernel functions, formatting, and mounting
+	
+	# Display list of devices, and consider each of the three important mount & format locations: boot, lvm, and kernel.
+	local devBlockSize=1024 # /proc/partitions shows size in 1024-byte blocks; https://unix.stackexchange.com/questions/512945/what-units-are-the-values-in-proc-partitions-and-sys-dev-block-block-size
+	local devName=""
+	local devBlock=""
+	local devLabel=""
+	local devType=""
+	local blockList="\?"
+	local showAgain=false
+	while ! $disableAlpineInstall || ! $disableKernelReplacement; do
+		# Show devices list with size and possible label included
+		if $showAgain; then
+			echo -e "Device     \tSize     \tType\tLabel (if it exists)\n"
+			cat /proc/partitions | grep -ivE ram\|loop\|major\|$blockList\|dm\- | while read -r statLine; do
+				if [ "$statLine" = '' ]; then continue; fi
+            	devName="$(echo $statLine | awk -F ' {1,}' '{print($4)}')"
+           		devBlock="$(echo $statLine | awk -F ' {1,}' '{print($3)}')"
+            	devBlock="$(awk "BEGIN {if ((($devBlock*$devBlockSize)/1073741824) > 1) {print (($devBlock*$devBlockSize)/1073741824) \" GB\"} else {print (($devBlock*$devBlockSize)/1048576) \" MB\"}}")"
+            	devType="$(blkid /dev/$devName | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')"
+            	devLabel="$(ls -l /dev/disk/by-label/ | grep -w $devName)"
+            	echo -e "$devName     \t$devBlock \t$devType\t$devLabel"
+        	done
+        fi
+        showAgain=false
+        
+        # Determine location of boot sector, and consider requests that are yet to be formatted
+        while ! $disableAlpineInstall && ! $bootSectorChosen && ! $showAgain; do
+            read -p "From the list above. Specify destination for boot partition that is vfat [Type 'a' to abort, or 'l' to show list]: " bootPartition
+            bootPartition="/dev/$(echo $bootPartition | grep -Eo [^\/]*$)" # Append /dev/
+            case $bootPartition in
+                /dev/a ) exit;;
+                /dev/A ) exit;;
+                /dev/l ) showAgain=true; bootPartition=""; continue;;
+                /dev/L ) showAgain=true; bootPartition=""; continue;;
+                *)
+                	# Temporarely pretend the user choose valid options
+                	bootSectorChosen=true
+                	bootExist=true
+                	;;
+            esac
+        done
+        
+        # Determine location of lvm sector, and consider requests that are yet to be formatted
+        while ! $disableAlpineInstall && ! $lvmSectorChosen && ! $showAgain; do
+            read -p "From the list above. Specify destination for lvm partition that is LVM2_member [Type 'a' to abort, or 'l' to show list]: " lvmPartition
+            lvmPartition="/dev/$(echo $lvmPartition | grep -Eo [^\/]*$)" # Append /dev/
+            case $lvmPartition in
+                /dev/a ) exit;;
+                /dev/A ) exit;;
+                /dev/l ) showAgain=true; lvmPartition=""; continue;;
+                /dev/L ) showAgain=true; lvmPartition=""; continue;;
+                *)
+                	# Temporarely pretend the user choose valid options
+                	lvmSectorChosen=true
+                	lvmExist=true
+                	;;
+            esac
+        done
+        
+        # Determine location of kernel sector, and consider requests that are yet to be formatted
+        while ! $disableKernelReplacement && ! $kernelSectorChosen && ! $showAgain; do
+            read -p "From the list above. Specify destination for kernel partition that is xfs [Type 'a' to abort, or 'l' to show list]: " kernelPartition
+            kernelPartition="/dev/$(echo $kernelPartition | grep -Eo [^\/]*$)" # Append /dev/
+            case $kernelPartition in
+                /dev/a ) exit;;
+                /dev/A ) exit;;
+                /dev/l ) showAgain=true; kernelPartition=""; continue;;
+                /dev/L ) showAgain=true; kernelPartition=""; continue;;
+                *)
+                	# Temporarely pretend the user choose valid options
+                	kernelSectorChosen=true
+                	kernelExist=true
+                	;;
+            esac
+        done
+
+		# Possibility to loop back again
+        	# Reset blocklist
+        blockList="\?" # Reset
+        if ! $disableAlpineInstall && [ ! -z "$bootPartition" ] && [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $bootPartition | grep -Eo [^\/]*$)"; fi
+        if ! $disableAlpineInstall && [ ! -z "$lvmPartition" ] && [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $lvmPartition | grep -Eo [^\/]*$)"; fi
+        if ! $disableKernelReplacement && [ ! -z "$kernelPartition" ] && [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $kernelPartition | grep -Eo [^\/]*$)"; fi
+        
+        # Start beginning of loop check
+        	# Emptyness check
+        if ! $disableAlpineInstall && [ -z "$bootPartition" ]; then showAgain=true; bootSectorChosen=false; bootExist=false; echo "Empty value for bootPartition"; fi
+        if ! $disableAlpineInstall && [ -z "$lvmPartition" ]; then showAgain=true; lvmSectorChosen=false; lvmExist=false; echo "Empty value for lvmPartition"; fi
+        if ! $disableKernelReplacement && [ -z "$kernelPartition" ]; then showAgain=true; kernelSectorChosen=false; kernelExist=false; echo "Empty value for kernelPartition"; fi
+        if $showAgain; then continue; fi
+        
+        # Partition tests:
+	        # Duplicate entry
+		if ! $disableAlpineInstall && [ "$lvmPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $disableAlpineInstall && [ "$kernelPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$kernelPartition" ]; then echo "Duplicate conflicting entry with: $lvmPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $disableKernelReplacement && [ "$lvmPartition" = "$kernelPartition" ] && [ ! -z "$kernelPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $kernelPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
+		
+	    	# Valid partition scheme
+	    if ! $disableAlpineInstall && [ -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $bootPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; bootSectorChosen=false; bootPartition=""; bootExist=false; fi
+	    if ! $disableAlpineInstall && [ -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $lvmPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; lvmSectorChosen=false; lvmPartition=""; lvmExist=false; fi
+	    if ! $disableKernelReplacement && [ -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $kernelPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; kernelSectorChosen=false; kernelPartition=""; kernelExist=false; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
+		
+	    	# Formatting acknowledgment, and valid block device check
+    	if ! $disableAlpineInstall && [ ! -b "$bootPartition" ] && $gPartition; then echo "vfat bootPartition at $bootPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; bootExist=false; fi
+    	if ! $disableAlpineInstall && [ ! -b "$lvmPartition" ] && $gPartition; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; lvmExist=false; fi
+    	if ! $disableKernelReplacement && [ ! -b "$kernelPartition" ] && $gKernelPartition; then echo "kernelPartition at $gKernelPartition partition currently does not exist, but will format due to gKernelPartition being specified as $gKernelPartition"; kernelExist=false; fi
+		if [ ! -b "$bootPartition" ] && $bootExist; then echo "vfat bootPartition at $bootPartition partition currently does not exist, and formatting is currently disabled"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
+		if [ ! -b "$lvmPartition" ] && $lvmExist; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, and formatting is currently disabled"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
+		if [ ! -b "$kernelPartition" ] && $kernelExist; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
+		
+	        # Are we mounting non-existant devices without formatting?
+        if ! $disableAlpineInstall && ! $bootExist && $lvmExist && ! $gPartition; then echo "This script currently does not support a non-existant boot partition with a valid lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+        if ! $disableAlpineInstall && $bootExist && ! $lvmExist && ! $gPartition; then echo "This script currently does not support a valid boot partition with a non-existant lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+        if ! $disableAlpineInstall && ! $bootExist && ! $lvmExist && ! $gPartition; then echo "This script currently does not support a non-existant boot partition with a non-existant lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
+        
+        	# Final sanity check when formatting is disabled: IS boot vfat?, IS lvm LVM2_member, and IS kernel xfs?
+        if ! $disableAlpineInstall && [ "$(blkid $bootPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "vfat" ] && ! $gPartition; then echo "Partition at $bootPartition is not FAT32/vfat! Enable formatting or pick a different partition"; blockList="\?"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
+        if ! $disableAlpineInstall && [ "$(blkid $lvmPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "LVM2_member" ] && ! $gPartition; then echo "Partition at $lvmPartition is not LVM2_member! Enable formatting or pick a different partition"; blockList="\?"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
+        if ! $disableKernelReplacement && [ "$(blkid $kernelPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "xfs" ] && ! $gKernelPartition; then echo "Partition at $kernelPartition is not xfs! Enable formatting or pick a different partition"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+        
+        	# Is kernel partition in the same device where alpine is installed?
+        if ! $disableAlpineInstall && ! $disableKernelReplacement; then
+			# Boot partition
+    		local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
+    		local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
+    		local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
+    		local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
+    		if [ ! -z "$(echo $kernelPartition | grep $deviceBoot)" ] || [ ! -z "$(echo $kernelPartition | grep $deviceLvm)" ]; then echo "Kernel device should be in a seperate disk to promote re-usage of the kernel"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+        fi
+        
+        # Break loop if everything is satisfied
+        if $bootSectorChosen && $lvmSectorChosen && $kernelSectorChosen; then break; fi
+	done
+	log "INFO: vfat boot partition at $bootPartition; does it currently exist? $bootExist, erasure enabled? $gPartition"
+	log "INFO: LVM2_member lvm partition at $lvmPartition; does it currently exist? $lvmExist, erasure enabled? $gPartition"
+	log "INFO: xfs kernel partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition"
+
+	# Ensure $mountPoint is defined in a directory of /mnt
+	if ! $disableAlpineInstall; then
+		log "INFO: Ensuring mountPoint is declared in /mnt directory, and exists"
+		while [ -z $mountPoint ] || [ "$mountPoint" = "/" ] || [ -z "$(echo $mountPoint | grep -E ^/mnt/.+$)" ]; do
+			echo "Directory of /mnt: $(ls -lah /mnt)"
+			read -p "Invalid mountpoint is declared at: $mountPoint. Type in an existing or new directory name to select where Alpine installation is mounted within /mnt directory [Type 'a' to abort]: " mountPoint
+			mountPoint="/mnt/$(echo $mountPoint | grep -Eo [^\/]*$)" # Append /dev/
+			case $mountPoint in
+            	/mnt/a ) exit;;
+            	/mnt/A ) exit;;
+			esac
+		done # Create directory
+		mkdir -p $mountPoint
+	fi
+	
+# !!!	log "INFO: Calculating if disk size is appropriate"
+
+	# User prompt before erasure, installation, and mounting
+	if ! $disableAlpineInstall || ! $disableKernelReplacement; then
+		local userAction=false
+		echo -e "\n\nPlease review the following configurations before proceeding:\n"
+		echo -e "Boot partition in vfat disk partition location:\t\t\t$bootPartition"
+		echo -e "Alpine installation in LVM2_member disk partition location:\t$lvmPartition"
+		echo -e "Alpine custom kernel in xfs disk partition location:\t\t$kernelPartition"
+		echo -e "\n\tExists?\tErasure\tFull disk?\tSize if not\tSector offset (if applicable)"
+		echo -e "Boot:\t$bootExist\t$gPartition\tn/a\t\t$bootSize\t\t$partitionSector"
+		echo -e "LVM:\t$lvmExist\t$gPartition\t$lvmFull\t\t$lvmSize\t\tn/a"
+		echo -e "Kernel:\t$kernelExist\t$gKernelPartition\t$true\t\tn/a\t\t$kernelPartitionSector"
+		echo -e "\nMounting alpine location: $mountPoint"
+		while ! $userAction; do
+			read -p "Confirm procedure? [y/n]: " userChoice
+			case $userChoice in
+				y ) userAction=true;;
+            	n ) exit;;
+			esac
+		done
+		log "INFO: User formatting, partitioning, and mounting are confirmed"
+	fi
+
+	# Alpine installation
+	if ! $disableAlpineInstall && $gPartition; then
+		# Boot partition
+    	local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
+    	local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
+    	local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
+    	local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
+    	partitionSector="$(echo $partitionSector)s"
+    	log "INFO: Started partitioning and formatting Alpine disk!"
+    	if ! $bootExist; then
+    		parted -a optimal "$deviceBoot" "mkpart primary fat32 $partitionSector $bootSize" 2>/dev/null
+    		parted -a optimal "$deviceBoot" "set $partBootNumber boot on" 2>/dev/null || log "UNEXPECTED: Could not declare $partitionStart partition as boot drive";
+    		parted -a optimal "$deviceBoot" "align-check optimal $partBootNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of boot partition"
+			log "INFO: Location: $deviceBoot, Number: $partBootNumber"
+			log "INFO: Location: $deviceLvm, Number: $partLvmNumber"
+    	fi
+    	
+    	# lvm partition
+    	local sectorOffsetFromBoot="$(parted $deviceBoot "unit s p" | grep "^ $partBootNumber" | awk -F ' {1,}' '{print($4)}' | sed "s/s//g")"
+    	sectorOffsetFromBoot="$(($sectorOffsetFromBoot+1))s" # Add one, and return unit of 's'
+    	local lvmEnd=""
+    	if $lvmFull; then lvmEnd="100%" # Use all remainder of disk
+    	else
+    		local unitLvm="$(echo $lvmSize | sed "s/[0123456789]*//g")"
+    		local sizeLvm="$(echo $lvmSize | sed "s/$unitLvm//g")"
+    		lvmEnd="$(parted $deviceBoot "unit $unitLvm p" | grep "^ $partBootNumber" | awk -F ' {1,}' '{print($4)}' | sed "s/$unitLvm//g")"
+    		lvmEnd="$(($lvmEnd+$sizeLvm))$unitLvm" # Add one, and return unit of 's'
+    	fi
+    	if ! $lvmExist; then
+    		parted -a optimal "$deviceLvm" "mkpart primary ext4 $sectorOffsetFromBoot $lvmEnd" 2>/dev/null || log "CRITICAL: Could not declare final partition as LVM"
+    		parted -a optimal "$deviceLvm" "set $partLvmNumber lvm on" 2>/dev/null
+    		parted -a optimal "$deviceLvm" "align-check optimal $partLvmNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of partitions"
+			log "INFO: Boot offset: $sectorOffsetFromBoot, Lvm end portion: $lvmEnd, Lvm size: $sizeLvm, Lvm unit: $unitLvm"
+    	fi
+    	mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service to recognize new disks"
+
+    	log "INFO: Passed Alpine partitioning stage"
+
+	    # Setup LVM environment
+	    if ! $lvmExist; then
+    		pvcreate -ff "$lvmPartition" || log "CRITICAL: Could not declare lvm partition signature"
+    		vgcreate "$lvmName" "$lvmPartition" || log "CRITICAL: Could not declare lvm logical group"
+    		log "INFO: Created pv and vg device"
+    		lvcreate -n "$localhostName".root -L "$rootSize" "$lvmName" || log "CRITICAL: Could not make root partition"
+    		log "INFO: Created root partition for: $rootSize"
+    		lvcreate -n "$localhostName".home -L "$homeSize" "$lvmName" || log "UNEXPECTED: Coild not make home partition"
+    		log "INFO: Created home partition for: $homeSize"
+    		lvcreate -n "$localhostName".var -L "$varSize" "$lvmName" || log "UNEXPECTED: Could not make var partition"
+    		log "INFO: Created var partition for: $varSize"
+    		lvcreate -n "$localhostName".var.tmp -L "$varTmpSize" "$lvmName" || log "UNEXPECTED: Could not make var/tmp partition"
+    		log "INFO: Created var/tmp partition for: $varTmpSize"
+    		lvcreate -n "$localhostName".var.log -L "$varLogSize" "$lvmName" || log "UNEXPECTED: Could not make var/log partition"
+    		log "INFO: Created var/log partition for: $varLogSize"
+    	fi
+    	vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions"
+    	log "INFO: Passed Alpine LVM stage"
+
+    	# Format drives
+    	mkfs.vfat "$bootPartition" 2>/dev/null || log "CRITICAL: Could not format boot partition"
+    	mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".home 2>/dev/null || log "CRITICAL: Could not format home partition"
+    	mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".root 2>/dev/null || log "CRITICAL: Could not format root partition"
+    	mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var 2>/dev/null || log "CRITICAL: Could not format var partition"
+    	mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var.log 2>/dev/null || log "CRITICAL: Could not format var/log partition"
+    	mkfs.ext4 -F /dev/"$lvmName"/"$localhostName".var.tmp 2>/dev/null || log "CRITICAL: Could not format var/tmp partition"
+		log "INFO: Passed Alpine formatting stage"
+
+		# Add directories
+		mount -t ext4 /dev/"$lvmName"/"$localhostName".root "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to mount $lvmName to $mountPoint"
+	    mkdir -p "$mountPoint"/proc 2>/dev/null || log "UNEXPECTED: Could not create /proc directory for chroot environment"
+    	mkdir -p "$mountPoint"/sys 2>/dev/null || log "UNEXPECTED: Could not create /sys directory for chroot environment"
+   		mkdir -p "$mountPoint"/dev 2>/dev/null || log "UNEXPECTED: Could not create /dev directory for chroot environment"
+	    mkdir -p "$mountPoint"/run 2>/dev/null || log "UNEXPECTED: Could not create /run directory for chroot environment"
+	    mkdir -p "$mountPoint"/boot 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/boot"
+    	mkdir -p "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/boot/efi"
+    	mkdir -p "$mountPoint"/home 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint"
+    	mkdir -p "$mountPoint"/home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint"
+    	mkdir -p "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint"
+	    mount -t ext4 /dev/"$lvmName"/"$localhostName".var "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var partition to $mountPoint/var"
+   		mkdir -p "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/var"
+	    mkdir -p "$mountPoint"/var/tmp 2>/dev/null || log "UNEXPECTED: Lacked capabilities to write to $mountPoint/var"
+		log "INFO: Passed Alpine creating directories for chroot environment stage"
+
+		# umount the root and var partition
+	    umount "$mountPoint"/var 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var"
+		umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
+
+    	log "INFO: Formatting Alpine disk complete"
+	fi
+
+	# Kernel secondary disk installation
+	if ! $disableKernelReplacement && $gKernelPartition; then
+		# Kernel
+    	local partKernelNumber="$(echo $kernelPartition | grep -Eo [0123456789]*$)"
+    	local deviceKernel="$(echo $kernelPartition | sed "s/p\?$partKernelNumber//g")"
+    	if ! $kernelExist; then
+# !!! parted create?
+			parted -a optimal "$deviceKernel" "mkpart primary xfs $kernelPartitionSector 100%" 2>/dev/null || log "CRITICAL: Could not declare kernel block device partition"
+    		parted -a optimal "$deviceKernel" "align-check optimal $partKernelNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of kernel block partition"
+			log "INFO: Location: $deviceKernel, Number: $partKernelNumber"
+    	fi
+    	mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service to recognize new disks"
+    	log "INFO: Passed kernel partitioning stage"
+
+    	# Format drives
+		mkfs.xfs -f "$kernelPartition" 2>/dev/null || log "CRITICAL: Could not format kernel block device"
+    	log "INFO: Passed kernel formatting stage"
+
+		# umount the root and var partition
+	    umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"
+		umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
+
+    	log "INFO: Formatting kernel disk complete"
+	fi
+	
+	if ! $disableAlpineInstall; then
+		log "INFO: Mounting all Alpine partitions"
+	    vgchange -ay 2>/dev/null || log "CRITICAL: Could not enable logical partitions"
+    	mount -t ext4 /dev/"$lvmName"/"$localhostName".root "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to mount $lvmName to $mountPoint"
+    	mount -t ext4 /dev/"$lvmName"/"$localhostName".home "$mountPoint"/home 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount $lvmName to $mountPoint"
+    	mount -t vfat "$bootPartition" "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount efi partition to $mountPoint/boot/efi"; 
+    	mount -t ext4 /dev/"$lvmName"/"$localhostName".var "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var partition to $mountPoint/var"
+    	mount -t ext4 /dev/"$lvmName"/"$localhostName".var.log "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/log partition to $mountPoint/var/log"
+    	mount -t ext4 /dev/"$lvmName"/"$localhostName".var.tmp "$mountPoint"/var/tmp 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/tmp partition to $mountPoint/var/tmp"
+    	mount -t proc proc "$mountPoint"/proc 2>/dev/null || log log "CRITICAL: Could not make /proc available in chroot environment"
+    	mount -o bind /sys "$mountPoint"/sys 2>/dev/null || log "CRITICAL: Could not make /sys available in chroot environment"
+    	mount -o bind /dev "$mountPoint"/dev 2>/dev/null || log "CRITICAL: Could not make /dev available in chroot environment"
+    	mount -o bind /run "$mountPoint"/run 2>/dev/null || log "CRITICAL: Could not make /run available in chroot environment"
+	fi
+
+	if ! $disableKernelReplacement; then
+		chroot $mountPoint /bin/mkdir -p /home/maintain 2>/dev/null || log "UNEXPECTED: Could not create home directory to mount towards"
+		chroot $mountPoint /bin/mount -t xfs "$kernelPartition" /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount kernel partition to $mountPoint/home/maintain"
+	fi
+
+	if ! $disableAlpineInstall && $gPartition; then
+		log "INFO: Installing Alpine on $bootPartition and $lvmPartition via $mountPoint"
+		setup-disk "$mountPoint" || log "CRITICAL: Did not install setup to $mountPoint"
+	fi
+	
+	if ! $disableAlpineInstall; then
+    	log "INFO: Modifying fstab file for secure default mounting"
+    	chroot $mountPoint /bin/sed -i "s/tmpfs\t\/tmp\ttmpfs\tnosuid,nodev\t0\t0/tmpfs\t\/tmp\ttmpfs\tnoatime,nodev,noexec,nosuid,size\=512m\t0\t0/g" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    	chroot $mountPoint /bin/echo -e "tmpfs\t/dev/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0" >> /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    	chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime,noatime,acl,user_xattr,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    	chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+    	chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+	    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
+
+    	# Ensure grub has no timeout when booting into it's menu
+    	chroot $mountPoint /bin/sed -i 's/GRUB_TIMEOUT=\(.*\)/GRUB_TIMEOUT=0/g' /etc/default/grub || log "UNEXPECTED: Could not lower timeout for grub configuration"
+	    chroot $mountPoint /bin/chmod 400 /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
+	fi
+	
+	if ! $disableKernelReplacement; then
+    	log "INFO: Eventually checking kernel environment"
+	fi
+	
+# !!!	log "INFO: Checking if kernel is latest version or higher from secondary disk"
+	
+# !!!	log "INFO: Installing Kernel on secondary disk"
+		
+# !!!	log "INFO: Finish preparing block devices"
+}
+
 setupAlpine() {
     log "INFO: Started default alpine installation"
     setup-hostname "$localhostName" 2>/dev/null || log "UNEXPECTED: Could not declare device's hostname"
@@ -454,6 +910,7 @@ setupAlpine() {
     setup-keymap "$keyboardLayout" "$keyboardLayout" 2>/dev/null || log "UNEXPECTED: Could not setup device's keyboard keymap"
     rc-update --quiet del loadkmap boot 2>/dev/null || log "UNEXPECTED: Could not remove unncessary service that fails on boot"
     echo "root:$tempRootPass" | chpasswd || log "UNEXPECTED: Did not change root password"
+	rc-update --quiet add lvm 2>/dev/null || log "UNEXPECTED: Did not add lvm services to rc"
     apk add parted lvm2 e2fsprogs xfsprogs tzdata grub-efi grub || log "Unexpected: Could not install all required software"
     log "INFO: Almost finished default alpine installation!"
 }
@@ -531,6 +988,7 @@ defineMount() {
 # https://www.linode.com/community/questions/11143/top-tip-firewalld-and-ipset-country-blacklist
 # https://wiki.nftables.org/wiki-nftables/index.php/Matching_packet_headers & https://home.regit.org/netfilter-en/nftables-quick-howto/ (minimum packet size is 28 - 36 bytes)
 # Determine if partition type has a p or not: https://unix.stackexchange.com/questions/500887/given-a-block-device-how-to-detect-if-names-of-partitions-must-contain-p
+# Partition layout inspired by: https://techgirlkb.guru/2019/08/how-to-create-cis-compliant-partitions-on-aws/
 # Other packages and commands of interest: agetty (agetty), lsof & lsfd (util-linux-misc)
 configLocalInstallation() {
     log "INFO: Installing packages"
@@ -1825,7 +2283,8 @@ verifyInstallSetup() {
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep acpid)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: AcpiD service is not managed currently by OpenRC"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep chronyd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: ChronyD service is not managed currently by OpenRC"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep seedrng)" ] && [ "$(rc-chroot $mountPoint /sbin/service -l 2>/dev/null | grep urandom)" != 'urandom' ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: seedrng or urandom service is not managed currently by OpenRC"; fi
-
+    if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep lvm)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: lvm service is not managed currently by OpenRC"; fi
+    
     # Verify mandatory packages for future installations for setupAlpine()
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep parted)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find parted package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep lvm)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find lvm package"; fi
