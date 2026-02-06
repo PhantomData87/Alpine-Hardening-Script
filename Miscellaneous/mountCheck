@@ -1,19 +1,26 @@
 #!/bin/sh
 
 # Flags set by user
-gLocal=true # mountPoint at "/"?
-gKernelUnmodified=true # Skip kernel compile & installation?
-gPartition=false
-gKernelPartition=false
+gLocal=true # mountPoint at "/"? Otherwise in /mnt
+gKernelUnmodified=true # Skip kernel mounting & replacement? Otherwise in $mountPoint/home/$buildUsername
+gPartition=false # Intention to reset or create new partitions of Alpine disk
+gKernelPartition=false # Intention to reset or create new partitions of Kernel disk storage
+partitionSector="6144" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
+kernelPartitionSector="2048" # USED IF IT IS A NEW DISK. Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
+# Must include units: "B", "kB", "MB", "KiB", "MiB", "GB", "GiB", "TB", "TiB", "PB", "PiB", "EB", "EiB", or Sectors: "s"
+lvmFull=true # Will Alpine installation use entire disk? Or a portion of disk?
+kernelFull=true # Will Alpine installation use entire disk? Or a portion of disk?
+bootSize="1G"
+lvmSize="0G" # Required if lvmFull is set to false
+kernelSize="0G" # Required if lvmFull is set to false
 
-# Values to search
+# Values to search, or be set by user
 	# Devices
 bootPartition=""
 lvmPartition=""
 kernelPartition=""
 	# Files to mount
 mountPoint=""
-kernelPoint=""
 
 # Log function
 log() {
@@ -36,20 +43,6 @@ defineMount() {
 	local bootExist=true
 	local lvmExist=true
 	local kernelExist=true
-
-	# Initial sanity checks of expected behavior: No duplicate entries, valid partitions, format potential, valid device block, compatibility check, and finally global flag check
-		# Duplication Sanity
-	if [ "$lvmPartition" = "$bootPartition" ] && [ "$bootPartition" != "" ] && [ "$lvmPartition" != "" ]; then echo "Duplicate conflicting entry with: $bootPartition"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-	if [ "$kernelPartition" = "$bootPartition" ] && [ "$bootPartition" != "" ] && [ "$kernelPartition" != "" ]; then echo "Duplicate conflicting entry with: $lvmPartition"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-	if [ "$lvmPartition" = "$kernelPartition" ] && [ "$kernelPartition" != "" ] && [ "$lvmPartition" != "" ]; then echo "Duplicate conflicting entry with: $kernelPartition"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-    	# Valid partitions & formatting possibility
-    if [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && [ ! -z "$bootPartition" ] && $bootExist; then if [ ! -b "$bootPartition" ] && $gPartition; then echo "Device at $bootPartition partition currently does not exist, will format due to gPartion being specified as $gPartition"; bootExist=false; else echo "Only specified partition with non-existance partition number, and unable to format. Change settings, or specify a different number at the end of: $bootPartition"; bootSectorChosen=false; bootPartition=""; bootExist=false; fi; else if [ ! -z "$bootPartition" ]; then echo "Specified disk without partition number; specify a number at the end of: $bootPartition"; bootSectorChosen=false; bootPartition=""; bootExist=false; fi; fi
-    if [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && [ ! -z "$lvmPartition" ] && $lvmExist; then if [ ! -b "$lvmPartition" ] && $gPartition; then echo "Device at $lvmPartition partition currently does not exist, will format due to gPartion being specified as $gPartition"; lvmExist=false; else echo "Only specified partition with non-existance partition number, and unable to format. Change settings, or specify a different number at the end of: $lvmPartition"; lvmSectorChosen=false; lvmPartition=""; lvmExist=false; fi; else if [ ! -z "$lvmPartition" ]; then echo "Specified disk without partition number; specify a number at the end of: $lvmPartition"; lvmSectorChosen=false; lvmPartition=""; lvmExist=false; fi; fi
-    if [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && [ ! -z "$kernelPartition" ] && $kernelExist; then if [ ! -b "$kernelPartition" ] && $gKernelPartition; then echo "Device at $kernelPartition partition currently does not exist, will format due to gPartion being specified as $gPartition"; kernelExist=false; else echo "Only specified partition with non-existance partition number, and unable to format. Change settings, or specify a different number at the end of: $kernelPartition"; kernelSectorChosen=false; kernelPartition=""; kernelExist=false; fi; else if [ ! -z "$kernelPartition" ]; then echo "Specified disk without partition number; specify a number at the end of: $kernelPartition"; kernelSectorChosen=false; kernelPartition=""; kernelExist=false; fi; fi
-    	# Valid device block
-	if [ ! -b "$bootPartition" ] && $bootExist; then bootPartition=""; lvmPartition=""; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; fi
-	if [ ! -b "$lvmPartition" ] && $lvmExist; then bootPartition=""; lvmPartition=""; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; fi
-	if [ ! -b "$kernelPartition" ] && $kernelExist; then kernelSectorChosen=false; kernelExist=false; fi
     	# Check with global flags
     if $gLocal; then disableAlpineInstall=true; gPartition=false; bootSectorChosen=true; lvmSectorChosen=true; bootExist=false; lvmExist=false; bootPartition="[self]"; lvmPartition="[self]"; mountPoint="/"; fi # Local installation prohibits: drive partitioning & alpine setup-disk installation
     if $gKernelUnmodified; then disableKernelReplacement=true; gKernelPartition=false; kernelSectorChosen=true; kernelExist=false; kernelPartition="[nowhere]"; kernelPoint=""; fi # If not considering kernel; then skip all kernel functions, formatting, and mounting
@@ -59,23 +52,28 @@ defineMount() {
 	local devName=""
 	local devBlock=""
 	local devLabel=""
+	local devType=""
 	local blockList="\?"
+	local showAgain=false
 	while ! $disableAlpineInstall || ! $disableKernelReplacement; do
 		# Show devices list with size and possible label included
-	    local showAgain=false
-		echo -e "Device     \tSize     \tLabel (if it exists)\n"
-		cat /proc/partitions | grep -ivE ram\|loop\|major\|$blockList\|dm\- | while read -r statLine; do
-			if [ "$statLine" = '' ]; then continue; fi
-            devName="$(echo $statLine | awk -F ' {1,}' '{print($4)}')"
-           	devBlock="$(echo $statLine | awk -F ' {1,}' '{print($3)}')"
-            devBlock="$(awk "BEGIN {if ((($devBlock*$devBlockSize)/1073741824) > 1) {print (($devBlock*$devBlockSize)/1073741824) \" GB\"} else {print (($devBlock*$devBlockSize)/1048576) \" MB\"}}")"
-            devLabel="$(ls -l /dev/disk/by-label/ | grep -w $devName)"
-            echo -e "$devName     \t$devBlock     \t$devLabel"
-        done
+		if $showAgain; then
+			echo -e "Device     \tSize     \tType\tLabel (if it exists)\n"
+			cat /proc/partitions | grep -ivE ram\|loop\|major\|$blockList\|dm\- | while read -r statLine; do
+				if [ "$statLine" = '' ]; then continue; fi
+            	devName="$(echo $statLine | awk -F ' {1,}' '{print($4)}')"
+           		devBlock="$(echo $statLine | awk -F ' {1,}' '{print($3)}')"
+            	devBlock="$(awk "BEGIN {if ((($devBlock*$devBlockSize)/1073741824) > 1) {print (($devBlock*$devBlockSize)/1073741824) \" GB\"} else {print (($devBlock*$devBlockSize)/1048576) \" MB\"}}")"
+            	devType="$(blkid /dev/$devName | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')"
+            	devLabel="$(ls -l /dev/disk/by-label/ | grep -w $devName)"
+            	echo -e "$devName     \t$devBlock \t$devType\t$devLabel"
+        	done
+        fi
+        showAgain=false
         
         # Determine location of boot sector, and consider requests that are yet to be formatted
         while ! $disableAlpineInstall && ! $bootSectorChosen && ! $showAgain; do
-            if [ -z "$bootPartition" ]; then read -p "From the list above. Specify destination for boot partition [Type 'a' to abort, or 'l' to show list]: " bootPartition; fi
+            read -p "From the list above. Specify destination for boot partition that is vfat [Type 'a' to abort, or 'l' to show list]: " bootPartition
             bootPartition="/dev/$(echo $bootPartition | grep -Eo [^\/]*$)" # Append /dev/
             case $bootPartition in
                 /dev/a ) exit;;
@@ -83,19 +81,16 @@ defineMount() {
                 /dev/l ) showAgain=true; bootPartition=""; continue;;
                 /dev/L ) showAgain=true; bootPartition=""; continue;;
                 *)
-                	if [ "$bootPartition" = "$lvmPartition" ] || [ "$bootPartition" = "$kernelPartition" ]; then echo "Duplicate conflicting entry with: $bootPartition"; showAgain=true; bootPartition=""; continue; fi # Ensure that $kernelPartition is different from the rest
-                	# Test if valid device, and then test if partition is a partion and not the full entire device
-                	if [ -b "$bootPartition" ]; 
-                		then if [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then bootSectorChosen=true; bootExist=true; blockList="$blockList|$(echo $bootPartition | grep -Eo [^\/]*$)"; else echo "Only specified disk without partition number. Please specify a number at the end of: $bootPartition"; bootPartition=""; continue; fi
-                		else if [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && $gPartition; then echo "Device at $bootPartition partition currently does not exist, will format due to gPartion being specified as $gPartition"; bootSectorChosen=true; bootExist=false; blockList="$blockList|$(echo $bootPartition | grep -Eo [^\/]*$)"; else echo "Either didn't provide a valid partition that cannot be made with gPartion disabled, or only specified disk without partition number"; bootPartition=""; fi
-                	fi
+                	# Temporarely pretend the user choose valid options
+                	bootSectorChosen=true
+                	bootExist=true
                 	;;
             esac
         done
         
         # Determine location of lvm sector, and consider requests that are yet to be formatted
         while ! $disableAlpineInstall && ! $lvmSectorChosen && ! $showAgain; do
-            if [ -z "$lvmPartition" ]; then read -p "From the list above. Specify destination for lvm partition [Type 'a' to abort, or 'l' to show list]: " lvmPartition; fi
+            read -p "From the list above. Specify destination for lvm partition that is LVM2_member [Type 'a' to abort, or 'l' to show list]: " lvmPartition
             lvmPartition="/dev/$(echo $lvmPartition | grep -Eo [^\/]*$)" # Append /dev/
             case $lvmPartition in
                 /dev/a ) exit;;
@@ -103,19 +98,16 @@ defineMount() {
                 /dev/l ) showAgain=true; lvmPartition=""; continue;;
                 /dev/L ) showAgain=true; lvmPartition=""; continue;;
                 *)
-                	if [ "$lvmPartition" = "$bootPartition" ] || [ "$lvmPartition" = "$kernelPartition" ]; then echo "Duplicate conflicting entry with: $lvmPartition"; showAgain=true; lvmPartition=""; continue; fi # Ensure that $kernelPartition is different from the rest
-                	# Test if valid device, and then test if partition is a partion and not the full entire device
-                	if [ -b "$lvmPartition" ]; 
-                		then if [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then lvmSectorChosen=true; lvmExist=true; blockList="$blockList|$(echo $lvmPartition | grep -Eo [^\/]*$)"; else echo "Only specified disk without partition number. Please specify a number at the end of: $lvmPartition"; lvmPartition=""; continue; fi
-                		else if [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && $gPartition; then echo "Device at $lvmPartition partition currently does not exist, will format due to gPartion being specified as $gPartition"; lvmSectorChosen=true; lvmExist=false; blockList="$blockList|$(echo $lvmPartition | grep -Eo [^\/]*$)"; else echo "Either didn't provide a valid partition that cannot be made with gPartion disabled, or only specified disk without partition number"; lvmPartition=""; fi
-                	fi
+                	# Temporarely pretend the user choose valid options
+                	lvmSectorChosen=true
+                	lvmExist=true
                 	;;
             esac
         done
         
         # Determine location of kernel sector, and consider requests that are yet to be formatted
         while ! $disableKernelReplacement && ! $kernelSectorChosen && ! $showAgain; do
-            if [ -z "$kernelPartition" ]; then read -p "From the list above. Specify destination for kernel partition [Type 'a' to abort, or 'l' to show list]: " kernelPartition; fi
+            read -p "From the list above. Specify destination for kernel partition that is xfs [Type 'a' to abort, or 'l' to show list]: " kernelPartition
             kernelPartition="/dev/$(echo $kernelPartition | grep -Eo [^\/]*$)" # Append /dev/
             case $kernelPartition in
                 /dev/a ) exit;;
@@ -123,39 +115,101 @@ defineMount() {
                 /dev/l ) showAgain=true; kernelPartition=""; continue;;
                 /dev/L ) showAgain=true; kernelPartition=""; continue;;
                 *)
-                	if [ "$kernelPartition" = "$bootPartition" ] || [ "$kernelPartition" = "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $kernelPartition"; showAgain=true; kernelPartition=""; continue; fi # Ensure that $kernelPartition is different from the rest
-                	# Test if valid device, and then test if partition is a partion and not the full entire device
-                	if [ -b "$kernelPartition" ]; 
-                		then if [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then kernelSectorChosen=true; kernelExist=true; blockList="$blockList|$(echo $kernelPartition | grep -Eo [^\/]*$)"; else echo "Only specified disk without partition number. Please specify a number at the end of: $kernelPartition"; kernelPartition=""; continue; fi
-                		else if [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ] && $gKernelPartition; then echo "Device at $kernelPartition partition currently does not exist, will format due to gKernelPartition being specified as $gKernelPartition"; kernelSectorChosen=true; kernelExist=false; blockList="$blockList|$(echo $kernelPartition | grep -Eo [^\/]*$)"; else echo "Either didn't provide a valid partition that cannot be made with gPartion disabled, or only specified disk without partition number"; kernelPartition=""; fi
-                	fi
+                	# Temporarely pretend the user choose valid options
+                	kernelSectorChosen=true
+                	kernelExist=true
                 	;;
             esac
         done
+
+		# Possibility to loop back again
+        	# Reset blocklist
+        blockList="\?" # Reset
+        if ! $disableAlpineInstall && [ ! -z "$bootPartition" ] && [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $bootPartition | grep -Eo [^\/]*$)"; fi
+        if ! $disableAlpineInstall && [ ! -z "$lvmPartition" ] && [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $lvmPartition | grep -Eo [^\/]*$)"; fi
+        if ! $disableKernelReplacement && [ ! -z "$kernelPartition" ] && [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $kernelPartition | grep -Eo [^\/]*$)"; fi
         
-        # Final sanity check; due to missing compatibility
-        if ! $bootExist && $lvmExist; then echo "This script currently does not support a missing boot partition with a valid lvm partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
-        if $bootExist && ! $lvmExist; then echo "This script currently does not support a valid boot partition with a missing lvm partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+        # Start beginning of loop check
+        	# Emptyness check
+        if ! $disableAlpineInstall && [ -z "$bootPartition" ]; then showAgain=true; bootSectorChosen=false; bootExist=false; echo "Empty value for bootPartition"; fi
+        if ! $disableAlpineInstall && [ -z "$lvmPartition" ]; then showAgain=true; lvmSectorChosen=false; lvmExist=false; echo "Empty value for lvmPartition"; fi
+        if ! $disableKernelReplacement && [ -z "$kernelPartition" ]; then showAgain=true; kernelSectorChosen=false; kernelExist=false; echo "Empty value for kernelPartition"; fi
+        if $showAgain; then continue; fi
         
-        # Break loop
+        # Partition tests:
+	        # Duplicate entry
+		if ! $disableAlpineInstall && [ "$lvmPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $disableAlpineInstall && [ "$kernelPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$kernelPartition" ]; then echo "Duplicate conflicting entry with: $lvmPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $disableKernelReplacement && [ "$lvmPartition" = "$kernelPartition" ] && [ ! -z "$kernelPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $kernelPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
+		
+	    	# Valid partition scheme
+	    if ! $disableAlpineInstall && [ -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $bootPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; bootSectorChosen=false; bootPartition=""; bootExist=false; fi
+	    if ! $disableAlpineInstall && [ -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $lvmPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; lvmSectorChosen=false; lvmPartition=""; lvmExist=false; fi
+	    if ! $disableKernelReplacement && [ -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $kernelPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; kernelSectorChosen=false; kernelPartition=""; kernelExist=false; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
+		
+	    	# Formatting acknowledgment, and valid block device check
+    	if ! $disableAlpineInstall && [ ! -b "$bootPartition" ] && $gPartition; then echo "vfat bootPartition at $bootPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; bootExist=false; fi
+    	if ! $disableAlpineInstall && [ ! -b "$lvmPartition" ] && $gPartition; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; lvmExist=false; fi
+    	if ! $disableKernelReplacement && [ ! -b "$kernelPartition" ] && $gKernelPartition; then echo "kernelPartition at $gKernelPartition partition currently does not exist, but will format due to gKernelPartition being specified as $gKernelPartition"; kernelExist=false; fi
+		if [ ! -b "$bootPartition" ] && $bootExist; then echo "vfat bootPartition at $bootPartition partition currently does not exist, and formatting is currently disabled"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
+		if [ ! -b "$lvmPartition" ] && $lvmExist; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, and formatting is currently disabled"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
+		if [ ! -b "$kernelPartition" ] && $kernelExist; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
+		
+	        # Are we mounting non-existant devices without formatting?
+        if ! $disableAlpineInstall && ! $bootExist && $lvmExist && ! $gPartition; then echo "This script currently does not support a non-existant boot partition with a valid lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+        if ! $disableAlpineInstall && $bootExist && ! $lvmExist && ! $gPartition; then echo "This script currently does not support a valid boot partition with a non-existant lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+        if ! $disableAlpineInstall && ! $bootExist && ! $lvmExist && ! $gPartition; then echo "This script currently does not support a non-existant boot partition with a non-existant lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
+        
+        	# Final sanity check when formatting is disabled: IS boot vfat?, IS lvm LVM2_member, and IS kernel xfs?
+        if ! $disableAlpineInstall && [ "$(blkid $bootPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "vfat" ] && ! $gPartition; then echo "Partition at $bootPartition is not FAT32/vfat! Enable formatting or pick a different partition"; blockList="\?"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
+        if ! $disableAlpineInstall && [ "$(blkid $lvmPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "LVM2_member" ] && ! $gPartition; then echo "Partition at $lvmPartition is not LVM2_member! Enable formatting or pick a different partition"; blockList="\?"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
+        if ! $disableKernelReplacement && [ "$(blkid $kernelPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "xfs" ] && ! $gKernelPartition; then echo "Partition at $kernelPartition is not xfs! Enable formatting or pick a different partition"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+        
+        # Break loop if everything is satisfied
         if $bootSectorChosen && $lvmSectorChosen && $kernelSectorChosen; then break; fi
 	done
-	log "INFO: Boot partition at $bootPartition; does it currently exist? $bootExist, formatting enabled? $gPartition"
-	log "INFO: Lvm partition at $lvmPartition; does it currently exist? $lvmExist, formatting enabled? $gPartition"
-	log "INFO: Kernel partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition"
+	log "INFO: vfat boot partition at $bootPartition; does it currently exist? $bootExist, erasure enabled? $gPartition"
+	log "INFO: LVM2_member lvm partition at $lvmPartition; does it currently exist? $lvmExist, erasure enabled? $gPartition"
+	log "INFO: xfs kernel partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition"
 
-	log "INFO: Considering where to mount root directory and possible kernel device"
+	# Ensure $mountPoint is defined in a directory of /mnt
+	log "INFO: Ensuring mountPoint is declared in /mnt directory, and exists"
+	while ! $disableAlpineInstall && [ -z $mountPoint ] || [ "$mountPoint" = "/" ] || [ -z "$(echo $mountPoint | grep -E ^/mnt/.+$)" ]; do
+		echo "Directory of /mnt: $(ls -lah /mnt)"
+		read -p "Invalid mountpoint is declared at: $mountPoint. Type in an existing or new directory name to select where Alpine installation is mounted within /mnt directory [Type 'a' to abort]: " mountPoint
+		mountPoint="/mnt/$(echo $mountPoint | grep -Eo [^\/]*$)" # Append /dev/
+		case $mountPoint in
+            /mnt/a ) exit;;
+            /mnt/A ) exit;;
+		esac
+	done # Create directory
+	mkdir -p $mountPoint
+	local kernelPoint="/home/$buildUsername"
 	
-#	mountPoint kernelPoint
-	while ! $disableAlpineInstall; do
-		break
-	done
-	
-	while ! $disableKernelReplacement; do
-		break
-	done
+	log "INFO: Calculating if disk size is appropriate"
 
-	log "INFO: User formatting, partitioning, and mounting are processed"
+	local userAction=false
+	echo -e "\n\nPlease review the following configurations before proceeding\n"
+	echo -e "Boot partition in vfat disk partition location:\t\t\t$bootPartition"
+	echo -e "Alpine installation in LVM2_member disk partition location:\t$lvmPartition"
+	echo -e "Alpine custom kernel in xfs disk partition location:\t\t$kernelPartition"
+	echo -e "\n\tExists?\tErasure\tFull disk?\tSize if not\tSector offset (if applicable)"
+	echo -e "Boot:\t$bootExist\t$gPartition\tn/a\t\t$bootSize\t\t$partitionSector"
+	echo -e "LVM:\t$lvmExist\t$gPartition\t$lvmFull\t\t$lvmSize\t\t$partitionSector"
+	echo -e "Kernel:\t$kernelExist\t$gKernelPartition\t$kernelFull\t\t$kernelSize\t\t$kernelPartitionSector"
+	echo -e "\nMounting alpine location: $mountPoint"
+	while ! $userAction; do
+		read -p "Confirm procedure? [y/n]: " userChoice
+		case $userChoice in
+			y ) userAction=true;;
+            n ) exit;;
+		esac
+	done
+	log "INFO: User formatting, partitioning, and mounting are confirmed"
 
 	# Alpine installation
 #    log "INFO: Checking if this is a fresh installation"
@@ -185,11 +239,11 @@ defineMount() {
 
 # Test case: All valid paths
 gLocal=false
-gKernelUnmodified=false
+gKernelUnmodified=true
 gPartition=true
 gKernelPartition=true
 
-bootPartition=""
-lvmPartition=""
+bootPartition="/dev/sda2"
+lvmPartition="/dev/sda"
 kernelPartition=""
 defineMount
