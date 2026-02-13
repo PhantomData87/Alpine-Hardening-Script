@@ -76,49 +76,12 @@
 # Expensive operations:
 export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires a lot of space (~3.6Gb), and time (significantly more on embedded devices in the order of a month wait).
 
-# Sort later
-# Flags set by user
-gLocal=true # mountPoint at "/"? Otherwise in /mnt
-gKernelUnmodified=true # Skip kernel mounting & replacement? Otherwise in $mountPoint/home/$buildUsername
-gPartition=false # Intention to reset or create new partitions of Alpine disk
-gKernelPartition=false # Intention to reset or create new partitions of Kernel disk storage
-partitionSector="6144" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
-kernelPartitionSector="2048" # USED IF IT IS A NEW DISK. Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
-# Must include units: "B", "kB", "MB", "KiB", "MiB", "GB", "GiB", "TB", "TiB", "PB", "PiB", "EB", "EiB", or Sectors: "s"
-lvmFull=true # Will Alpine installation use entire disk? Or a portion of disk?
-bootSize="1G"
-lvmSize="0G" # Required if lvmFull is set to false
-rootSize="2G"
-homeSize="4M"
-varSize="2G"
-varTmpSize="1G"
-varLogSize="5G"
-
-# Values to search, or be set by user
-	# Devices
-bootPartition=""
-lvmPartition=""
-kernelPartition=""
-	# Files to mount
-mountPoint=""
-
-
-
-
-
-
-
 # Alpine configuration variables (CHANGE THESE)
 export logFile="/tmp/hardeningAlpine.log"
 export logIP="REPLACEME"
 export username="REPLACEME"
 export sshUsernameKey="REPLACEME"
 export tempSshPass="REPLACEME"
-export rootSize="REPLACEME"
-export homeSize="REPLACEME"
-export varSize="REPLACEME"
-export varTmpSize="REPLACEME"
-export varLogSize="REPLACEME"
 export localhostName="REPLACEME"
 export lvmName="REPLACEME"
 export keyboardLayout="us"
@@ -127,11 +90,6 @@ export dnsList="REPLACEME"
 export apkRepoList="REPLACEME"
 export devDevice="REPLACEME"
 export tempRootPass="REPLACEME"
-export mountPoint="/" # /mnt/alpine
-export partitionStart=2 # Leave this as 1 to assume we can make the first partition
-export kernelPartitionStart=1 # Leave this as 1 to assume we can make the first partition
-export partitionSector="REPLACEME" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
-export kernelPartitionSector="REPLACEME" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
 export kernelVersion="REPLACEME" # Could not have this reliable
 export gitPackageCommitHash="REPLACEME" # Scroll through original aports git repo to set the desired hash
 export localNetwork="REPLACEME"
@@ -195,21 +153,36 @@ System last updated: 00:00 00/00/0000 UTC
 System last health scan: 00:00 00/00/0000 UTC
 System last log sent: 00:00 00/00/0000 UTC" # Ran with figlet command, reference: https://ar.pinterest.com/pin/dante-the-divine-comedy-2-purgatory-diagrammatic-arrangement-of-mount-purgatory--10062799147380479/
 
-# Variables that can be prefilled, but are automatically asked when needed
-export packageDevice="" # Write /dev/devicePath
-export packageNamingJustNum=true # Choose "true" or "false" to indicate partioning naming scheme as: "1" or "p1"
-export mountDevice="" # Write /dev/devicePath
-export namingJustNum=true # Choose "true" or "false" to indicate partioning naming scheme as: "1" or "p1"
+# Modifying behavior of $mountPoint, and actions required to ensure the $mountPoint will work as intended
+	# Automatically setting $mountPoint to equal "/" for local changes
+gLocal=false # mountPoint at "/"? Otherwise in /mnt
+	# Include kernel section?
+gKernelUnmodified=true # Skip kernel mounting & replacement? Otherwise in $mountPoint/home/$buildUsername
+	# Formatting/hard reset of storage device
+gPartition=false # Intention to reset or create new partitions of Alpine disk
+gKernelPartition=false # Intention to reset or create new partitions of Kernel disk storage
+	# Devices (Automatically found, but can be set before hand)
+bootPartition=""
+lvmPartition=""
+kernelPartition=""
+	# Files to mount
+mountPoint=""
 
-# Variables for pre setup (Leave it alone)
-gAlpineSetup=false
-gPartition=false
-gKernelPartition=false
-
-# Variables for post setup (Leave it alone)
-gKernel=false
-gLocal=false
-gRemote=false
+# Format behaviors
+	# Initial sector offset (Must include units: "B", "kB", "MB", "KiB", "MiB", "GB", "GiB", "TB", "TiB", "PB", "PiB", "EB", "EiB", or Sectors: "s")
+partitionSector="6144" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
+kernelPartitionSector="2048" # USED IF IT IS A NEW DISK. Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
+	# Boot partition size (outside of LVM)
+bootSize="1G"
+	# LVM Partition physical behavior
+lvmFull=true # Will Alpine installation use entire disk? Or a portion of disk?
+lvmSize="0G" # Required if lvmFull is set to false
+	# LVM logical behavior
+rootSize="2G"
+homeSize="4M"
+varSize="2G"
+varTmpSize="1G"
+varLogSize="5G"
 
 # Switch variables not meant to be edit
 export version="1.0"
@@ -221,7 +194,6 @@ rmAlpine=false
 
 # Variables meant to increase readability
 hardeningPatchUrl="https://github.com/anthraxx/linux-hardened/releases/download/v$kernelVersion-hardened1/linux-hardened-v$kernelVersion-hardened1"
-p="p" # Partition letter. Increases readability by avoiding "$(echo p)" into $p
 
 # Additional logging variables
 export ufwLogging="full" # "low"="on", "medium", "high", "full" : https://thelinuxcode.com/check-my-ufw-log/ : /var/log/ufw.log
@@ -249,18 +221,18 @@ Actions: User must specify atleast one action
 	--pre		Run pre-setup environment alpine installation in fresh live iso
 	--post		Run post-setup environment alpine installation, and apply hardening techniques
 	--verify	Verifies if all configurations have been applied
-	--formatKernel	Prepare block device to contain a valid alpine kernel to be locally managed. Calls --kernel at the end
+	--formatKernel	Prepare block device to contain a valid alpine kernel to be locally managed. Calls --kernelModify at the end
 	--uninstall	Remove alpine installation
 	--all		Shorthand for --pre, --post and --verify"
     if $verbose; then echo ""; else return 0; fi
 echo "Configuration: If not specified, then assume user wants everything below enabled
 Found in --pre;
 	--alpineConfig	Use the existing commands and scripts derived from setup-alpine
-	--partition	Setup the custom expected partitions for this system
+	--formatSystem	Setup the custom expected partitions for this system
 Found in --post and --verify;
-	--local		Configure services and security on local machine
+	--stayLocal		Configure services and security on local machine
 	--remote	Configure external mechanisms for local machine
-	--kernel	Configure to install a locally sourced kernel from external device
+	--kernelModify	Configure to install a locally sourced kernel from external device
 
 Expensive operations, controlled via variable:
 sshExpensiveOperation:	Generates a new moduli file that filters out weaker bits. This takes a significant amount of space and time when run with; --post --sshd
@@ -285,13 +257,6 @@ tempRootPass:		Declare the temporary default root pass
 tempSshPass:		Declare the temporary ssh password for all ssh keys generated
 mountPoint:		Declare the directory to make a new mount point for a later chroot environment
 mountDevice:		Declare the block device to install alpine system to
-packageDevice:		Declare the block device that contains a valid kernel
-namingJustNum:		Declare that the block device uses a naming scheme that uses only numbers and does not include 'p'
-packageNamingJustNum:	Declare that the block device uses a naming scheme that uses only numbers and does not include 'p'
-partitionStart:		Declare the partition from the Alpine stored device to tamper with
-kernelPartitionStart:	Declare the partition from the Kernel storage device to tamper with
-partitionSector: 	Declare the beginning sector to use within the Alpine stored device
-kernelPartitionSector:	Declare the beginning sector to use within the kernel storage device
 kernelVersion:		Declare which kernel edition we will be using
 gitPackageCommitHash:	Declare where in the git repository we will interact with based on prior history
 localNetwork:		Declare the local LAN network this machine is connect to by providing a base IPv4 address
@@ -317,7 +282,7 @@ fail2banUsername:	A system user meant to handle applications like fail2ban
 updateUsername:		A system user that is meant to occasionally update the system
 buildUsername:		A system user meant to build a linux kernel
 extractUsername:	A user that will be deleted in 4 hours, but has sensitive information about several users
-Note: Most of these usernames are only applied if --users is executed, or --kernel"
+Note: Most of these usernames are only applied if --users is executed, or --kernelModify"
     exit;
 }
 
@@ -328,12 +293,10 @@ interpretArgs() {
       case "$i" in
         -h|--help) wantHelp=true;;
         -v|--verbose) verbose=true;;
-        --alpineConfig) gAlpineSetup=true;;
-        --partition) gPartition=true;;
+        --formatSystem) gPartition=true;;
         --formatKernel) gKernelPartition=true;;
-        --local) gLocal=true;;
-        --remote) gRemote=true;;
-        --kernel) gKernel=true;;
+        --stayLocal) gLocal=true;;
+        --kernelModify) gKernelUnmodified=false;;
         --uninstall) rmAlpine=true;;
         --verify) verify=true;;
         --post) post=true;;
@@ -353,7 +316,7 @@ interpretArgs() {
     fi
 
     # No option selected?
-    if ! $pre && ! $post && ! $verify && ! $rmAlpine && ! $gKernelPartition; then
+    if ! $pre && ! $post && ! $verify && ! $rmAlpine && $gKernelUnmodified; then
         echo 'BAD FORMAT: Must provide an action!'
         printHelp
         exit
@@ -418,11 +381,11 @@ interpretArgs() {
     for j in $apkRepoList; do
         if ! (echo $j | grep -Eq "^https://[^ ]*[^/]$"); then echo "BAD FORMAT: Not a valid repository declared. Either not a https link, or user has included a '/' at the end: $j" 2>/dev/null; exit; fi
     done
-    if (! echo $rootSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in rootSize: $rootSize" 2>/dev/null; exit; fi
-    if (! echo $homeSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in homeSize: $homeSize" 2>/dev/null; exit; fi
-    if (! echo $varSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in varSize: $varSize" 2>/dev/null; exit; fi
-    if (! echo $varTmpSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in varTmpSize: $varTmpSize" 2>/dev/null; exit; fi
-    if (! echo $varLogSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size expected in varLogSize: $varLogSize" 2>/dev/null; exit; fi
+    if (! echo $rootSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in rootSize: $rootSize" 2>/dev/null; exit; fi
+    if (! echo $homeSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in homeSize: $homeSize" 2>/dev/null; exit; fi
+    if (! echo $varSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varSize: $varSize" 2>/dev/null; exit; fi
+    if (! echo $varTmpSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varTmpSize: $varTmpSize" 2>/dev/null; exit; fi
+    if (! echo $varLogSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varLogSize: $varLogSize" 2>/dev/null; exit; fi
     if (! echo $timezone | grep -Eq [A-z]+/[A-z]); then echo "BAD FORMAT: Not a valid timezone declaration! $timezone" 2>/dev/null; exit; fi
     if (! echo $sshPort | grep -Eq ^[0-9]) && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number for \$sshPort that is in range of 1-1023, and is not 22!"; exit; fi
     if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format; like 022 or 077!"; exit; fi
@@ -463,7 +426,8 @@ removeAlpine() {
     if $gLocal; then log "INFO: Nothing to delete! Mount point is set to current filesystem root."; return 0; fi
 
     # Check if both partitions exist
-    if [ ! -b "$bootPartition" ] || [ ! -b "$lvmPartition" ]; then echo "SYSTEM TEST MISMATCH: There appears to be no device to delete"; exit; fi
+    if [ ! -b "$bootPartition" ] ; then echo "SYSTEM TEST MISMATCH: There appears to be no boot partition to delete"; exit; fi
+    if [ ! -b "$lvmPartition" ]; then echo "SYSTEM TEST MISMATCH: There appears to be no lvm partition to delete"; exit; fi
 
     # Ask the user if they wish to delete alpine
     while true; do
@@ -3392,33 +3356,31 @@ main() {
     
     # Show user current settings
     printVariables
-    
-    # Check if no specific tests are set, to enable usage on everything
-    if ! $gAlpineSetup && ! $gPartition && ! $gLocal && ! $gRemote; then
-        gAlpineSetup=true; gPartition=true; gLocal=true; gRemote=true;
-    fi
 
-    # Pre-installation (affecting live iso)
+    # Pre-installation (effective on live iso)
     if $pre; then setupAlpine; fi
     
     # Setup environment: check pre-setup is finished
     defineMount
 
+	echo "Reached end of mount function!"
+	exit
+
     # Post installation: check setup is finished
     if $post; then
 	    log "INFO: Started post-setup!"
-	    if $gLocal; then configLocalInstallation; fi
-	    if $gRemote; then configRemoteCapabilities; fi
-	    if $gKernel; then configKernel; fi
+	    configLocalInstallation
+	    configRemoteCapabilities
+	    if ! $gKernelUnmodified; then configKernel; fi
         log "INFO: Finished post-setup!"
     fi
 
     # Full Verification of installation
     if $verify; then
 	    log "INFO: Verifying changes!"
-	    if $gAlpineSetup || $gPartition; then verifyInstallSetup; fi
-	    if $gLocal; then verifyLocalInstallation; fi
-	    if $gRemote; then verifyRemoteCapabilities; fi
+	    verifyInstallSetup
+	    verifyLocalInstallation
+	    verifyRemoteCapabilities
             log "INFO: Finished verifying changes!"
     fi
 
