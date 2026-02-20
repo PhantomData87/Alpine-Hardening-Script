@@ -1,6 +1,8 @@
 #!/bin/sh
 #Alpine defualt configuration: Missing: 
 
+# sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
+
 # Default setup interface
 # interface: eth0
 # ip: 192.168.0.6x
@@ -10,30 +12,28 @@
 # Alpine standard aarch64 version: 3.23.2
 
 # !!! Missing features:
-#fail2ban: Configure it more once all services are ready
-#restrict busybox?
-#what is busybox-paths.d/busybox?, 
-#selinux, landlock, lockdown, yama, safesetid, loadpin?
-#AIDE,
-#debsums regular checks, 
-#apt-show-versions for patch management, 
-#process accounting, 
-#automation tools, 
-#A hard DO NOT OVERWRITE EXISTING PARTITIONS unless deleting them intentionally
-#Skip device check if mountpoint is set to root ("/") directory
-#Network monitoring? ARP requests, DHCP requestss
-#Awall firewall
-#Firewall; Filter arp and other network requests
-#Make configAutostart() function to add in the following scripts: set kernel.modules_disabled = 1, turning on and off firewall for timed ntp, dns, or apk updates, DNS check and validation, kernel update notifications, file integrity monitor, malware scanning, ...
-#Develop a plan to manually perform security audits: chkrootkit, RKHunter, aide, lynis periodic scan
-#User accounting: sysstat
-#SSH multi-factor authentication
-#Find a way to permit pings from LAN, but not WAN. Finally, let these pings contain (nearly) no data.
-#Think about ARP packets, filtering DHCP packets away, minimal DNS packets, and further restrictions on NTP packets.
-#Using linux `tc` to limit bandwidth and througput of specific packets
-#Switch over to nftables by ditching UFW at some point
-#Look into /etc/lvm/lvm.conf & /etc/lvm/lvmlocal.conf
-#Figure out why chronyd is failing
+# fail2ban: Configure it more once all services are ready
+# restrict busybox?
+# what is busybox-paths.d/busybox?, 
+# selinux, landlock, lockdown, yama, safesetid, loadpin?
+# AIDE,
+# debsums regular checks, 
+# apt-show-versions for patch management, 
+# process accounting, 
+# automation tools, 
+# Network monitoring? ARP requests, DHCP requestss
+# Awall firewall
+# Firewall; Filter arp and other network requests
+# Make configAutostart() function to add in the following scripts: set kernel.modules_disabled = 1, turning on and off firewall for timed ntp, dns, or apk updates, DNS check and validation, kernel update notifications, file integrity monitor, malware scanning, ...
+# Develop a plan to manually perform security audits: chkrootkit, RKHunter, aide, lynis periodic scan
+# User accounting: sysstat
+# SSH multi-factor authentication
+# Find a way to permit pings from LAN, but not WAN. Finally, let these pings contain (nearly) no data.
+# Think about ARP packets, filtering DHCP packets away, minimal DNS packets, and further restrictions on NTP packets.
+# Using linux `tc` to limit bandwidth and througput of specific packets
+# Switch over to nftables by ditching UFW at some point
+# Look into /etc/lvm/lvm.conf & /etc/lvm/lvmlocal.conf
+# Figure out why chronyd is failing
 # Prevent ufw from logging into dmesg via rsyslog
 # Awall? Shorewall?
 # Have a clean way to resolve hard or symbolic file links permissions (besides copying the file)
@@ -79,7 +79,6 @@ export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires 
 # Alpine configuration variables (CHANGE THESE)
 export logFile="/tmp/hardeningAlpine.log"
 export logIP="REPLACEME"
-export username="REPLACEME"
 export sshUsernameKey="REPLACEME"
 export tempSshPass="REPLACEME"
 export localhostName="REPLACEME"
@@ -95,6 +94,7 @@ export gitPackageCommitHash="REPLACEME" # Scroll through original aports git rep
 export localNetwork="REPLACEME"
 export localNetmask="REPLACEME"
 export umask="077"
+export systemArch="$(uname -m)" # Leave this as "$(uname -m)" to automatically find system architecture. If building on a different system, then change this into one of the many values: x86_64, x86, arm*, aarch64, riscv64, loongarch64
 
 # Usernames to be created. This does not include chrony and sshd, since they are already created
 export buildUsername="REPLACEME" # Username that can build the linux kernel, and install it
@@ -177,7 +177,7 @@ bootSize="1G"
 	# LVM Partition physical behavior
 lvmFull=true # Will Alpine installation use entire disk? Or a portion of disk?
 lvmSize="0G" # Required if lvmFull is set to false
-	# LVM logical behavior
+	# LVM logical size behavior
 rootSize="2G"
 homeSize="4M"
 varSize="2G"
@@ -185,7 +185,7 @@ varTmpSize="1G"
 varLogSize="5G"
 
 # Switch variables not meant to be edit
-export version="1.0"
+export version="1.0.0"
 export verbose=false
 pre=false
 post=false
@@ -221,20 +221,16 @@ Actions: User must specify atleast one action
 	--pre		Run pre-setup environment alpine installation in fresh live iso
 	--post		Run post-setup environment alpine installation, and apply hardening techniques
 	--verify	Verifies if all configurations have been applied
-	--formatKernel	Prepare block device to contain a valid alpine kernel to be locally managed. Calls --kernelModify at the end
 	--uninstall	Remove alpine installation
-	--all		Shorthand for --pre, --post and --verify"
-    if $verbose; then echo ""; else return 0; fi
-echo "Configuration: If not specified, then assume user wants everything below enabled
-Found in --pre;
-	--alpineConfig	Use the existing commands and scripts derived from setup-alpine
-	--formatSystem	Setup the custom expected partitions for this system
-Found in --post and --verify;
-	--stayLocal		Configure services and security on local machine
-	--remote	Configure external mechanisms for local machine
-	--kernelModify	Configure to install a locally sourced kernel from external device
+	--all		Shorthand for --pre, --post and --verify
 
-Expensive operations, controlled via variable:
+Configuration: If not specified, then assume user wants everything below enabled
+	--formatSystem	Setup the custom expected partitions for this system
+	--stayLocal		Configure services and security on local machine
+	--formatKernel	Setup the custom expected partitions for a seperate kernel installation
+	--kernelModify	Configure to install a locally sourced kernel from external device"
+    if $verbose; then echo ""; else return 0; fi
+echo "Expensive operations, controlled via variable:
 sshExpensiveOperation:	Generates a new moduli file that filters out weaker bits. This takes a significant amount of space and time when run with; --post --sshd
 
 Internal variables to configure script:
@@ -265,6 +261,7 @@ sshPort:		Declare the default port for ssh servers. Will not tolerate port 22, a
 umaks:			Declare the standard umask when creating a new file. Determines the default file permissions assigned to a newly created file.
 bannerIssue:		Declare the message displayed to most unauthenticated users
 bannerMotd:		Decalre the message displayed to most authenticated users
+systemArch		Declare the architecture of the system to determine kernel compiling behavior, and fallback bootloader name
 Note: $logFile will be set if the variable is empty upon execution.
 
 Internal variables for created usernames
@@ -315,21 +312,16 @@ interpretArgs() {
         exit
     fi
 
-    # No option selected?
-    if ! $pre && ! $post && ! $verify && ! $rmAlpine && $gKernelUnmodified; then
-        echo 'BAD FORMAT: Must provide an action!'
-        printHelp
-        exit
-    fi
-
     # Log file existence
     touch $logFile 2>/dev/null || echo "SYSTEM TEST MISMATCH: Cannot create log file!"
     if ! [ -r "$logFile" ] || ! [ -w "$logFile" ]; then echo "CRITICAL: Cannot write and read log file in: $logFile"; exit; fi
 
     # Null check
     if [ -z "$version" ]; then echo "BAD FORMAT: Provide any number to indicate the version of this script!"; exit; fi
+    if [ -z "$kernelVersion" ]; then echo "BAD FORMAT: Must indicate the version of the linux kernel that is planned to be used!"; exit; fi
     if [ -z "$logFile" ]; then echo "BAD FORMAT: Will default to /tmp/hardeningAlpine.log due to this being empty!"; fi
     if [ -z "$logIP" ]; then echo "BAD FORMAT: No ip to indicate a remote logging server!"; exit; fi
+    if [ -z "$systemArch" ]; then echo "BAD FORMAT: Must declare system architecture, leave it as default \"\$(uname -m)\""; exit; fi
     if [ -z "$buildUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$buildUsername and include a name!"; exit; fi
     if [ -z "$monitorUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$monitorUsername and include a name!"; exit; fi
     if [ -z "$powerUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$powerUsername and include a name!"; exit; fi
@@ -349,6 +341,7 @@ interpretArgs() {
     if [ -z "$varSize" ]; then echo "BAD FORMAT: Missing required value in varSize"; exit; fi
     if [ -z "$varTmpSize" ]; then echo "BAD FORMAT: Missing required value in varTmpSize"; exit; fi
     if [ -z "$varLogSize" ]; then echo "BAD FORMAT: Missing required value in varLogSize"; exit; fi
+    if [ -z "$lvmSize" ] && ! $lvmFull; then echo "BAD FORMAT: \$lvmFull is declared to not take up the entire disk, so declare how much space it will take in: \$lvmSize"; exit; fi
     if [ -z "$localhostName" ]; then echo "BAD FORMAT: Missing required value in localhostName"; exit; fi
     if [ -z "$lvmName" ]; then echo "BAD FORMAT: Missing required value in lvmName"; exit; fi
     if [ -z "$keyboardLayout" ]; then echo "BAD FORMAT: Missing required value in keyboardLayout"; exit; fi
@@ -358,12 +351,13 @@ interpretArgs() {
     if [ -z "$devDevice" ]; then echo "BAD FORMAT: Missing required value in devDevice"; exit; fi
     if [ -z "$tempRootPass" ]; then echo "BAD FORMAT: Enter a password for the root user. It cannot be empty!"; exit; fi
     if [ -z "$tempSshPass" ]; then echo "BAD FORMAT: Enter a password for ssh key generation! It cannot be empty!"; exit; fi
-    if [ -z "$mountPoint" ]; then echo "BAD FORMAT: Missing a path for mounting!"; exit; fi
-    if [ -z "$partitionStart" ]; then echo "BAD FORMAT: a!"; exit; fi
-    if [ -z "$kernelPartitionStart" ]; then echo "BAD FORMAT: Must indicate boot partition that will be formed or used!"; exit; fi
+    if [ -z "$gLocal" ]; then echo "BAD FORMAT: Automatically assume gLocal is meant to be declared as false; indicating this is NOT a local installation"; gLocal=false; fi
+    if [ -z "$gKernelUnmodified" ]; then echo "BAD FORMAT: Automatically assume the installation is meant to use the existing kernel"; gKernelUnmodified=true; fi
+    if [ -z "$gPartition" ]; then echo "BAD FORMAT: Assume we are not formatting any devices for installing Alpine"; gPartition=false; fi
+    if [ -z "$gKernelPartition" ]; then echo "BAD FORMAT: Assume we are not formatting any devices for installing a seperate compiled kernel"; gKernelPartition=false; fi
+    if [ -z "$lvmFull" ]; then echo "BAD FORMAT: Assuming that lvm will take up the remainder of the disk"; lvmFull=true; fi
     if [ -z "$partitionSector" ]; then echo "BAD FORMAT: Must indicate the sector of the block device that indicates where our first partition resides!"; exit; fi
     if [ -z "$kernelPartitionSector" ]; then echo "BAD FORMAT: Must indicate kernel storage partition that will be formed or used!"; exit; fi
-    if [ -z "$kernelVersion" ]; then echo "BAD FORMAT: Must indicate the version of the linux kernel that is planned to be used!"; exit; fi
     if [ -z "$gitPackageCommitHash" ]; then echo "BAD FORMAT: Must indicate the git branch hash that is expected to be used!"; exit; fi
     if [ -z "$localNetwork" ]; then echo "BAD FORMAT: Must provide a IPv4 base address for the local network!"; exit; fi
     if [ -z "$localNetmask" ]; then echo "BAD FORMAT: Must provide a IPv4 local network netmask!"; exit; fi
@@ -389,26 +383,21 @@ interpretArgs() {
     if (! echo $timezone | grep -Eq [A-z]+/[A-z]); then echo "BAD FORMAT: Not a valid timezone declaration! $timezone" 2>/dev/null; exit; fi
     if (! echo $sshPort | grep -Eq ^[0-9]) && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number for \$sshPort that is in range of 1-1023, and is not 22!"; exit; fi
     if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format; like 022 or 077!"; exit; fi
-
-    # Behavior check
-    if [ "$mountPoint" = "/" ] && $pre; then echo "SYSTEM TEST MISMATCH: Cannot have pre-installation declared on / point. Specify elsewhere."; exit; fi
-
+    if (! echo $systemArch | grep ^x86_64$\|^x86$\|^arm.*$\|^aarch64$\|^riscv64$\|^loongarch64$ $); then echo "BAD FORMAT: Invalid system architecture found! Please default to \"\$(uname -m)\" or provide the right accepted architecture value for \$systemArch"; exit; fi
+    
     log "INFO: Finished reading all variables: $*"
 }
 
 # Print what this script will apply
 printVariables() {
-    echo ""
-    echo "File related variables:"
-
     # Mention global variables
-    echo "Partition sizes; Root: $rootSize | Home: $homeSize | Var: $varSize | Var/Tmp: $varTmpSize | Var/Log: $varLogSize"
-    echo "Time and resolv; Timezone: $timezone | Dns list: $dnsList"
-    echo "File locations; Log: $logFile | Mount: $mountPoint"
-    echo ""
-    echo "Script configuration:"
-    echo "Mode; Pre: $pre | Post: $post | Verify: $verify | Delete: $rmAlpine | Verbosity: $verbose | Fresh kernel installation: $gKernelPartition"
-    echo "Script; Remote logging server address: $logIP"
+    echo "
+Script configuration:
+Mode; Pre-installation: $pre | Post-installation: $post | Verify-installation: $verify | Delete-installation: $rmAlpine
+Mount point behavior: Verbosity: $verbose | Local installation: $gLocal | Unmodified kernel: $gKernelUnmodified | Mount point: $mountPoint
+Formatting: Fresh alpine installation: $gPartition | Fresh kernel installation: $gKernelPartition
+Device paths (if used & empty, will ask): Boot: $bootPartition | LVM: $lvmPartition | Kernel: $kernelPartition
+"
 
     # Last chance to back out
     while true; do
@@ -422,13 +411,6 @@ printVariables() {
 
 # Reset partitions and installation on detected drive
 removeAlpine() {
-    # Check if mountpoint is current filesystem
-    if $gLocal; then log "INFO: Nothing to delete! Mount point is set to current filesystem root."; return 0; fi
-
-    # Check if both partitions exist
-    if [ ! -b "$bootPartition" ] ; then echo "SYSTEM TEST MISMATCH: There appears to be no boot partition to delete"; exit; fi
-    if [ ! -b "$lvmPartition" ]; then echo "SYSTEM TEST MISMATCH: There appears to be no lvm partition to delete"; exit; fi
-
     # Ask the user if they wish to delete alpine
     while true; do
         read -p "Delete alpine installation found in $mountPoint from $mountDevice device? y/n: " yn
@@ -440,43 +422,53 @@ removeAlpine() {
 
     # Unmoount devices from known chroot environment
     log "INFO: Started umount-ing alpine!"
-    vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions to unmount partitions"
-    for i in $previewUsername $serverCommandUsername; do
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; ld-musl-aarch64.so.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; libncursesw.so.6"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libcrypto.so.3"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libacl.so.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libattr.so.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libutmps.so.0.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libskarnet.so.2.14"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
-    done
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/boot/efi " 2>/dev/null)" ]; then umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var/tmp " 2>/dev/null)" ]; then umount "$mountPoint"/var/tmp 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/tmp"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var/log " 2>/dev/null)" ]; then umount "$mountPoint"/var/log 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/log"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var " 2>/dev/null)" ]; then umount "$mountPoint"/var 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/maintain " 2>/dev/null)" ]; then umount "$mountPoint"/home/maintain 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home/maintain"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home " 2>/dev/null)" ]; then umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/proc " 2>/dev/null)" ]; then umount "$mountPoint"/proc 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/proc"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/sys " 2>/dev/null)" ]; then umount "$mountPoint"/sys 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/sys"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/dev " 2>/dev/null)" ]; then umount "$mountPoint"/dev 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/dev"; fi
-    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/run " 2>/dev/null)" ]; then umount "$mountPoint"/run 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/run"; fi
-    umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"; fi
-    rmdir "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not remove $mountPoint"
+    if [ ! -b "$lvmPartition" ]; then
+	    vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions to unmount partitions"
+    	for i in $previewUsername $serverCommandUsername; do
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; ld-musl-aarch64.so.1"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; libncursesw.so.6"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libcrypto.so.3"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libacl.so.1"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libattr.so.1"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libutmps.so.0.1"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libskarnet.so.2.14"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
+    	done
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/boot/efi " 2>/dev/null)" ]; then umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var/tmp " 2>/dev/null)" ]; then umount "$mountPoint"/var/tmp 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/tmp"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var/log " 2>/dev/null)" ]; then umount "$mountPoint"/var/log 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var/log"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/var " 2>/dev/null)" ]; then umount "$mountPoint"/var 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/var"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/maintain " 2>/dev/null)" ]; then umount "$mountPoint"/home/maintain 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home/maintain"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home " 2>/dev/null)" ]; then umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/proc " 2>/dev/null)" ]; then umount "$mountPoint"/proc 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/proc"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/sys " 2>/dev/null)" ]; then umount "$mountPoint"/sys 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/sys"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/dev " 2>/dev/null)" ]; then umount "$mountPoint"/dev 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/dev"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/run " 2>/dev/null)" ]; then umount "$mountPoint"/run 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/run"; fi
+    	umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
+    	rmdir "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not remove $mountPoint"
 
-    # Remove vg and pv recognition from lvm
-    vgremove "$lvmName" || log "UNEXPECTED: Could not remove $lvmname as a valid recognized name from system"
-    pvremove "$lvmPartition" || log "UNEXPECTED: Could not remove lvm signature from physical device"
+    	# Remove vg and pv recognition from lvm
+    	vgremove "$lvmName" || log "UNEXPECTED: Could not remove $lvmname as a valid recognized name from system"
+    	pvremove "$lvmPartition" || log "UNEXPECTED: Could not remove lvm signature from physical device"
 
-    # Remove recognized partitions from device
-    local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
-    local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
-    local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
-    local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
-    if $namingJustNum; then parted -a optimal "$deviceBoot" "rm $partBootNumber" 2>/dev/null || log "CRITICAL: Could not remove EFI partition $partBootNumber on physical device"
-    if $namingJustNum; then parted -a optimal "$deviceLvm" "rm $partLvmNumber" 2>/dev/null || log "CRITICAL: Could not remove LVM partition $partLvmNumber on physical device"
+    	# Remove lvm partition
+    	local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
+    	local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
+    	parted -a optimal "$deviceLvm" "rm $partLvmNumber" 2>/dev/null || log "CRITICAL: Could not remove LVM partition $partLvmNumber on physical device"
+	fi
+
+    # Check if both partitions exist
+    if [ ! -b "$bootPartition" ] ; then
+    	# Unmount partition
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/boot/efi " 2>/dev/null)" ]; then umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"; fi
+
+    	# Remove recognized partitions from device
+    	local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
+    	local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
+    	parted -a optimal "$deviceBoot" "rm $partBootNumber" 2>/dev/null || log "CRITICAL: Could not remove EFI partition $partBootNumber on physical device"
+    fi
 
     # Confirmation message
     log "INFO: Finished removing alpine installation on $mountDevice media"
@@ -486,9 +478,6 @@ removeAlpine() {
 defineMount() {
 	# Function behavior & User choice
 	log "INFO: Considering existing block devices"
-		# Increasing readability
-    local disableAlpineInstall=false
-    local disableKernelReplacement=false
 		# User accepts risks
 	local bootSectorChosen=true
 	local lvmSectorChosen=true
@@ -498,8 +487,8 @@ defineMount() {
 	local lvmExist=true
 	local kernelExist=true
     	# Check with global flags
-    if $gLocal; then disableAlpineInstall=true; gPartition=false; bootSectorChosen=true; lvmSectorChosen=true; bootExist=false; lvmExist=false; bootPartition="[self]"; lvmPartition="[self]"; mountPoint="/"; fi # Local installation prohibits: drive partitioning & alpine setup-disk installation
-    if $gKernelUnmodified; then disableKernelReplacement=true; gKernelPartition=false; kernelSectorChosen=true; kernelExist=false; kernelPartition="[nowhere]"; fi # If not considering kernel; then skip all kernel functions, formatting, and mounting
+    if $gLocal; then gPartition=false; bootSectorChosen=true; lvmSectorChosen=true; bootExist=false; lvmExist=false; bootPartition="[self]"; lvmPartition="[self]"; mountPoint="/"; fi # Local installation prohibits: drive partitioning & alpine setup-disk installation
+    if $gKernelUnmodified; then gKernelPartition=false; kernelSectorChosen=true; kernelExist=false; kernelPartition="[nowhere]"; fi # If not considering kernel; then skip all kernel functions, formatting, and mounting
 	
 	# Display list of devices, and consider each of the three important mount & format locations: boot, lvm, and kernel.
 	local devBlockSize=1024 # /proc/partitions shows size in 1024-byte blocks; https://unix.stackexchange.com/questions/512945/what-units-are-the-values-in-proc-partitions-and-sys-dev-block-block-size
@@ -509,7 +498,7 @@ defineMount() {
 	local devType=""
 	local blockList="\?"
 	local showAgain=false
-	while ! $disableAlpineInstall || ! $disableKernelReplacement; do
+	while ! $gLocal || ! $gKernelUnmodified; do
 		# Show devices list with size and possible label included
 		if $showAgain; then
 			echo -e "Device     \tSize     \tType\tLabel (if it exists)\n"
@@ -526,7 +515,7 @@ defineMount() {
         showAgain=false
         
         # Determine location of boot sector, and consider requests that are yet to be formatted
-        while ! $disableAlpineInstall && ! $bootSectorChosen && ! $showAgain; do
+        while ! $gLocal && ! $bootSectorChosen && ! $showAgain; do
             read -p "From the list above. Specify destination for boot partition that is vfat [Type 'a' to abort, or 'l' to show list]: " bootPartition
             bootPartition="/dev/$(echo $bootPartition | grep -Eo [^\/]*$)" # Append /dev/
             case $bootPartition in
@@ -543,7 +532,7 @@ defineMount() {
         done
         
         # Determine location of lvm sector, and consider requests that are yet to be formatted
-        while ! $disableAlpineInstall && ! $lvmSectorChosen && ! $showAgain; do
+        while ! $gLocal && ! $lvmSectorChosen && ! $showAgain; do
             read -p "From the list above. Specify destination for lvm partition that is LVM2_member [Type 'a' to abort, or 'l' to show list]: " lvmPartition
             lvmPartition="/dev/$(echo $lvmPartition | grep -Eo [^\/]*$)" # Append /dev/
             case $lvmPartition in
@@ -560,7 +549,7 @@ defineMount() {
         done
         
         # Determine location of kernel sector, and consider requests that are yet to be formatted
-        while ! $disableKernelReplacement && ! $kernelSectorChosen && ! $showAgain; do
+        while ! $gKernelUnmodified && ! $kernelSectorChosen && ! $showAgain; do
             read -p "From the list above. Specify destination for kernel partition that is xfs [Type 'a' to abort, or 'l' to show list]: " kernelPartition
             kernelPartition="/dev/$(echo $kernelPartition | grep -Eo [^\/]*$)" # Append /dev/
             case $kernelPartition in
@@ -579,52 +568,52 @@ defineMount() {
 		# Possibility to loop back again
         	# Reset blocklist
         blockList="\?" # Reset
-        if ! $disableAlpineInstall && [ ! -z "$bootPartition" ] && [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $bootPartition | grep -Eo [^\/]*$)"; fi
-        if ! $disableAlpineInstall && [ ! -z "$lvmPartition" ] && [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $lvmPartition | grep -Eo [^\/]*$)"; fi
-        if ! $disableKernelReplacement && [ ! -z "$kernelPartition" ] && [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $kernelPartition | grep -Eo [^\/]*$)"; fi
+        if ! $gLocal && [ ! -z "$bootPartition" ] && [ ! -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $bootPartition | grep -Eo [^\/]*$)"; fi
+        if ! $gLocal && [ ! -z "$lvmPartition" ] && [ ! -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $lvmPartition | grep -Eo [^\/]*$)"; fi
+        if ! $gKernelUnmodified && [ ! -z "$kernelPartition" ] && [ ! -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then blockList="$blockList|$(echo $kernelPartition | grep -Eo [^\/]*$)"; fi
         
         # Start beginning of loop check
         	# Emptyness check
-        if ! $disableAlpineInstall && [ -z "$bootPartition" ]; then showAgain=true; bootSectorChosen=false; bootExist=false; echo "Empty value for bootPartition"; fi
-        if ! $disableAlpineInstall && [ -z "$lvmPartition" ]; then showAgain=true; lvmSectorChosen=false; lvmExist=false; echo "Empty value for lvmPartition"; fi
-        if ! $disableKernelReplacement && [ -z "$kernelPartition" ]; then showAgain=true; kernelSectorChosen=false; kernelExist=false; echo "Empty value for kernelPartition"; fi
+        if ! $gLocal && [ -z "$bootPartition" ]; then showAgain=true; bootSectorChosen=false; bootExist=false; echo "Empty value for bootPartition"; fi
+        if ! $gLocal && [ -z "$lvmPartition" ]; then showAgain=true; lvmSectorChosen=false; lvmExist=false; echo "Empty value for lvmPartition"; fi
+        if ! $gKernelUnmodified && [ -z "$kernelPartition" ]; then showAgain=true; kernelSectorChosen=false; kernelExist=false; echo "Empty value for kernelPartition"; fi
         if $showAgain; then continue; fi
         
         # Partition tests:
 	        # Duplicate entry
-		if ! $disableAlpineInstall && [ "$lvmPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-		if ! $disableAlpineInstall && [ "$kernelPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$kernelPartition" ]; then echo "Duplicate conflicting entry with: $lvmPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-		if ! $disableKernelReplacement && [ "$lvmPartition" = "$kernelPartition" ] && [ ! -z "$kernelPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $kernelPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $gLocal && [ "$lvmPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $gLocal && [ "$kernelPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$kernelPartition" ]; then echo "Duplicate conflicting entry with: $lvmPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $gKernelUnmodified && [ "$lvmPartition" = "$kernelPartition" ] && [ ! -z "$kernelPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $kernelPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	    	# Valid partition scheme
-	    if ! $disableAlpineInstall && [ -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $bootPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; bootSectorChosen=false; bootPartition=""; bootExist=false; fi
-	    if ! $disableAlpineInstall && [ -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $lvmPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; lvmSectorChosen=false; lvmPartition=""; lvmExist=false; fi
-	    if ! $disableKernelReplacement && [ -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $kernelPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; kernelSectorChosen=false; kernelPartition=""; kernelExist=false; fi
+	    if ! $gLocal && [ -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $bootPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; bootSectorChosen=false; bootPartition=""; bootExist=false; fi
+	    if ! $gLocal && [ -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $lvmPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; lvmSectorChosen=false; lvmPartition=""; lvmExist=false; fi
+	    if ! $gKernelUnmodified && [ -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $kernelPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; kernelSectorChosen=false; kernelPartition=""; kernelExist=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	    	# Formatting acknowledgment, and valid block device check
-    	if ! $disableAlpineInstall && [ ! -b "$bootPartition" ] && $gPartition; then echo "vfat bootPartition at $bootPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; bootExist=false; fi
-    	if ! $disableAlpineInstall && [ ! -b "$lvmPartition" ] && $gPartition; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; lvmExist=false; fi
-    	if ! $disableKernelReplacement && [ ! -b "$kernelPartition" ] && $gKernelPartition; then echo "kernelPartition at $gKernelPartition partition currently does not exist, but will format due to gKernelPartition being specified as $gKernelPartition"; kernelExist=false; fi
+    	if ! $gLocal && [ ! -b "$bootPartition" ] && $gPartition; then echo "vfat bootPartition at $bootPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; bootExist=false; fi
+    	if ! $gLocal && [ ! -b "$lvmPartition" ] && $gPartition; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; lvmExist=false; fi
+    	if ! $gKernelUnmodified && [ ! -b "$kernelPartition" ] && $gKernelPartition; then echo "kernelPartition at $gKernelPartition partition currently does not exist, but will format due to gKernelPartition being specified as $gKernelPartition"; kernelExist=false; fi
 		if [ ! -b "$bootPartition" ] && $bootExist; then echo "vfat bootPartition at $bootPartition partition currently does not exist, and formatting is currently disabled"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
 		if [ ! -b "$lvmPartition" ] && $lvmExist; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, and formatting is currently disabled"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
 		if [ ! -b "$kernelPartition" ] && $kernelExist; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	        # Are we mounting non-existant devices without formatting?
-        if ! $disableAlpineInstall && ! $bootExist && $lvmExist && ! $gPartition; then echo "This script currently does not support a non-existant boot partition with a valid lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
-        if ! $disableAlpineInstall && $bootExist && ! $lvmExist && ! $gPartition; then echo "This script currently does not support a valid boot partition with a non-existant lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
-        if ! $disableAlpineInstall && ! $bootExist && ! $lvmExist && ! $gPartition; then echo "This script currently does not support a non-existant boot partition with a non-existant lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+        if ! $gLocal && ! $bootExist && $lvmExist && ! $gPartition; then echo "This script currently does not support a non-existant boot partition with a valid lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+        if ! $gLocal && $bootExist && ! $lvmExist && ! $gPartition; then echo "This script currently does not support a valid boot partition with a non-existant lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
+        if ! $gLocal && ! $bootExist && ! $lvmExist && ! $gPartition; then echo "This script currently does not support a non-existant boot partition with a non-existant lvm partition. Enable formatting or pick a different partition"; blockList="\?"; bootSectorChosen=false; lvmSectorChosen=false; bootExist=false; lvmExist=false; bootPartition=""; lvmPartition=""; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
         
         	# Final sanity check when formatting is disabled: IS boot vfat?, IS lvm LVM2_member, and IS kernel xfs?
-        if ! $disableAlpineInstall && [ "$(blkid $bootPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "vfat" ] && ! $gPartition; then echo "Partition at $bootPartition is not FAT32/vfat! Enable formatting or pick a different partition"; blockList="\?"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
-        if ! $disableAlpineInstall && [ "$(blkid $lvmPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "LVM2_member" ] && ! $gPartition; then echo "Partition at $lvmPartition is not LVM2_member! Enable formatting or pick a different partition"; blockList="\?"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
-        if ! $disableKernelReplacement && [ "$(blkid $kernelPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "xfs" ] && ! $gKernelPartition; then echo "Partition at $kernelPartition is not xfs! Enable formatting or pick a different partition"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+        if ! $gLocal && [ "$(blkid $bootPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "vfat" ] && ! $gPartition; then echo "Partition at $bootPartition is not FAT32/vfat! Enable formatting or pick a different partition"; blockList="\?"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
+# !!! valid lvm partition is not showing as LVM2_MEMBER        if ! $gLocal && [ "$(blkid $lvmPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "LVM2_member" ] && ! $gPartition; then echo "Partition at $lvmPartition is not LVM2_member! Enable formatting or pick a different partition"; blockList="\?"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
+        if ! $gKernelUnmodified && [ "$(blkid $kernelPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "xfs" ] && ! $gKernelPartition; then echo "Partition at $kernelPartition is not xfs! Enable formatting or pick a different partition"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
         
         	# Is kernel partition in the same device where alpine is installed?
-        if ! $disableAlpineInstall && ! $disableKernelReplacement; then
+        if ! $gLocal && ! $gKernelUnmodified; then
 			# Boot partition
     		local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
     		local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
@@ -638,10 +627,10 @@ defineMount() {
 	done
 	log "INFO: vfat boot partition at $bootPartition; does it currently exist? $bootExist, erasure enabled? $gPartition"
 	log "INFO: LVM2_member lvm partition at $lvmPartition; does it currently exist? $lvmExist, erasure enabled? $gPartition"
-	log "INFO: xfs kernel partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition"
+	if ! $gKernelUnmodified; then log "INFO: xfs kernel partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition"; fi
 
 	# Ensure $mountPoint is defined in a directory of /mnt
-	if ! $disableAlpineInstall; then
+	if ! $gLocal; then
 		log "INFO: Ensuring mountPoint is declared in /mnt directory, and exists"
 		while [ -z $mountPoint ] || [ "$mountPoint" = "/" ] || [ -z "$(echo $mountPoint | grep -E ^/mnt/.+$)" ]; do
 			echo "Directory of /mnt: $(ls -lah /mnt)"
@@ -658,8 +647,9 @@ defineMount() {
 # !!!	log "INFO: Calculating if disk size is appropriate"
 
 	# User prompt before erasure, installation, and mounting
-	if ! $disableAlpineInstall || ! $disableKernelReplacement; then
+	if ! $gLocal || ! $gKernelUnmodified; then
 		local userAction=false
+		if $lvmFull; then lvmSize="n/a"; fi
 		echo -e "\n\nPlease review the following configurations before proceeding:\n"
 		echo -e "Boot partition in vfat disk partition location:\t\t\t$bootPartition"
 		echo -e "Alpine installation in LVM2_member disk partition location:\t$lvmPartition"
@@ -667,7 +657,7 @@ defineMount() {
 		echo -e "\n\tExists?\tErasure\tFull disk?\tSize if not\tSector offset (if applicable)"
 		echo -e "Boot:\t$bootExist\t$gPartition\tn/a\t\t$bootSize\t\t$partitionSector"
 		echo -e "LVM:\t$lvmExist\t$gPartition\t$lvmFull\t\t$lvmSize\t\tn/a"
-		echo -e "Kernel:\t$kernelExist\t$gKernelPartition\t$true\t\tn/a\t\t$kernelPartitionSector"
+		if ! $gKernelUnmodified; then echo -e "Kernel:\t$kernelExist\t$gKernelPartition\ttrue\t\tn/a\t\t$kernelPartitionSector"; fi
 		echo -e "\nMounting alpine location: $mountPoint"
 		while ! $userAction; do
 			read -p "Confirm procedure? [y/n]: " userChoice
@@ -680,7 +670,7 @@ defineMount() {
 	fi
 
 	# Alpine installation
-	if ! $disableAlpineInstall && $gPartition; then
+	if ! $gLocal && $gPartition; then
 		# Boot partition
     	local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
     	local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
@@ -690,7 +680,8 @@ defineMount() {
     	log "INFO: Started partitioning and formatting Alpine disk!"
     	if ! $bootExist; then
     		parted -a optimal "$deviceBoot" "mkpart primary fat32 $partitionSector $bootSize" 2>/dev/null
-    		parted -a optimal "$deviceBoot" "set $partBootNumber boot on" 2>/dev/null || log "UNEXPECTED: Could not declare $partitionStart partition as boot drive";
+    		parted -a optimal "$deviceBoot" "set $partBootNumber boot on" 2>/dev/null || log "UNEXPECTED: Could not declare deviceBoot$partBootNumber partition as boot partition";
+    		parted -a optimal "$deviceBoot" "set $partBootNumber esp on" 2>/dev/null || log "UNEXPECTED: Could not declare deviceBoot$partBootNumber partition as ESP partition";
     		parted -a optimal "$deviceBoot" "align-check optimal $partBootNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of boot partition"
 			log "INFO: Location: $deviceBoot, Number: $partBootNumber"
 			log "INFO: Location: $deviceLvm, Number: $partLvmNumber"
@@ -709,7 +700,7 @@ defineMount() {
     	fi
     	if ! $lvmExist; then
     		parted -a optimal "$deviceLvm" "mkpart primary ext4 $sectorOffsetFromBoot $lvmEnd" 2>/dev/null || log "CRITICAL: Could not declare final partition as LVM"
-    		parted -a optimal "$deviceLvm" "set $partLvmNumber lvm on" 2>/dev/null
+    		parted -a optimal "$deviceLvm" "set $partLvmNumber lvm on" 2>/dev/null || log "UNEXPECTED: Could not declare $deviceLvm$partLvmNumber as LVM partition"
     		parted -a optimal "$deviceLvm" "align-check optimal $partLvmNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of partitions"
 			log "INFO: Boot offset: $sectorOffsetFromBoot, Lvm end portion: $lvmEnd, Lvm size: $sizeLvm, Lvm unit: $unitLvm"
     	fi
@@ -719,18 +710,18 @@ defineMount() {
 
 	    # Setup LVM environment
 	    if ! $lvmExist; then
-    		pvcreate -ff "$lvmPartition" || log "CRITICAL: Could not declare lvm partition signature"
-    		vgcreate "$lvmName" "$lvmPartition" || log "CRITICAL: Could not declare lvm logical group"
+    		pvcreate -ff "$lvmPartition" 2>/dev/null || log "CRITICAL: Could not declare lvm partition signature"
+    		vgcreate "$lvmName" "$lvmPartition" 2>/dev/null || log "CRITICAL: Could not declare lvm logical group"
     		log "INFO: Created pv and vg device"
-    		lvcreate -n "$localhostName".root -L "$rootSize" "$lvmName" || log "CRITICAL: Could not make root partition"
+    		lvcreate -n "$localhostName".root -L "$rootSize" "$lvmName" 2>/dev/null || log "CRITICAL: Could not make root partition"
     		log "INFO: Created root partition for: $rootSize"
-    		lvcreate -n "$localhostName".home -L "$homeSize" "$lvmName" || log "UNEXPECTED: Coild not make home partition"
+    		lvcreate -n "$localhostName".home -L "$homeSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Coild not make home partition"
     		log "INFO: Created home partition for: $homeSize"
-    		lvcreate -n "$localhostName".var -L "$varSize" "$lvmName" || log "UNEXPECTED: Could not make var partition"
+    		lvcreate -n "$localhostName".var -L "$varSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make var partition"
     		log "INFO: Created var partition for: $varSize"
-    		lvcreate -n "$localhostName".var.tmp -L "$varTmpSize" "$lvmName" || log "UNEXPECTED: Could not make var/tmp partition"
+    		lvcreate -n "$localhostName".var.tmp -L "$varTmpSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make var/tmp partition"
     		log "INFO: Created var/tmp partition for: $varTmpSize"
-    		lvcreate -n "$localhostName".var.log -L "$varLogSize" "$lvmName" || log "UNEXPECTED: Could not make var/log partition"
+    		lvcreate -n "$localhostName".var.log -L "$varLogSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make var/log partition"
     		log "INFO: Created var/log partition for: $varLogSize"
     	fi
     	vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions"
@@ -767,33 +758,8 @@ defineMount() {
 
     	log "INFO: Formatting Alpine disk complete"
 	fi
-
-	# Kernel secondary disk installation
-	if ! $disableKernelReplacement && $gKernelPartition; then
-		# Kernel
-    	local partKernelNumber="$(echo $kernelPartition | grep -Eo [0123456789]*$)"
-    	local deviceKernel="$(echo $kernelPartition | sed "s/p\?$partKernelNumber//g")"
-    	if ! $kernelExist; then
-# !!! parted create?
-			parted -a optimal "$deviceKernel" "mkpart primary xfs $kernelPartitionSector 100%" 2>/dev/null || log "CRITICAL: Could not declare kernel block device partition"
-    		parted -a optimal "$deviceKernel" "align-check optimal $partKernelNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of kernel block partition"
-			log "INFO: Location: $deviceKernel, Number: $partKernelNumber"
-    	fi
-    	mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service to recognize new disks"
-    	log "INFO: Passed kernel partitioning stage"
-
-    	# Format drives
-		mkfs.xfs -f "$kernelPartition" 2>/dev/null || log "CRITICAL: Could not format kernel block device"
-    	log "INFO: Passed kernel formatting stage"
-
-		# umount the root and var partition
-	    umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"
-		umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
-
-    	log "INFO: Formatting kernel disk complete"
-	fi
 	
-	if ! $disableAlpineInstall; then
+	if ! $gLocal; then
 		log "INFO: Mounting all Alpine partitions"
 	    vgchange -ay 2>/dev/null || log "CRITICAL: Could not enable logical partitions"
     	mount -t ext4 /dev/"$lvmName"/"$localhostName".root "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to mount $lvmName to $mountPoint"
@@ -808,31 +774,82 @@ defineMount() {
     	mount -o bind /run "$mountPoint"/run 2>/dev/null || log "CRITICAL: Could not make /run available in chroot environment"
 	fi
 
-	if ! $disableKernelReplacement; then
+	if ! $gLocal && $gPartition; then
+		log "INFO: Installing Alpine on $bootPartition and $lvmPartition via $mountPoint"
+		export BOOTLOADER="none" # To install kernel unified image, we need Alpine's installer to not install any bootloader, and instead do the process manually
+		setup-disk "$mountPoint" 2>/dev/null || log "CRITICAL: Did not install setup to $mountPoint"
+	fi
+	
+	# Preparing multiple files for guranteed modification
+	log "INFO: Creating unified kernel image (uki), and generating UEFI keys to sign kernel"
+    chroot $mountPoint /bin/chmod u+w /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not set owner write permission on /etc/fstab"
+    chroot $mountPoint /bin/chmod u+w /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not set owner write permission on /etc/kernel-hooks.d/secureboot.conf"
+    chroot $mountPoint /bin/chmod u+w /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not set owner write permission on /etc/mkinitfs/mkinitfs.conf"
+	local systemArchFallbackName=""
+    	# Fallback bootloader name for boot*.efi file in $bootPartition/EFI/boot/
+    case $systemArch in
+    	x86_64 ) systemArchFallbackName="x64";;
+    	x86 ) systemArchFallbackName="ia32";;
+    	arm* ) systemArchFallbackName="arm";;
+    	aarch64 ) systemArchFallbackName="aa64";;
+    	riscv64 ) systemArchFallbackName="riscv64";;
+    	loongarch64 ) systemArchFallbackName="loongarch64";;
+    esac
+	chroot $mountPoint /bin/sed -i "s/^#\{0,2\}cmdline\(.*\)/cmdline=\"modules=sd-mod,usb-storage,ext4,nvme,mmc,lvm rd.lvm.conf=0 rd.lvm.vg=$lvmName rd.lvm.lv=$lvmName\/$localhostName.root rd.lvm.lv=$lvmName\/$localhostName.home rd.lvm.lv=$lvmName\/$localhostName.var rd.lvm.lv=$lvmName\/$localhostName.var.tmp rd.lvm.lv=$lvmName\/$localhostName.var.log root=\/dev\/$lvmName\/$localhostName.root quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100\"/g" /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not implement kernel parameters that enforce security and compatibility"
+	chroot $mountPoint /bin/sed -i "s/^#\{0,2\}output_dir\(.*\)/output_dir=\"\/boot\/efi\/EFI\/boot\"/g" /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not indicate output directory from creating unified kernel image"
+	chroot $mountPoint /bin/sed -i "s/^#\{0,2\}output_name\(.*\)/output_name=\"boot$systemArchFallbackName.efi\"/g" /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not indicate output name of unified kernel image as boot$systemArchFallbackName.efi"
+	if [ -z "$(chroot $mountPoint /bin/mount | grep "/sys/firmware/efi/efivars " 2>/dev/null)" ]; then chroot $mountPoint /bin/mount -t efivarfs none "/sys/firmware/efi/efivars" 2>/dev/null || log "UNEXPECTED: Could not mount efivarsfs to ensure existing EFI variables exist. Ignore if this system doesn't have UEFI"; fi
+	if [ -z "$(ls -A $mountPoint/etc/uefi-keys 2>/dev/null))" ]; then chroot $mountPoint /sbin/apk add efi-mkkeys 2>/dev/null || log "CRITICAL: Could not install efi-mkkeys package for generating UEFI keys"; chroot $mountPoint /usr/bin/efi-mkkeys -s "$lvmName.$localhost" -o /etc/uefi-keys 2>/dev/null || log "CRITICAL: Could not generate UEFI keys for signing kernal"; chroot $mountPoint /sbin/apk del efi-mkkeys 2>/dev/null || log "CRITICAL: Could not remove obsolete efi-mkkeys package"; fi
+	chroot $mountPoint /sbin/apk fix kernel-hooks 2>/dev/null || log "UNEXPECTED: Could not cause the (re-)generation of a linux kernel"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}disable_trigger\(.*\)/{h;s//disable_trigger=yes/};\${x;/^\$/{s//disable_trigger=yes/;H};x}" /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not ensure mkinitfs is disabled for generating kernals"
+	chroot $mountPoint /usr/bin/sbctl create-keys 2>/dev/null || log "UNEXPECTED: Could not create secureboot keys"
+	chroot $mountPoint /usr/bin/sbctl sign --save "/boot/efi/EFI/boot/boot$systemArchFallbackName.efi" 2>/dev/null || log "UNEXPECTED: Could not sign and enroll out current kernel at /boot/efi/EFI/boot/boot$systemArchFallbackName.efi for secureboot"
+	chroot $mountPoint /usr/bin/sbctl enroll-keys -m 2>/dev/null || log "UNEXPECTED: Could not synchronize secureboot keys"
+
+    log "INFO: Modifying fstab file for secure default mounting"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}tmpfs\t\/tmp\ttmpfs\(.*\)/tmpfs\t\/tmp\ttmpfs\tnoatime,nodev,noexec,nosuid,size\=512m\t0\t0/g" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /tmp"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\/dev\/$lvmName\/$localhostName.home\(.*\)/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime,noatime,acl,user_xattr,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /home"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\/dev\/$lvmName\/$localhostName.var\(.*\)/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /var"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\/dev\/$lvmName\/$localhostName.var.log\(.*\)/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /var/log"
+	chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\/dev\/$lvmName\/$localhostName.var.tmp\(.*\)/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /var/tmp"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}tmpfs\t/dev/shm\(.*\)/{h;s//^tmpfs\t/dev/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0/};\${x;/^\$/{s//^tmpfs\t/dev/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0/;H};x}" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /dev/shm"
+    
+    # Restoring files to defualt values
+    chroot $mountPoint /bin/chmod u-w /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not remove owner write permission on /etc/fstab"
+    chroot $mountPoint /bin/chmod u-w /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not remove owner write permission on /etc/kernel-hooks.d/secureboot.conf"
+    chroot $mountPoint /bin/chmod u-w /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not remove owner write permission on /etc/mkinitfs/mkinitfs.conf"
+
+	# Kernel secondary disk installation
+	if ! $gKernelUnmodified && $gKernelPartition; then
+		# Kernel
+    	local partKernelNumber="$(echo $kernelPartition | grep -Eo [0123456789]*$)"
+    	local deviceKernel="$(echo $kernelPartition | sed "s/p\?$partKernelNumber//g")"
+    	if ! $kernelExist; then
+# !!! parted create?
+			parted -a optimal "$deviceKernel" "mkpart primary xfs $kernelPartitionSector 100%" 2>/dev/null || log "CRITICAL: Could not declare kernel block device partition"
+    		parted -a optimal "$deviceKernel" "align-check optimal $partKernelNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of kernel block partition"
+    		mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service to recognize new disks"
+			log "INFO: Location: $deviceKernel, Number: $partKernelNumber"
+    	fi
+    	log "INFO: Passed kernel partitioning stage"
+
+    	# Format drives
+		mkfs.xfs -f "$kernelPartition" 2>/dev/null || log "CRITICAL: Could not format kernel block device"
+    	log "INFO: Passed kernel formatting stage"
+
+		# umount the root and var partition
+	    umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"
+		umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
+
+    	log "INFO: Formatting kernel disk complete"
+	fi
+
+	if ! $gKernelUnmodified; then
 		chroot $mountPoint /bin/mkdir -p /home/maintain 2>/dev/null || log "UNEXPECTED: Could not create home directory to mount towards"
 		chroot $mountPoint /bin/mount -t xfs "$kernelPartition" /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount kernel partition to $mountPoint/home/maintain"
 	fi
-
-	if ! $disableAlpineInstall && $gPartition; then
-		log "INFO: Installing Alpine on $bootPartition and $lvmPartition via $mountPoint"
-		setup-disk "$mountPoint" || log "CRITICAL: Did not install setup to $mountPoint"
-	fi
 	
-	if ! $disableAlpineInstall; then
-    	log "INFO: Modifying fstab file for secure default mounting"
-    	chroot $mountPoint /bin/sed -i "s/tmpfs\t\/tmp\ttmpfs\tnosuid,nodev\t0\t0/tmpfs\t\/tmp\ttmpfs\tnoatime,nodev,noexec,nosuid,size\=512m\t0\t0/g" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    	chroot $mountPoint /bin/echo -e "tmpfs\t/dev/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0" >> /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    	chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.home\t\/home\text4\trw,relatime,noatime,acl,user_xattr,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    	chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-    	chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-	    chroot $mountPoint /bin/sed -i "s/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime 0 2/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting"
-
-    	# Ensure grub has no timeout when booting into it's menu
-    	chroot $mountPoint /bin/sed -i 's/GRUB_TIMEOUT=\(.*\)/GRUB_TIMEOUT=0/g' /etc/default/grub || log "UNEXPECTED: Could not lower timeout for grub configuration"
-	    chroot $mountPoint /bin/chmod 400 /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
-	fi
-	
-	if ! $disableKernelReplacement; then
+	if ! $gKernelUnmodified; then
     	log "INFO: Eventually checking kernel environment"
 	fi
 	
@@ -875,45 +892,8 @@ setupAlpine() {
     rc-update --quiet del loadkmap boot 2>/dev/null || log "UNEXPECTED: Could not remove unncessary service that fails on boot"
     echo "root:$tempRootPass" | chpasswd || log "UNEXPECTED: Did not change root password"
 	rc-update --quiet add lvm 2>/dev/null || log "UNEXPECTED: Did not add lvm services to rc"
-    apk add parted lvm2 e2fsprogs xfsprogs tzdata grub-efi grub || log "Unexpected: Could not install all required software"
+    apk add parted lvm2 e2fsprogs xfsprogs dosfstools tzdata systemd-efistub secureboot-hook sbctl || log "Unexpected: Could not install all required software"
     log "INFO: Almost finished default alpine installation!"
-}
-
-# Prepare low level devices for high level abstraction of configLocalInstallation()
-defineMount() {
-    log "INFO: Checking if user requested for local installation (Same disk installation = skip Alpine install & mounting)"
-    
-    log "INFO: Checking if user requested for kernel to be prepared (External disk installation = enable kernel installation)"
-
-	log "INFO: Considering existing block devices"
-	
-	log "INFO: User choice confirmed"
-
-	# Alpine installation
-    log "INFO: Checking if this is a fresh installation"
-	
-    log "INFO: Started formatting Alpine disk!"
-	
-	log "INFO: Mounting all Alpine partitions"
-	
-	log "INFO: Checking if Alpine is installed"
-	
-	log "INFO: Installing Alpine on disk"
-
-
-	# Kernel secondary disk installation
-    log "INFO: Checking if kernel already exists"
-    
-    log "INFO: Started formatting Kernel disk!"
-	
-	log "INFO: Mounting kernel partitions in home directory"
-	
-	log "INFO: Checking if kernel is latest version or higher from secondary disk"
-	
-	log "INFO: Installing Kernel on secondary disk"
-	
-	
-	log "INFO: Finish preparing block devices"
 }
 
 # !!!
@@ -1501,22 +1481,6 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /usr/bin/uniso 2>/dev/null || log "UNEXPECTED: Could not change permissions for; uniso"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/logger 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logger"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/lddtree 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lddtree"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-syslinux2cfg 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-syslinux2cfg"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-script-check 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-script-check"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-render-label 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-render-label"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-mkstandalone 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-mkstandalone"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-mkrescue 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-mkrescue"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-mkrelpath 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-mkrelpath"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-mkpasswd-pbkdf2 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-mkpasswd-pbkdf2"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-mknetdir 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-mknetdir"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-mklayout 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-mklayout"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-mkimage 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-mkimage"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-menulst2cfg 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-menulst2cfg"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-kbdcomp 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-kbdcomp"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-glue-efi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-glue-efi"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-fstest 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-fstest"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-file 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-file"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/grub-editenv 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-editenv"
     chroot $mountPoint /bin/chmod 0510 /usr/bin/doas 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/doas file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/passwd 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/passwd file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/gpasswd 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/gpasswd file permissions"
@@ -1546,16 +1510,6 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/sshd.pam 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd.pam"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chronyd"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/copy-modloop 2>/dev/null || log "UNEXPECTED: Could not change permissions for; copy-modloop"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/update-grub 2>/dev/null || log "UNEXPECTED: Could not change permissions for; update-grub"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-sparc64-setup 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-sparc64-setup"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-set-default 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-set-default"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-reboot 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-reboot"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-probe 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-probe"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-ofpathname 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-ofpathname"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-mkconfig 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-mkconfig"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-macbless 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-macbless"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-install 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-install"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grub-bios-setup 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grub-bios-setup"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/lbu 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lbu"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/update-kernel 2>/dev/null || log "UNEXPECTED: Could not change permissions for; update-kernel"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/update-conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; update-conf"
@@ -1655,7 +1609,6 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0640 /etc/shadow- 2>/dev/null || log "UNEXPECTED: Could not change shadow- file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/shells 2>/dev/null || log "UNEXPECTED: Could not change shells file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change sysctl.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/default/grub 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/grub file permissions"
     chroot $mountPoint /bin/chmod 0550 /etc/acpi/PWRF/00000080 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi/PWRF/00000080 file permissions"
     chroot $mountPoint /bin/chmod 0600 /etc/apk/arch 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/arch file permissions"
     chroot $mountPoint /bin/chmod 0400 /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/repositories file permissions"
@@ -1663,16 +1616,8 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0644 /etc/busybox-paths.d/busybox 2>/dev/null || log "UNEXPECTED: Could not change /etc/busybox-paths.d/busybox file permissions"
     chroot $mountPoint /bin/chmod 0604 /etc/chrony/chrony.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/chrony/chrony.conf file permissions"
     chroot $mountPoint /bin/chmod 0600 /etc/crontabs/root 2>/dev/null || log "UNEXPECTED: Could not change /etc/crontabs/root file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/grub.d/00_header 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/00_header file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/grub.d/10_linux 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/10_linux file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/grub.d/20_linux_xen 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/20_linux_xen file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/grub.d/25_bli 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/25_bli file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/grub.d/30_os-prober 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/30_os-prober file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/grub.d/30_uefi-firmware 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/30_uefi-firmware file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/grub.d/40_custom 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/40_custom file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/grub.d/41_custom 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d/41_custom file permissions"
     chroot $mountPoint /bin/chmod 0600 /etc/keymap/us.bmap.gz 2>/dev/null || log "UNEXPECTED: Could not change /etc/keymap/us.bmap.gz file permissions"
-    chroot $mountPoint /bin/chmod 0600 /etc/lvm/lvm.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/lvm.conf file permissions"
+    chroot $mountPoint /bin/chmod 0000 /etc/lvm/lvm.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/lvm.conf file permissions"
     chroot $mountPoint /bin/chmod 0600 /etc/lvm/lvmlocal.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/lvmlocal.conf file permissions"
     chroot $mountPoint /bin/chmod 0750 /etc/network/if-pre-up.d/bridge 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-pre-up.d/bridge file permissions"
     chroot $mountPoint /bin/chmod 0750 /etc/network/if-up.d/dad 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-up.d/dad file permissions"
@@ -1776,7 +1721,6 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 00750 /etc/conf.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/conf.d directory permissions"
     chroot $mountPoint /bin/chmod 00700 /etc/crontabs 2>/dev/null || log "UNEXPECTED: Could not change /etc/crontabs directory permissions"
     chroot $mountPoint /bin/chmod 00701 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change /etc/default directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/grub.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/grub.d directory permissions"
     chroot $mountPoint /bin/chmod 00700 /etc/init.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d directory permissions"
     chroot $mountPoint /bin/chmod 00700 /etc/keymap 2>/dev/null || log "UNEXPECTED: Could not change /etc/keymap directory permissions"
     chroot $mountPoint /bin/chmod 00000 /etc/lbu 2>/dev/null || log "UNEXPECTED: Could not change /etc/lbu directory permissions"
@@ -2217,12 +2161,6 @@ configKernel() {
     chroot $mountPoint /bin/rm /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Permission doas file has not been deleted to enforce principle of least priviledge"
     chroot $mountPoint /sbin/apk del alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "UNEXPECTED: Could not remove development build packages"
 
-    log "INFO: Modifying grub with new kernel parameters"
-    chroot $mountPoint /bin/chmod u+w /etc/default/grub || log "UNEXPECTED: Could not set to 600 permission on /etc/default/grub"
-    chroot $mountPoint /bin/sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="modules=sd=mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100"/g' /etc/default/grub || log "UNEXPECTED: Could not implement kernel parameters that enforce security"
-    chroot $mountPoint /bin/chmod u-w /etc/default/grub || log "UNEXPECTED: Could not set to 400 permission on /etc/default/grub"
-    chroot $mountPoint /usr/sbin/update-grub || log "UNEXPECTED: Could not implement changes for grub"
-
     log "INFO: Kernel modifications have been succesfully configured!"
 }
 
@@ -2272,9 +2210,6 @@ verifyInstallSetup() {
     if [ -z "$(chroot $mountPoint /bin/grep "\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime,noatime,nodev,nosuid 0 2" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: var partition in fstab is not harden"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: var.log partition in fstab is not harden"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: var.tmp partition in fstab is not harden"; fi
-
-    # Grub has a small timeout
-    if [ -z "$(chroot $mountPoint /bin/grep 'GRUB_TIMEOUT=0' /etc/default/grub 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: The grub menu appears when booting! Possibly interactable"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for initial installation: $missing"; else echo "INFO: Not a single missed test for initial installation!"; fi
@@ -2709,22 +2644,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/uniso -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/uniso"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/logger -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/logger"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/lddtree -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/lddtree"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-syslinux2cfg -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-syslinux2cfg"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-script-check -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-script-check"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-render-label -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-render-label"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-mkstandalone -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-mkstandalone"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-mkrescue -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-mkrescue"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-mkrelpath -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-mkrelpath"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-mkpasswd-pbkdf2 -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-mkpasswd-pbkdf2"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-mknetdir -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-mknetdir"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-mklayout -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-mklayout"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-mkimage -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-mkimage"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-menulst2cfg -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-menulst2cfg"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-kbdcomp -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-kbdcomp"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-glue-efi -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-glue-efi"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-fstest -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-fstest"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-file -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-file"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/grub-editenv -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/grub-editenv"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/doas -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/doas"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/passwd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/passwd"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/gpasswd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/gpasswd"; fi
@@ -2777,16 +2696,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/setup-apkcache -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/setup-apkcache"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/setup-alpine -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/setup-alpine"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/setup-acf -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/setup-acf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/update-grub -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/update-grub"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-sparc64-setup -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-sparc64-setup"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-set-default -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-set-default"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-reboot -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-reboot"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-probe -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-probe"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-ofpathname -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-ofpathname"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-mkconfig -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-mkconfig"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-macbless -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-macbless"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-install -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-install"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/grub-bios-setup -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/grub-bios-setup"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/setcap -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/setcap"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/getcap -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/getcap"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/vipw -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/vipw"; fi
@@ -2889,7 +2798,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/shadow- -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/shadow-"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/shells -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/shells"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/sysctl.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/sysctl.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/grub -perm 400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default/grub"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/acpi/PWRF/00000080 -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/acpi/PWRF/00000080"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/apk/arch -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/apk/arch"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/apk/repositories -perm 400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/apk/repositories"; fi
@@ -2897,9 +2805,8 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/busybox-paths.d/busybox -perm 644 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/busybox-paths.d/busybox"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/chrony/chrony.conf -perm 604 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/chrony/chrony.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/crontabs/root -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/crontabs/root"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/grub.d/*_* -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/grub.d/*_*"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/keymap/us.bmap.gz -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/keymap/us.bmap.gz"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/lvm/lvm.conf -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/lvm/lvm.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/lvm/lvm.conf -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/lvm/lvm.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/lvm/lvmlocal.conf -perm 600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/lvm/lvmlocal.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/network/if-pre-up.d/bridge -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/network/if-pre-up.d/bridge"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/network/if-up.d/dad -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/network/if-up.d/dad"; fi
@@ -2992,7 +2899,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/chrony -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/chrony"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/conf.d -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/conf.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/crontabs -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/crontabs"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/grub.d -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/grub.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/keymap -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/keymap"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/lbu -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/lbu"; fi
@@ -3341,9 +3247,6 @@ verifyKernel() {
     if [ "$(chroot $mountPoint /sbin/sysctl fs.protected_regular 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "2" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.protected_regular 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.protected_regular != 2"; fi
     if [ "$(chroot $mountPoint /sbin/sysctl fs.suid_dumpable 2>/dev/null | awk '{print $3}' 2>/dev/null)" != "0" ] && [ -z "$(chroot $mountPoint /sbin/sysctl fs.suid_dumpable 2>&1 | grep unknown)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Active kernel has misconfiguration that was found in sysctl; fs.suid_dumpable != 0"; fi
 
-    # Grub linux cmdline based on KSSP
-    if [ -z "$(chroot $mountPoint /bin/grep 'modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100' /etc/default/grub | grep 'GRUB_CMDLINE_LINUX_DEFAULT' 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Linux kernel command line has not been properely set in grub"; fi
-
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for kernel: $missing"; else echo "INFO: Not a single missed test for kernel!"; fi
 }
@@ -3362,9 +3265,6 @@ main() {
     
     # Setup environment: check pre-setup is finished
     defineMount
-
-	echo "Reached end of mount function!"
-	exit
 
     # Post installation: check setup is finished
     if $post; then
