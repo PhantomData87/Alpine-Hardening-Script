@@ -1,7 +1,9 @@
 #!/bin/sh
 #Alpine defualt configuration: Missing: 
 
+# Helpful patterns
 # sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
+# find /usr/bin ! -perm 777 -and ! -perm 0500
 
 # Default setup interface
 # interface: eth0
@@ -21,8 +23,7 @@
 # apt-show-versions for patch management, 
 # process accounting, 
 # automation tools, 
-# Network monitoring? ARP requests, DHCP requestss
-# Awall firewall
+# Network monitoring? ARP requests, DHCP requests
 # Firewall; Filter arp and other network requests
 # Make configAutostart() function to add in the following scripts: set kernel.modules_disabled = 1, turning on and off firewall for timed ntp, dns, or apk updates, DNS check and validation, kernel update notifications, file integrity monitor, malware scanning, ...
 # Develop a plan to manually perform security audits: chkrootkit, RKHunter, aide, lynis periodic scan
@@ -63,6 +64,7 @@
 # Add remaining size check when formatting and partitioning disks
 # Check that partitions are incrementally increasing
 # Test defineMount function
+# Other packages and commands of interest: agetty (agetty), lsof & lsfd (util-linux-misc)
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -278,8 +280,7 @@ firewallUsername:	A system user that is meant to run firewall related applicatio
 fail2banUsername:	A system user meant to handle applications like fail2ban
 updateUsername:		A system user that is meant to occasionally update the system
 buildUsername:		A system user meant to build a linux kernel
-extractUsername:	A user that will be deleted in 4 hours, but has sensitive information about several users
-Note: Most of these usernames are only applied if --users is executed, or --kernelModify"
+extractUsername:	A user that will be deleted in 4 hours, but has sensitive information about several users"
     exit;
 }
 
@@ -375,15 +376,15 @@ interpretArgs() {
     for j in $apkRepoList; do
         if ! (echo $j | grep -Eq "^https://[^ ]*[^/]$"); then echo "BAD FORMAT: Not a valid repository declared. Either not a https link, or user has included a '/' at the end: $j" 2>/dev/null; exit; fi
     done
-    if (! echo $rootSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in rootSize: $rootSize" 2>/dev/null; exit; fi
-    if (! echo $homeSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in homeSize: $homeSize" 2>/dev/null; exit; fi
-    if (! echo $varSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varSize: $varSize" 2>/dev/null; exit; fi
-    if (! echo $varTmpSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varTmpSize: $varTmpSize" 2>/dev/null; exit; fi
-    if (! echo $varLogSize | grep -Eq ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$\|^[0-9]*[.]\{0,1\}[0-9]+EX$\|^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varLogSize: $varLogSize" 2>/dev/null; exit; fi
+    if (! echo $rootSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in rootSize: $rootSize" 2>/dev/null; exit; fi
+    if (! echo $homeSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in homeSize: $homeSize" 2>/dev/null; exit; fi
+    if (! echo $varSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varSize: $varSize" 2>/dev/null; exit; fi
+    if (! echo $varTmpSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varTmpSize: $varTmpSize" 2>/dev/null; exit; fi
+    if (! echo $varLogSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varLogSize: $varLogSize" 2>/dev/null; exit; fi
     if (! echo $timezone | grep -Eq [A-z]+/[A-z]); then echo "BAD FORMAT: Not a valid timezone declaration! $timezone" 2>/dev/null; exit; fi
     if (! echo $sshPort | grep -Eq ^[0-9]) && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number for \$sshPort that is in range of 1-1023, and is not 22!"; exit; fi
     if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format; like 022 or 077!"; exit; fi
-    if (! echo $systemArch | grep ^x86_64$\|^x86$\|^arm.*$\|^aarch64$\|^riscv64$\|^loongarch64$ $); then echo "BAD FORMAT: Invalid system architecture found! Please default to \"\$(uname -m)\" or provide the right accepted architecture value for \$systemArch"; exit; fi
+    if (echo $systemArch | grep -v -e ^x86_64$ -e ^x86$ -e ^arm.*$ -e ^aarch64$ -e ^riscv64$ -e ^loongarch64$); then echo "BAD FORMAT: Invalid system architecture found! Please default to \"\$(uname -m)\" or provide the right accepted architecture value for \$systemArch"; exit; fi
     
     log "INFO: Finished reading all variables: $*"
 }
@@ -762,16 +763,16 @@ defineMount() {
 	if ! $gLocal; then
 		log "INFO: Mounting all Alpine partitions"
 	    vgchange -ay 2>/dev/null || log "CRITICAL: Could not enable logical partitions"
-    	mount -t ext4 /dev/"$lvmName"/"$localhostName".root "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to mount $lvmName to $mountPoint"
-    	mount -t ext4 /dev/"$lvmName"/"$localhostName".home "$mountPoint"/home 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount $lvmName to $mountPoint"
-    	mount -t vfat "$bootPartition" "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount efi partition to $mountPoint/boot/efi"; 
-    	mount -t ext4 /dev/"$lvmName"/"$localhostName".var "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var partition to $mountPoint/var"
-    	mount -t ext4 /dev/"$lvmName"/"$localhostName".var.log "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/log partition to $mountPoint/var/log"
-    	mount -t ext4 /dev/"$lvmName"/"$localhostName".var.tmp "$mountPoint"/var/tmp 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/tmp partition to $mountPoint/var/tmp"
-    	mount -t proc proc "$mountPoint"/proc 2>/dev/null || log log "CRITICAL: Could not make /proc available in chroot environment"
-    	mount -o bind /sys "$mountPoint"/sys 2>/dev/null || log "CRITICAL: Could not make /sys available in chroot environment"
-    	mount -o bind /dev "$mountPoint"/dev 2>/dev/null || log "CRITICAL: Could not make /dev available in chroot environment"
-    	mount -o bind /run "$mountPoint"/run 2>/dev/null || log "CRITICAL: Could not make /run available in chroot environment"
+    	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.root on $mountPoint " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".root "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to mount $lvmName to $mountPoint"; fi
+    	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.home on $mountPoint/home " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".home "$mountPoint"/home 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount $lvmName to $mountPoint"; fi
+    	if [ -z "$(mount | grep "$bootPartition on $mountPoint/boot/efi " 2>/dev/null)" ]; then mount -t vfat "$bootPartition" "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount efi partition to $mountPoint/boot/efi"; fi
+    	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.var on $mountPoint/var " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".var "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var partition to $mountPoint/var"; fi
+    	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.var.log on $mountPoint/var/log " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".var.log "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/log partition to $mountPoint/var/log"; fi
+    	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.var.tmp on $mountPoint/var/tmp " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".var.tmp "$mountPoint"/var/tmp 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/tmp partition to $mountPoint/var/tmp"; fi
+    	if [ -z "$(mount | grep "proc on $mountPoint/proc " 2>/dev/null)" ]; then mount -t proc proc "$mountPoint"/proc 2>/dev/null || log log "CRITICAL: Could not make /proc available in chroot environment"; fi
+    	if [ -z "$(mount | grep "sysfs on $mountPoint/sys " 2>/dev/null)" ]; then mount -o bind /sys "$mountPoint"/sys 2>/dev/null || log "CRITICAL: Could not make /sys available in chroot environment"; fi
+    	if [ -z "$(mount | grep "devtmpfs on $mountPoint/dev " 2>/dev/null)" ]; then mount -o bind /dev "$mountPoint"/dev 2>/dev/null || log "CRITICAL: Could not make /dev available in chroot environment"; fi
+    	if [ -z "$(mount | grep "tmpfs on $mountPoint/run " 2>/dev/null)" ]; then mount -o bind /run "$mountPoint"/run 2>/dev/null || log "CRITICAL: Could not make /run available in chroot environment"; fi
 	fi
 
 	if ! $gLocal && $gPartition; then
@@ -804,7 +805,7 @@ defineMount() {
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}disable_trigger\(.*\)/{h;s//disable_trigger=yes/};\${x;/^\$/{s//disable_trigger=yes/;H};x}" /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not ensure mkinitfs is disabled for generating kernals"
 	chroot $mountPoint /usr/bin/sbctl create-keys 2>/dev/null || log "UNEXPECTED: Could not create secureboot keys"
 	chroot $mountPoint /usr/bin/sbctl sign --save "/boot/efi/EFI/boot/boot$systemArchFallbackName.efi" 2>/dev/null || log "UNEXPECTED: Could not sign and enroll out current kernel at /boot/efi/EFI/boot/boot$systemArchFallbackName.efi for secureboot"
-	chroot $mountPoint /usr/bin/sbctl enroll-keys -m 2>/dev/null || log "UNEXPECTED: Could not synchronize secureboot keys"
+	chroot $mountPoint /usr/bin/sbctl enroll-keys -m 2>/dev/null || log "UNEXPECTED: Could not synchronize secureboot keys. Ignore if this is not a UEFI system"
 
     log "INFO: Modifying fstab file for secure default mounting"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}tmpfs\t\/tmp\ttmpfs\(.*\)/tmpfs\t\/tmp\ttmpfs\tnoatime,nodev,noexec,nosuid,size\=512m\t0\t0/g" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /tmp"
@@ -812,7 +813,7 @@ defineMount() {
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\/dev\/$lvmName\/$localhostName.var\(.*\)/\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /var"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\/dev\/$lvmName\/$localhostName.var.log\(.*\)/\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /var/log"
 	chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\/dev\/$lvmName\/$localhostName.var.tmp\(.*\)/\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2/1" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /var/tmp"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}tmpfs\t/dev/shm\(.*\)/{h;s//^tmpfs\t/dev/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0/};\${x;/^\$/{s//^tmpfs\t/dev/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0/;H};x}" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /dev/shm"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}tmpfs\t\/dev\/shm\(.*\)/{h;s//^tmpfs\t\/dev\/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0/};\${x;/^\$/{s//^tmpfs\t\/dev\/shm\ttmpfs\tnodev,nosuid,noexec\t0\t0/;H};x}" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /dev/shm"
     
     # Restoring files to defualt values
     chroot $mountPoint /bin/chmod u-w /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not remove owner write permission on /etc/fstab"
@@ -898,7 +899,6 @@ setupAlpine() {
 
 # !!!
 # Alpine hardening guide: https://wiki.alpinelinux.org/wiki/How_to_get_regular_stuff_working
-# Found executables via: find /usr/bin ! -perm 777 -and ! -perm 0500
 # Resources:
 # Creating restricted shells if missing: https://unix.stackexchange.com/questions/605646/how-do-you-install-rbash-in-centos-7
 # Configurating rc.services: https://github.com/OpenRC/openrc/blob/master/service-script-guide.md
@@ -933,7 +933,10 @@ setupAlpine() {
 # https://wiki.nftables.org/wiki-nftables/index.php/Matching_packet_headers & https://home.regit.org/netfilter-en/nftables-quick-howto/ (minimum packet size is 28 - 36 bytes)
 # Determine if partition type has a p or not: https://unix.stackexchange.com/questions/500887/given-a-block-device-how-to-detect-if-names-of-partitions-must-contain-p
 # Partition layout inspired by: https://techgirlkb.guru/2019/08/how-to-create-cis-compliant-partitions-on-aws/
-# Other packages and commands of interest: agetty (agetty), lsof & lsfd (util-linux-misc)
+# sed replace or append inspiration: https://superuser.com/questions/590630/sed-how-to-replace-line-if-found-or-append-to-end-of-file-if-not-found
+# fstab auto-attribute generation inspiration: https://github.com/cemkeylan/genfstab/blob/master/genfstab
+# determine arch type in alpine: uname -m https://gitlab.alpinelinux.org/alpine/alpine-conf/-/blob/db542902/setup-disk.in#L319-L334
+# fallback bootloader names & path for different architectures: https://wiki.alpinelinux.org/wiki/UEFI
 configLocalInstallation() {
     log "INFO: Installing packages"
     chroot $mountPoint /sbin/apk add coreutils findutils dmesg logger setpriv doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional acpid ufw@additional nftables fail2ban openssh-server-pam util-linux-login || log "UNEXPECTED: Could not install service packages" # libqrencode for qr code?
@@ -1059,6 +1062,7 @@ configLocalInstallation() {
     	chroot $mountPoint /bin/mkdir -p "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not make a new dev/pts directory for $i; pts"
     done
     	# touch
+    chroot $mountPoint /bin/touch /var/log/acpid.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for acpid service"
     chroot $mountPoint /bin/touch /var/log/sshd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for sshd service"
     chroot $mountPoint /bin/touch /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for chronyd service"
     chroot $mountPoint /bin/touch /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for fail2ban service"
@@ -1423,6 +1427,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0510 /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/ksh file permissions"
     chroot $mountPoint /bin/chmod 4510 /bin/su 2>/dev/null || log "UNEXPECTED: Could not change permissions for; su"
     chroot $mountPoint /bin/chmod 0500 /bin/login 2>/dev/null || log "UNEXPECTED: Could not change permissions for; login"
+    chroot $mountPoint /bin/chmod 0500 /bin/lsblk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lsblk"
 
     log "INFO: Setting permissions on /sbin executables"
     chroot $mountPoint /bin/chmod 0500 /sbin/xfs_repair 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xfs_repair"
@@ -1450,6 +1455,9 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /sbin/sulogin 2>/dev/null || log "UNEXPECTED: Could not change /sbin/sulogin file permissions"
     chroot $mountPoint /bin/chmod 0501 /sbin/nologin 2>/dev/null || log "UNEXPECTED: Could not change /sbin/nologin file permissions"
     chroot $mountPoint /bin/chmod 0500 /sbin/runuser 2>/dev/null || log "UNEXPECTED: Could not change /sbin/runuser file permissions"
+    chroot $mountPoint /bin/chmod 0500 /sbin/mkfs.fat 2>/dev/null || log "UNEXPECTED: Could not change /sbin/mkfs.fat file permissions"
+    chroot $mountPoint /bin/chmod 0500 /sbin/fatlabel 2>/dev/null || log "UNEXPECTED: Could not change /sbin/fatlabel file permissions"
+    chroot $mountPoint /bin/chmod 0500 /sbin/fsck.fat 2>/dev/null || log "UNEXPECTED: Could not change /sbin/fsck.fat file permissions"
 
     log "INFO: Setting permissions on /usr/bin executables"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/xargs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xargs"
@@ -1502,6 +1510,31 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /usr/bin/lslogins 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/lslogins file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/lastlog2 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/lastlog2 file permissions"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/last 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/last file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/addr2line 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/addr2line file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/as 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/as file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/strip 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/strip file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/efi-mkuki 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/efi-mkuki file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbattach 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbattach file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/objcopy 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/objcopy file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/c++filt 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/c++filt file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/ld 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/ld file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/strings 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/strings file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/ar 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/ar file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbctl 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbctl file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/readelf 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/readelf file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/dwp 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/dwp file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbsign 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbsign file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/elfedit 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/elfedit file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/size 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/size file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbkeysync 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbkeysync file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbverify 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbverify file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/ranlib 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/ranlib file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/ld.bfd 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/ld.bfd file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/objdump 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/objdump file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbvarsign 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbvarsign file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbsiglist 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbsiglist file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/nm 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/nm file permissions"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/gprof 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/gprof file permissions"
 
     log "INFO: Setting permissions on /usr/sbin executables"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/partprobe 2>/dev/null || log "UNEXPECTED: Could not change permissions for; partprobe"
@@ -1566,6 +1599,8 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/nft 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nft"
     chroot $mountPoint /bin/chmod 0550 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/ufw file permissions"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logrotate"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/efibootmgr 2>/dev/null || log "UNEXPECTED: Could not change permissions for; efibootmgr"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/efibootdump 2>/dev/null || log "UNEXPECTED: Could not change permissions for; efibootdump"
 
     log "INFO: Setting permission on /etc files and directories"
     chroot $mountPoint /bin/chmod 0400 /etc/security/access.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/access.conf file permissions"
@@ -1711,6 +1746,82 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/jail.d/alpine-ssh.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/jail.d/alpine-ssh.conf permissions"
     chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not change local jail permissions to readable"
     chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change fail2ban configuration file permissions to readable"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.auth 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.auth file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.cer 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.cer file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.crt 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.crt file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.esl 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.esl file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.key 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.key file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.auth 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.auth file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.cer 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.cer file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.crt 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.crt file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.esl 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.esl file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.key 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.key file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.auth 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.auth file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.cer 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.cer file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.crt 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.crt file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.esl 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.esl file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.key 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.key file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/mkinitfs.conf file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/base.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/base.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/bootchart.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/bootchart.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/btrfs.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/btrfs.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cryptkey.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cryptkey.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/crypsetup.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/crypsetup.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dhcp.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/dhcp.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/https.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/https.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/keymap.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/keymap.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm-thin.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/lvm-thin.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/lvm.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/memdisk.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/memdisk.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nbd.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/nbd.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/network.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/network.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/raid.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/raid.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/wireguard.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/wireguard.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xfs.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/xfs.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfs.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/zfs.files file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/9p.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/9p.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/aoe.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/aoe.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ata.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ata.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/base.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/base.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/btrfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/btrfs.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cdrom.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cdrom.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cramfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cramfs.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cryptsetup.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cryptsetup.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dasd_mod.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/dasd_mod.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dhcp.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/dhcp.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ena.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ena.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext2.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ext2.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext3.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ext3.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext4.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ext4.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/f2fs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/f2fs.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/floppy.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/floppy.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/gfs2.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/gfs2.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/jfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/jfs.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/kms.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/kms.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/lvm.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/memdisk.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/memdisk.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/mmc.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/mmc.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nbd.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/nbd.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/network.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/network.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nfit.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/nfit.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nvme.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/nvme.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ocfs2.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ocfs2.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/phy.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/phy.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/qeth.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/qeth.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/raid.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/raid.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/reiserfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/reiserfs.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/scsi.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/scsi.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/squashfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/squashfs.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ubifs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ubifs.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/usb.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/usb.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/virtio.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/virtio.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/wireguard.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/wireguard.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xenpci.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/xenpci.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/xfs.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfcp.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/zfcp.modules file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfs.modulesd 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/zfs.modulesd file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/kernel-hooks.d/README 2>/dev/null || log "UNEXPECTED: Could not change kernel-hooks.d/README file permissions"
+    chroot $mountPoint /bin/chmod 0500 /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not change kernel-hooks.d/secureboot.conf file permissions"
     chroot $mountPoint /bin/chmod 00550 /etc/acpi 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi directory permissions"
     chroot $mountPoint /bin/chmod 00550 /etc/acpi/PWRF 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi/PWRF directory permissions"
     chroot $mountPoint /bin/chmod 00700 /etc/apk 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk directory permissions"
@@ -1794,6 +1905,10 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 00750 /etc/fail2ban/filter.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/filter.d directory permissions"
     chroot $mountPoint /bin/chmod 00750 /etc/fail2ban/jail.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/jail.d directory permissions"
     chroot $mountPoint /bin/chmod 00750 /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban directory permissions"
+    chroot $mountPoint /bin/chmod 00500 /etc/uefi-keys 2>/dev/null || log "UNEXPECTED: Could not change /etc/uefi-keys directory permissions"
+    chroot $mountPoint /bin/chmod 00500 /etc/mkinitfs 2>/dev/null || log "UNEXPECTED: Could not change /etc/mkinitfs directory permissions"
+    chroot $mountPoint /bin/chmod 00500 /etc/mkinitfs/features.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/mkinitfs/features.d directory permissions"
+    chroot $mountPoint /bin/chmod 00500 /etc/kernel-hooks.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/kernel-hooks.d directory permissions"
 # /etc/pam.d/chfn
 # /etc/pam.d/chpasswd
 # /etc/pam.d/chsh
@@ -1862,7 +1977,6 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
 # /usr/lib/security/pam_wheel.so
 # /usr/lib/security/pam_xauth.so
     chroot $mountPoint /bin/chmod 0640 /usr/lib/os-release 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/os-release file permissions for /etc/os-release"
-    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw file permissions"
     chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init file permissions"
     chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init-functions file permissions"
     chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sftp-server 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ssh/sftp-server file permissions"
@@ -1870,6 +1984,9 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sshd-auth 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ssh/sshd-auth file permissions"
     chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sshd-session 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ssh/sshd-session file permissions"
     chroot $mountPoint /bin/chmod 0444 "/usr/share/zoneinfo/$timezone" 2>/dev/null || log "UNEXPECTED: Could not change /usr/share/zoneinfo/$timezone file permissions for /etc/localtime"
+    chroot $mountPoint /bin/chmod 500 /usr/share/kernel-hooks.d/secureboot.hook 2>/dev/null || log "UNEXPECTED: Could not change /usr/share/kernel-hooks.d/secureboot.hook file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
+    chroot $mountPoint /bin/chmod 00750 /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw folder permissions"
+    chroot $mountPoint /bin/chmod 00500 /usr/share/kernel-hooks.d 2>/dev/null || log "UNEXPECTED: Could not change /usr/share/kernel-hooks.d file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
 
     log "INFO: Changing anything else remaining in /var"
     chroot $mountPoint /bin/chmod 00750 /var/run/acpid 2>/dev/null || log "UNEXPECTED: Could not change /var/run/acpid directory permissions"
@@ -2238,6 +2355,10 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep fail2ban)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find fail2ban package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep openssh-server-pam)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find openssh-server-pam package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep util-linux-login)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find util-linux-login package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep dosfstools)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find dosfstools package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep systemd-efistub)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find systemd-efistub package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep secureboot-hook)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find secureboot-hook package"; fi
+    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep sbctl)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find sbctl package"; fi
 
     # User existance checks
     if [ -z "$(chroot $mountPoint /bin/grep at /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User at was not found"; fi
@@ -2586,6 +2707,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/ksh -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/ksh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/su -perm 4510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/su"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/login -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/login"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /bin/lsblk -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /bin/lsblk"; fi
 
     # Checking /sbin permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/xfs_repair -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/xfs_repair"; fi
@@ -2613,6 +2735,9 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/sulogin -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/sulogin"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/nologin -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/nologin"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/runuser -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/runuser"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/mkfs.fat -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/mkfs.fat"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/fatlabel -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/fatlabel"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/fsck.fat -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/fsck.fat"; fi
 
     # Checking /usr/bin permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/xargs -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/xargs"; fi
@@ -2664,6 +2789,31 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/lslogins -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/lslogins"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/lastlog2 -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/lastlog2"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/last -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/last"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/addr2line -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/addr2line"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/as -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/as"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/strip -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/strip"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/efi-mkuki -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/efi-mkuki"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/sbattach -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/sbattach"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/objcopy -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/objcopy"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/c++filt -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/c++filt"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ld -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/ld"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/strings -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/strings"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ar -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/ar"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/sbctl -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/sbctl"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/readelf -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/readelf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/dwp -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/dwp"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/sbsign -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/sbsign"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/elfedit -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/elfedit"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/size -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/size"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/sbkeysync -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/sbkeysync"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/sbverify -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/sbverify"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ranlib -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/ranlib"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ld.bfd -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/ld.bfd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/objdump -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/objdump"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/sbvarsign -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/sbvarsign"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/sbsiglist -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/sbsiglist"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/nm -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/nm"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/gprof -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/gprof"; fi
 
     # Checking /usr/sbin/ permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/partprobe -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/partprobe"; fi
@@ -2727,6 +2877,8 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/iptables-apply -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/iptables-apply"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/nft -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/nft"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/logrotate -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/logrotate"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/efibootmgr -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/efibootmgr"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/efibootdump -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/efibootdump"; fi
 
     # Checking /etc permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/moduli -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/moduli"; fi
@@ -2953,18 +3105,97 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/udhcpc -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/udhcpc"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/zoneinfo -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/zoneinfo"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/KEK.auth -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/KEK.auth"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/KEK.cer -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/KEK.cer"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/KEK.crt -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/KEK.crt"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/KEK.esl -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/KEK.esl"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/KEK.key -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/KEK.key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/PK.auth -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/PK.auth"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/PK.cer -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/PK.cer"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/PK.crt -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/PK.crt"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/PK.esl -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/PK.esl"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/PK.key -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/PK.key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/db.auth -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/db.auth"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/db.cer -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/db.cer"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/db.crt -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/db.crt"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/db.esl -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/db.esl"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/db.key -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/db.key"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/mkinitfs.conf -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/mkinitfs.conf"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/base.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/base.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/bootchart.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/bootchart.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/btrfs.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/btrfs.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/cryptkey.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/cryptkey.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/crypsetup.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/crypsetup.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/dhcp.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/dhcp.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/https.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/https.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/keymap.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/keymap.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/lvm-thin.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/lvm-thin.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/lvm.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/lvm.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/memdisk.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/memdisk.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/nbd.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/nbd.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/network.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/network.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/raid.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/raid.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/wireguard.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/wireguard.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/xfs.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/xfs.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/zfs.files -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/zfs.files"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/9p.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/9p.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/aoe.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/aoe.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/ata.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/ata.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/base.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/base.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/btrfs.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/btrfs.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/cdrom.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/cdrom.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/cramfs.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/cramfs.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/cryptsetup.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/cryptsetup.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/dasd_mod.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/dasd_mod.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/dhcp.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/dhcp.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/ena.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/ena.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/ext2.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/ext2.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/ext3.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/ext3.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/ext4.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/ext4.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/f2fs.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/f2fs.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/floppy.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/floppy.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/gfs2.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/gfs2.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/jfs.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/jfs.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/kms.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/kms.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/lvm.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/lvm.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/memdisk.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/memdisk.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/mmc.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/mmc.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/nbd.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/nbd.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/network.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/network.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/nfit.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/nfit.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/nvme.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/nvme.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/ocfs2.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/ocfs2.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/phy.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/phy.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/qeth.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/qeth.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/raid.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/raid.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/reiserfs.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/reiserfs.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/scsi.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/scsi.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/squashfs.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/squashfs.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/ubifs.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/ubifs.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/usb.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/usb.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/virtio.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/virtio.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/wireguard.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/wireguard.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/xenpci.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/xenpci.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/xfs.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/xfs.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/zfcp.modules -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/zfcp.modules"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/mkinitfs/features.d/zfs.modulesd -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/mkinitfs/features.d/zfs.modulesd"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/kernel-hooks.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/kernel-hooks.d"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/kernel-hooks.d/README -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/kernel-hooks.d/README"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/kernel-hooks.d/secureboot.conf -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/kernel-hooks.d/secureboot.conf"; fi
 
     # Checking /usr/lib permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/os-release -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc//usr/lib/os-release for /etc/os-release"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw/ufw-init"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init-functions -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw/ufw-init-functions"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init-functions -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init-functions"; fi
 
     # Checking /usr/share permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/share/zoneinfo/$timezone -perm 0444 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/share/zoneinfo/$timezone for /etc/localtime"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/share/kernel-hooks.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/share/kernel-hooks.d for /etc/kernel-hooks.d/50-secureboot.hook"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/share/kernel-hooks.d/secureboot.hook -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/share/kernel-hooks.d/secureboot.hook for /etc/kernel-hooks.d/50-secureboot.hook"; fi
 
     # Checking /var/run permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/run/acpid -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/run/acpid"; fi
@@ -3125,7 +3356,10 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/ufw.conf -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/ufw.conf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user.rules -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/user.rules"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user6.rules -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/user6.rules"; fi
-
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init-functions -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init-functions"; fi
+    
         # Fail2ban
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-client -user root -and -group $fail2banUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/fail2ban-client"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-server -user root -and -group $fail2banUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/fail2ban-server"; fi
