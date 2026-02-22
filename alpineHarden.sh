@@ -80,38 +80,38 @@ export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires 
 
 # Alpine configuration variables (CHANGE THESE)
 export logFile="/tmp/hardeningAlpine.log"
-export logIP="127.0.0.1"
-export sshUsernameKey="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMGa/LM/SQ8SacZAeIhDp+0U/UnzMy8iItQXmNIjeDo1 testingMachine@localhost"
-export tempSshPass="I2ttLe7iaxi6UoLaZ64JW5lDUw5VYMxr"
-export localhostName="localhost"
-export lvmName="vgcore"
+export logIP="REPLACEME"
+export sshUsernameKey="REPLACEME"
+export tempSshPass="REPLACEME"
+export localhostName="REPLACEME"
+export lvmName="REPLACEME"
 export keyboardLayout="us"
-export timezone="US/Pacific"
-export dnsList="1.1.1.1 9.9.9.9"
-export apkRepoList="https://mirror.math.princeton.edu/pub/alpinelinux/edge https://mirrors.ocf.berkeley.edu/alpine/edge"
-export devDevice="mdev"
-export tempRootPass="Core&soul!Beetle=hound"
-export kernelVersion="6.12.43" # Could not have this reliable
-export gitPackageCommitHash="286b542594d5b89dbe3f49f9faf4ba9e9f34f8d3" # Scroll through original aports git repo to set the desired hash
-export localNetwork="192.168.0.0"
-export localNetmask="24"
+export timezone="REPLACEME"
+export dnsList="REPLACEME"
+export apkRepoList="REPLACEME"
+export devDevice="REPLACEME"
+export tempRootPass="REPLACEME"
+export kernelVersion="REPLACEME" # Could not have this reliable
+export gitPackageCommitHash="REPLACEME" # Scroll through original aports git repo to set the desired hash
+export localNetwork="REPLACEME"
+export localNetmask="REPLACEME"
 export umask="077"
 export systemArch="$(uname -m)" # Leave this as "$(uname -m)" to automatically find system architecture. If building on a different system, then change this into one of the many values: x86_64, x86, arm*, aarch64, riscv64, loongarch64
 
 # Usernames to be created. This does not include chrony and sshd, since they are already created
-export buildUsername="maintain" # Username that can build the linux kernel, and install it
-export powerUsername="sleepy"	# Username that can execute the acpid daemon
-export loggerUsername="tracker"	# Username that runs syslogd
-export backgroundUsername="executer"	# Username that runs crond
-export monitorUsername="reader" # Username that can read and send logs across the network. !!! Highest privledge !!!
-export collectorUsername="mover" # Username that can inspect nearly the entire system for logs.
-export previewUsername="witness" # Username that only receives a simple output, and leaves
-export serverCommandUsername="decision" # Username with restricted commands to execute
-export backupUsername="preserve" # Username made to backup select files
-export firewallUsername="restrict" # Only user authorized for firewall stuff
-export fail2banUsername="denies" # Only user authorized for blocking network packets
-export updateUsername="improve" # Only user authorized for apk update
-export extractUsername="obtain" # A user that will be deleted after 4 hours, and is used to pick up sensitive information (like ssh keys)
+export buildUsername="REPLACEME" # Username that can build the linux kernel, and install it
+export powerUsername="REPLACEME"	# Username that can execute the acpid daemon
+export loggerUsername="REPLACEME"	# Username that runs syslogd
+export backgroundUsername="REPLACEME"	# Username that runs crond
+export monitorUsername="REPLACEME" # Username that can read and send logs across the network. !!! Highest privledge !!!
+export collectorUsername="REPLACEME" # Username that can inspect nearly the entire system for logs.
+export previewUsername="REPLACEME" # Username that only receives a simple output, and leaves
+export serverCommandUsername="REPLACEME" # Username with restricted commands to execute
+export backupUsername="REPLACEME" # Username made to backup select files
+export firewallUsername="REPLACEME" # Only user authorized for firewall stuff
+export fail2banUsername="REPLACEME" # Only user authorized for blocking network packets
+export updateUsername="REPLACEME" # Only user authorized for apk update
+export extractUsername="REPLACEME" # A user that will be deleted after 4 hours, and is used to pick up sensitive information (like ssh keys)
 
 # Service ports
 export sshPort="594"
@@ -2327,6 +2327,15 @@ verifyInstallSetup() {
     if [ -z "$(chroot $mountPoint /bin/grep "\/dev\/$lvmName\/$localhostName.var\t\/var\text4\trw,relatime,noatime,nodev,nosuid 0 2" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: var partition in fstab is not harden"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\/dev\/$lvmName\/$localhostName.var.log\t\/var\/log\text4\trw,relatime,noatime,nodev,nosuid 0 2" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: var.log partition in fstab is not harden"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\/dev\/$lvmName\/$localhostName.var.tmp\t\/var\/tmp\text4\trw,relatime,noatime,nodev,nosuid,noexec 0 2" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: var.tmp partition in fstab is not harden"; fi
+    
+    # Check if partitions have the correct flags set
+    local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
+    local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
+    local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
+    local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
+    if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceBoot | grep $bootPartition | grep -o \* 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $bootPartition doesn't have boot flag set!"; fi
+    if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceBoot | grep $bootPartition | grep -o ef 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $bootPartition doesn't have partition recognized with identifier 0xef!"; fi
+    if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceLvm | grep $lvmPartition | grep -o 8e 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $lvmPartition doesn't have partition recognized with identifier 0x8e!"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for initial installation: $missing"; else echo "INFO: Not a single missed test for initial installation!"; fi

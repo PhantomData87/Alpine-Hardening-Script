@@ -1,7 +1,5 @@
 #TODO:
-- Permission & ownership expansion
 - Verification check expansion    
-- Check if formatted drives have boot (boot from here), lvm (physical volume), and esp (EFI ready) flag set.
 - sed & echo betterment
 - linux kernal smarter compile
 - check if lvm2 member
