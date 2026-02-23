@@ -1,31 +1,17 @@
-#TODO:
-- Verification check expansion    
+#TODO: 
 - sed & echo betterment
+- Check current log messages
 - linux kernal smarter compile
-- check if lvm2 member
 - fstab auto-regen
 - test UEFI & bios potential; System may be only UEFI recognizable! And not bios recognizable!!!!!!!! Must test.
-- Ensure formatted drives are GPT? and not MSB/DOS. Otherwise cannot do 'sbctl verify'
 - Test if removing dracut specific paramters affect booting; https://man.archlinux.org/man/dracut.cmdline.7.en.txt, https://www.man7.org/linux/man-pages/man7/bootparam.7.html
-
-    # Grub linux cmdline based on KSSP
-    if [ -z "$(chroot $mountPoint /bin/grep 'modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100' /etc/default/grub | grep 'GRUB_CMDLINE_LINUX_DEFAULT' 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Linux kernel command line has not been properely set in grub"; fi
-
-cmdline=\"modules=sd-mod,usb-storage,ext4,nvme,mmc,lvm rd.lvm.conf=0 rd.lvm.vg=$lvmName rd.lvm.lv=$lvmName\/$localhostName.root rd.lvm.lv=$lvmName\/$localhostName.home rd.lvm.lv=$lvmName\/$localhostName.var rd.lvm.lv=$lvmName\/$localhostName.var.tmp rd.lvm.lv=$lvmName\/$localhostName.var.log root=\/dev\/$lvmName\/$localhostName.root quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100\"
-output_dir=\"\/boot\/efi\/EFI\/boot\"
-output_name=\"boot$systemArchFallbackName.efi\"
-# mount -t efivarfs none /sys/firmware/efi/efivars
-if [ -z "$(ls -A $mountPoint/etc/uefi-keys 2>/dev/null))" ]; # Empty means bad, anything means pass
-Set: echo 'disable_trigger=yes' >> /etc/mkinitfs/mkinitfs.conf
-sbctl create-keys
-sbctl sign --save /boot/efi/Alpine/linux-lts.efi
-sbctl enroll-keys -m
-removed; grub grub-efi, efi-mkkeys (after)
-
-
-
 
     
 
-Currently fails:
-chroot $mountPoint /usr/bin/sbctl enroll-keys -m 2>/dev/null || log "UNEXPECTED: Could not synchronize secureboot keys"
+
+
+
+
+
+
+
