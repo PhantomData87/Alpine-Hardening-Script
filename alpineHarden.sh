@@ -440,13 +440,13 @@ removeAlpine() {
     	for i in $previewUsername $serverCommandUsername; do
     		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
     		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; ld-musl-aarch64.so.1"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; libncursesw.so.6"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libcrypto.so.3"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libacl.so.1"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libattr.so.1"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libutmps.so.0.1"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libskarnet.so.2.14"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount ld-musl-aarch64.so.1 for $i user; ld-musl-aarch64.so.1"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount libncursesw.so.6 for $i user; libncursesw.so.6"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount libcrypto.so.3 for $i user; libcrypto.so.3"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libacl.so.1 for $i user; libacl.so.1"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libattr.so.1 for $i user; libattr.so.1"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount libutmps.so.0.1 for $i user; libutmps.so.0.1"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount libskarnet.so.2.14 for $i user; libskarnet.so.2.14"; fi
     		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
     	done
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/boot/efi " 2>/dev/null)" ]; then umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"; fi
@@ -880,14 +880,20 @@ setupAlpine() {
     rc-update --quiet add acpid 2>/dev/null || log "UNEXPECTED: Could not setup acpid to rc"
     openrc boot 2>/dev/null || log "UNEXPECTED: Could not interact with boot runlevel"
     openrc default 2>/dev/null || log "UNEXPECTED: Could not interact with default runlevel"
-    echo "127.0.0.1  $localhostName.$localhostName $localhostName" > /etc/hosts 2>/dev/null 2>/dev/null || log "CRITICAL: Could not declare local resolved names to /etc/hosts"
-    echo "# APK Repositories configured by automated tool:" > /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Did not reset prior apk repository list"
+    	# Adding writing permission
+    chmod u+w /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add writing permission for /etc/apk/repositories"
+    chmod u+w /etc/hosts 2>/dev/null || log "UNEXPECTED: Could not add writing permission for /etc/hosts"
+    sed -i "/#\{0,2\}127.0.0.1  $localhostName.$localhostName $localhostName\(.*\)/{h;s//127.0.0.1  $localhostName.$localhostName $localhostName/};\${x;/^\$/{s//127.0.0.1  $localhostName.$localhostName $localhostName/;H};x}" /etc/hosts 2>/dev/null || log "CRITICAL: Could not declare local resolved names to /etc/hosts"
+    sed -i "/#\{0,2\}# APK Repositories configured by automated tool:\(.*\)/{h;s//# APK Repositories configured by automated tool:\n/};\${x;/^\$/{s//# APK Repositories configured by automated tool:\n/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Did not reset prior apk repository list"
     if [ -f "/etc/apk/repositories" ]; then rm /etc/apk/repositories; fi
     for i in $apkRepoList; do
-        echo "$i/main" >> /etc/apk/repositories 2>/dev/null || log "CRITICAL: Could not add a main repository for apk: $i/main"
-        echo "@additional $i/community" >> /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a community repository for apk: $i/community"
-        echo "@se $i/testing" >> /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a testing repository for apk: $i/testing"
+        sed -i "/#\{0,2\}$i/main\(.*\)/{h;s//$i/main/};\${x;/^\$/{s//$i/main/;H};x}" /etc/apk/repositories 2>/dev/null || log "CRITICAL: Could not add a main repository for apk: $i/main"
+        sed -i "/#\{0,2\}@additional $i/community\(.*\)/{h;s//@additional $i/community/};\${x;/^\$/{s//@additional $i/community/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a community repository for apk: $i/community"
+        sed -i "/#\{0,2\}@se $i/testing\(.*\)/{h;s//@se $i/testing/};\${x;/^\$/{s//@se $i/testing/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a testing repository for apk: $i/testing"
     done
+    	# Removing writing permission
+    chmod u-w /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not remove writing permission for /etc/apk/repositories"
+    chmod u-w /etc/hosts 2>/dev/null || log "UNEXPECTED: Could not remove writing permission for /etc/hosts"
     apk update >/dev/null # First instance keeps failing despite time correctly set
     apk update
     setup-timezone "$timezone" 2>/dev/null || log "UNEXPECTED: Could not set timezone"
@@ -1052,13 +1058,13 @@ configLocalInstallation() {
     for i in $previewUsername $serverCommandUsername; do
    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; ld-musl-aarch64.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount ld-musl-aarch64.so.1 for $i user; ld-musl-aarch64.so.1"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; libncursesw.so.6"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libcrypto.so.3"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libacl.so.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libattr.so.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libutmps.so.0.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user; libskarnet.so.2.14"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount libncursesw.so.6 for $i user; libcrypto.so.3"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libacl.so.1 for $i user; libacl.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libattr.so.1 for $i user; libattr.so.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount libutmps.so.0.1 for $i user; libutmps.so.0.1"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount libskarnet.so.2.14 for $i user; libskarnet.so.2.14"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
     done
     
@@ -1087,6 +1093,7 @@ configLocalInstallation() {
     chroot $mountPoint /bin/touch /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for fail2ban service"
     chroot $mountPoint /bin/touch /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "CRITICAL: Could not generate a sqlite3 database for fail2ban"
     chroot $mountPoint /bin/touch /etc/fail2ban/jail.local 2>/dev/null || log "CRITICAL: Failed to create configuration file for fail2ban"
+    chroot $mountPoint /bin/touch /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not generate a doas configuration file meant for principle of least priviledge"
     for i in $previewUsername $serverCommandUsername; do
     	chroot $mountPoint /bin/touch "/home/$i/bin/rksh" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; rksh"
     	chroot $mountPoint /bin/touch "/home/$i/bin/echo" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; echo"
@@ -1098,23 +1105,24 @@ configLocalInstallation() {
     	chroot $mountPoint /bin/touch "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; libutmps.so.0.1"
     	chroot $mountPoint /bin/touch "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "CRITICAL: Failed to create mountable library point for $i; libskarnet.so.2.14"
     done
+    if [ -z "$(chroot $mountPoint /bin/cat /etc/doas.d/daemon.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Doas configuration for limited system services" > $mountPoint/etc/doas.d/daemon.conf; log "UNEXPECTED: Could not ensure doas configuration file for daemon services to have some text; ensuring sed works as intended"; fi
 #    for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
 #        chroot $mountPoint /bin/touch "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not create syslog hook on mounted dev file"
 #    done
 
     log "INFO: Chroot bindings added to fstab"
-		# Modifying fstab to bind files to certain locations in home director for $previewUsername & $serverCommandUsername
+		# Modifying fstab to bind files to certain locations in home director for $previewUsername & $serverCommandUsername chroot environment
     for i in $previewUsername $serverCommandUsername; do
-        if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/ksh\t\/home\/$i\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/bin/ksh\t/home/$i/bin/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include bin/rksh in fstab for $i user"; fi
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\/bin\/coreutils\t\/home\/$i\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/bin/coreutils\t/home/$i/bin/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include bin/echo in fstab for $i user"; fi
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/lib/ld-musl-aarch64.so.1\t/home/$i/lib/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include lib/ld-musl-aarch64.so.1 in fstab for $i user"; fi
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libncursesw.so.6\t/home/$i/usr/lib/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libncursesw.so.6 in fstab for $i user"; fi
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libcrypto.so.3\t/home/$i/usr/lib/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libcrypto.so.3 in fstab for $i user"; fi
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libacl.so.1\t/home/$i/usr/lib/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libacl.so.1 in fstab for $i user"; fi
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libattr.so.1\t/home/$i/usr/lib/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libattr.so.1 in fstab for $i user"; fi
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libutmps.so.0.1\t/home/$i/usr/lib/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libutmps.so.0.1 in fstab for $i user"; fi
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/usr/lib/libskarnet.so.2.14\t/home/$i/usr/lib/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include usr/lib/libskarnet.so.2.14 in fstab for $i user"; fi
-        if [ -z "$(chroot $mountPoint /bin/grep "^\/dev\/pts\t\/home\/$i\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo -e "/dev/pts\t/home/$i/dev/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0" >> $mountPoint/etc/fstab || log "UNEXPECTED: Could not include dev/pts in fstab for $i user"; fi
+        chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/bin\/ksh\t\/home\/$i\/bin\/rksh\t\(.*\)/{h;s//^\/bin\/ksh\t\/home\/$i\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/bin\/ksh\t\/home\/$i\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include bin/rksh in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/bin\/coreutils\t\/home\/$i\/bin\/echo\t\(.*\)/{h;s//^\/bin\/coreutils\t\/home\/$i\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/bin\/coreutils\t\/home\/$i\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include bin/echo in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\t\(.*\)/{h;s//^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include lib/ld-musl-aarch64.so.1 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\(.*\)/{h;s//^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libncursesw.so.6 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\t\(.*\)/{h;s//^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libcrypto.so.3 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\t\(.*\)/{h;s//^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libacl.so.1 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\t\(.*\)/{h;s//^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libattr.so.1 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\t\(.*\)/{h;s//^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libutmps.so.0.1 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\t\(.*\)/{h;s//^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libskarnet.so.2.14 in fstab for $i user"
+        chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/dev\/pts\t\/home\/$i\/dev\/pts\t\(.*\)/{h;s//^\/dev\/pts\t\/home\/$i\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$/};\${x;/^\$/{s//^\/dev\/pts\t\/home\/$i\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include dev/pts in fstab for $i user"
     done
     	# Adding /home directory binds for logging
 #    for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
@@ -1161,7 +1169,7 @@ print \"You have connected succesfully! Built-in commands will be here soon.\"" 
     log "INFO: Disabling root login via serial consoles"
     chroot $mountPoint /bin/sed -i 's/^tty/#tty/g' /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not stop the creation of getty instances"
     chroot $mountPoint /bin/sed -i 's/^\:\:ctrlaltdel/#\:\:ctrlaltdel/g' /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not remove keyboard sequence reboot command"
-    chroot $mountPoint /bin/echo > $mountPoint/etc/securetty 2>/dev/null || log "UNEXPECTED: Could not modify which interfaces a root user can login from"
+# !!!    chroot $mountPoint /bin/echo > $mountPoint/etc/securetty 2>/dev/null || log "UNEXPECTED: Could not modify which interfaces a root user can login from" # Figure out how to login locally
 
     # Modifying /etc/profile and mdev.conf
     log "INFO: Increasing umask value in /etc/profile and mdev.conf"
@@ -1185,16 +1193,13 @@ print \"You have connected succesfully! Built-in commands will be here soon.\"" 
     chroot $mountPoint /bin/sed -i "s/^pidfile=\"\(.*\)/pidfile=\"\$\{SSHD_PIDFILE:-\"\/run\/sshd\/\$RC_SVCNAME.pid\"\}\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change pid location"
 
     log "INFO: Configurating doas"
-		# Create permenant file
-    chroot $mountPoint /bin/echo "# Doas configuration for limited system services
-# ACPID
-permit nopass root as $powerUsername cmd /usr/sbin/acpid args -l --foreground --pidfile /var/run/acpid/acpid.pid --lockfile /var/run/acpid/acpid.lock --socketfile /var/run/acpid/acpid.socket --socketgroup acpi --socketmode 660
-# Chronyd
-permit nopass root as chrony cmd /usr/sbin/chronyd args -u chrony -U -F 1 -f /etc/chrony/chrony.conf -L 0 -l /var/log/chronyd.log
-# Fail2ban
-permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args start
-permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args stop
-permit nopass root as $fail2banUsername cmd /usr/bin/fail2ban-client args reload" > $mountPoint/etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file!"
+		# Append permenant file command to permit root to start a service as another user
+    chroot $mountPoint /bin/sed -i "/# Doas configuration for limited system services\(.*\)/{h;s//# Doas configuration for limited system services/};\${x;/^\$/{s//# Doas configuration for limited system services/;H};x}" /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to clearly indicate where the script it modifying!"
+    chroot $mountPoint /bin/sed -i "/#\{0,2\}permit nopass root as $powerUsername cmd \/usr\/sbin\/acpid\(.*\)/{h;s//permit nopass root as $powerUsername cmd \/usr\/sbin\/acpid args -l --foreground --pidfile \/var\/run\/acpid\/acpid.pid --lockfile \/var\/run\/acpid\/acpid.lock --socketfile \/var\/run\/acpid\/acpid.socket --socketgroup acpi --socketmode 660/};\${x;/^\$/{s//# ACPID\npermit nopass root as $powerUsername cmd \/usr\/sbin\/acpid args -l --foreground --pidfile \/var\/run\/acpid\/acpid.pid --lockfile \/var\/run\/acpid\/acpid.lock --socketfile \/var\/run\/acpid\/acpid.socket --socketgroup acpi --socketmode 660/;H};x}" /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to include ACPID service!"
+    chroot $mountPoint /bin/sed -i "/#\{0,2\}permit nopass root as chrony cmd \/usr\/sbin\/chronyd\(.*\)/{h;s//permit nopass root as chrony cmd \/usr\/sbin\/chronyd args -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log/};\${x;/^\$/{s//# Chronyd\npermit nopass root as chrony cmd \/usr\/sbin\/chronyd args -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log/;H};x}" /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to include Chronyd service!"
+    chroot $mountPoint /bin/sed -i "/#\{0,2\}permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args start\(.*\)/{h;s//permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args start/};\${x;/^\$/{s//# Fail2ban\npermit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args start/;H};x}" /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to include Fail2Ban start service!"
+    chroot $mountPoint /bin/sed -i "/#\{0,2\}permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args stop\(.*\)/{h;s//permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args stop/};\${x;/^\$/{s//permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args stop/;H};x}" /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to include Fail2ban stop service!"
+    chroot $mountPoint /bin/sed -i "/#\{0,2\}permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args reload\(.*\)/{h;s//permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args reload/};\${x;/^\$/{s//permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args reload/;H};x}" /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to include Fail2ban reload service!"
 		# Create temp file
     chroot $mountPoint /bin/echo "# Doas configuration for temp ssh service
 permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/tempUser.conf 2>/dev/null || log "UNEXPECTED: Could not create temp doas configuration file!"
@@ -1207,108 +1212,107 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 
 # !!! SSHD
     log "INFO: Configurating SSH"
-	# Modifying sshd profile
-    chroot $mountPoint /bin/echo "# Standard sshd_config options
-Port $sshPort
-AddressFamily inet
-#ListenAddress
-HostKey /etc/ssh/ssh_host_ed25519_key
-RekeyLimit 256M 1h
-SyslogFacility AUTH
-LogLevel $sshLogging
-LoginGraceTime 15
-PermitRootLogin no
-StrictModes yes
-MaxAuthTries 2
-MaxSessions 2
-PubkeyAuthentication yes
-AuthorizedKeysFile /home/.keys/%u/authorized_keys
-#AuthorizedPrincipalsIsFile
-#AuthorizedKeysCommand
-#AuthorizedKeysCommandUser
-HostbasedAuthentication no
-IgnoreUserKnownHosts no
-IgnoreRhosts yes
-PasswordAuthentication no
-PermitEmptyPasswords no
-#KbdInteractiveAuthentication yes
-#KerberosAuthentication no
-#KerberosOrLocalPasswd yes
-#KerberosTicketCleanup yes
-#KerberosGetAFSToken no
-#GSSAPIAuthentication no
-#GSSAPICleanupCredentials yes
-UsePAM yes
-#AllowAgentForwarding yes
-AllowTcpForwarding no
-GatewayPorts no
-X11Forwarding no
-#X11DisplayOffset 10
-#X11UseLocalhost yes
-PermitTTY yes
-PrintMotd yes
-#PrintLastLog yes
-TCPKeepAlive yes
-PermitUserEnvironment no
-Compression yes
-ClientAliveInterval 150
-ClientAliveCountMax 2
-UseDNS no
-PidFile /var/run/sshd/sshd.pid
-#MaxStartups 10:30:100
-PermitTunnel no
-#VersionAddendum none
-Banner /etc/issue
-Subsystem sftp internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read
-
-# AlpineHarden.sh additions
-DisableForwarding yes
-FingerprintHash sha256
-ChannelTimeout session=20m
-Ciphers aes256-gcm@openssh.com,aes256-ctr
-KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com
-MACs hmac-sha2-512-etm@openssh.com
-PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com
-AllowUsers $previewUsername@$localNetwork/$localNetmask $backupUsername@$localNetwork/$localNetmask $serverCommandUsername@$localNetwork/$localNetmask $monitorUsername@$localNetwork/$localNetmask
-
-#SFTP server configuration
-Match User $previewUsername
-    ChrootDirectory /home/$previewUsername
-    ForceCommand greeting.ksh
-Match User $serverCommandUsername
-    ChrootDirectory /home/$serverCommandUsername
-    ForceCommand greeting.ksh
-Match User $backupUsername
-    ChrootDirectory /home/$backupUsername
-    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read
-Match User $monitorUsername
-    ChrootDirectory /home/$monitorUsername
-    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read
-Match User $extractUsername
-    AllowUsers $extractUsername@$localNetwork/$localNetmask
-    ChrootDirectory /home/$extractUsername
-    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read" > $mountPoint/etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not create sshd_config profile"
+		# Modifying sshd profile's defualt settings
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}Port\(.*\)/{h;s//Port $sshPort/};\${x;/^\$/{s//Port $sshPort/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Port"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AddressFamily\(.*\)/{h;s//AddressFamily inet/};\${x;/^\$/{s//AddressFamily inet/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AddressFamily"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}ListenAddress\(.*\)/{h;s//#ListenAddress/};\${x;/^\$/{s//#ListenAddress/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ListenAddress"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}HostKey\(.*\)/{h;s//HostKey \/etc\/ssh\/ssh_host_ed25519_key/};\${x;/^\$/{s//HostKey \/etc\/ssh\/ssh_host_ed25519_key/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's HostKey"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}RekeyLimit\(.*\)/{h;s//RekeyLimit 256M 1h/};\${x;/^\$/{s//RekeyLimit 256M 1h/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's RekeyLimit"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}SyslogFacility\(.*\)/{h;s//SyslogFacility AUTH/};\${x;/^\$/{s//SyslogFacility AUTH/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's SyslogFacility"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}LogLevel\(.*\)/{h;s//LogLevel $sshLogging/};\${x;/^\$/{s//LogLevel $sshLogging/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's LogLevel"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}LoginGraceTime\(.*\)/{h;s//LoginGraceTime 15/};\${x;/^\$/{s//LoginGraceTime 15/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's LoginGraceTime"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitRootLogin\(.*\)/{h;s//PermitRootLogin no/};\${x;/^\$/{s//PermitRootLogin no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitRootLogin"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}StrictModes\(.*\)/{h;s//StrictModes yes/};\${x;/^\$/{s//StrictModes yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's StrictModes"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}MaxAuthTries\(.*\)/{h;s//MaxAuthTries 2/};\${x;/^\$/{s//MaxAuthTries 2/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MaxAuthTries"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}MaxSessions\(.*\)/{h;s//MaxSessions 2/};\${x;/^\$/{s//MaxSessions 2/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MaxSessions"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PubkeyAuthentication\(.*\)/{h;s//PubkeyAuthentication yes/};\${x;/^\$/{s//PubkeyAuthentication yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PubkeyAuthentication"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AuthorizedKeysFile\(.*\)/{h;s//AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys/};\${x;/^\$/{s//AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthorizedKeysFile"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AuthorizedPrincipalsIsFile\(.*\)/{h;s//#AuthorizedPrincipalsIsFile/};\${x;/^\$/{s//#AuthorizedPrincipalsIsFile/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthorizedPrincipalsIsFile"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AuthorizedKeysCommand\(.*\)/{h;s//#AuthorizedKeysCommand/};\${x;/^\$/{s//#AuthorizedKeysCommand/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthorizedKeysCommand"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AuthorizedKeysCommandUser\(.*\)/{h;s//#AuthorizedKeysCommandUser/};\${x;/^\$/{s//#AuthorizedKeysCommandUser/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthorizedKeysCommandUser"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}HostbasedAuthentication\(.*\)/{h;s//HostbasedAuthentication no/};\${x;/^\$/{s//HostbasedAuthentication no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's HostbasedAuthentication"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}IgnoreUserKnownHosts\(.*\)/{h;s//IgnoreUserKnownHosts no/};\${x;/^\$/{s//IgnoreUserKnownHosts no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's IgnoreUserKnownHosts"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}IgnoreRhosts\(.*\)/{h;s//IgnoreRhosts yes/};\${x;/^\$/{s//IgnoreRhosts yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's IgnoreRhosts"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PasswordAuthentication\(.*\)/{h;s//PasswordAuthentication no/};\${x;/^\$/{s//PasswordAuthentication no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PasswordAuthentication"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitEmptyPasswords\(.*\)/{h;s//PermitEmptyPasswords no/};\${x;/^\$/{s//PermitEmptyPasswords no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitEmptyPasswords"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KbdInteractiveAuthentication yes\(.*\)/{h;s//#KbdInteractiveAuthentication yes/};\${x;/^\$/{s//#KbdInteractiveAuthentication yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KbdInteractiveAuthentication"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KerberosAuthentication\(.*\)/{h;s//#KerberosAuthentication no/};\${x;/^\$/{s//#KerberosAuthentication no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KerberosAuthentication"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KerberosOrLocalPasswd\(.*\)/{h;s//#KerberosOrLocalPasswd yes/};\${x;/^\$/{s//#KerberosOrLocalPasswd yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KerberosOrLocalPasswd"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KerberosTicketCleanup\(.*\)/{h;s//#KerberosTicketCleanup yes/};\${x;/^\$/{s//#KerberosTicketCleanup yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KerberosTicketCleanup"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KerberosGetAFSToken\(.*\)/{h;s//#KerberosGetAFSToken no/};\${x;/^\$/{s//#KerberosGetAFSToken no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KerberosGetAFSToken"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}GSSAPIAuthentication\(.*\)/{h;s//#GSSAPIAuthentication no/};\${x;/^\$/{s//#GSSAPIAuthentication no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's GSSAPIAuthentication"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}GSSAPICleanupCredentials\(.*\)/{h;s//#GSSAPICleanupCredentials yes/};\${x;/^\$/{s//#GSSAPICleanupCredentials yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's GSSAPICleanupCredentials"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}UsePAM yes\(.*\)/{h;s//UsePAM yes/};\${x;/^\$/{s//UsePAM yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's UsePAM"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AllowAgentForwarding\(.*\)/{h;s//#AllowAgentForwarding yes/};\${x;/^\$/{s//#AllowAgentForwarding yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowAgentForwarding"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AllowTcpForwarding\(.*\)/{h;s//AllowTcpForwarding no/};\${x;/^\$/{s//AllowTcpForwarding no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowTcpForwarding"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}GatewayPorts\(.*\)/{h;s//GatewayPorts no/};\${x;/^\$/{s//GatewayPorts no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's GatewayPorts"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}X11Forwarding\(.*\)/{h;s//X11Forwarding no/};\${x;/^\$/{s//X11Forwarding no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's X11Forwarding"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}X11DisplayOffset\(.*\)/{h;s//#X11DisplayOffset 10/};\${x;/^\$/{s//#X11DisplayOffset 10/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's X11DisplayOffset"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}X11UseLocalhost\(.*\)/{h;s//#X11UseLocalhost yes/};\${x;/^\$/{s//#X11UseLocalhost yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's X11UseLocalhost"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitTTY\(.*\)/{h;s//PermitTTY yes/};\${x;/^\$/{s//PermitTTY yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitTTY"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PrintMotd\(.*\)/{h;s//PrintMotd yes/};\${x;/^\$/{s//PrintMotd yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PrintMotd"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PrintLastLog\(.*\)/{h;s//#PrintLastLog yes/};\${x;/^\$/{s//#PrintLastLog yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PrintLastLog"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}TCPKeepAlive\(.*\)/{h;s//TCPKeepAlive yes/};\${x;/^\$/{s//TCPKeepAlive yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's TCPKeepAlive"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitUserEnvironment\(.*\)/{h;s//PermitUserEnvironment no/};\${x;/^\$/{s//PermitUserEnvironment no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitUserEnvironment"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}Compression\(.*\)/{h;s//Compression yes/};\${x;/^\$/{s//Compression yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Compression"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}ClientAliveInterval\(.*\)/{h;s//ClientAliveInterval 150/};\${x;/^\$/{s//ClientAliveInterval 150/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ClientAliveInterval"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}ClientAliveCountMax\(.*\)/{h;s//ClientAliveCountMax 2/};\${x;/^\$/{s//ClientAliveCountMax 2/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ClientAliveCountMax"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}UseDNS\(.*\)/{h;s//UseDNS no/};\${x;/^\$/{s//UseDNS no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's UseDNS"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PidFile\(.*\)/{h;s//PidFile \/var\/run\/sshd\/sshd.pid/};\${x;/^\$/{s//PidFile \/var\/run\/sshd\/sshd.pid/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PidFile"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}MaxStartups\(.*\)/{h;s//#MaxStartups 10:30:100/};\${x;/^\$/{s//#MaxStartups 10:30:100/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MaxStartups"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitTunnel\(.*\)/{h;s//PermitTunnel no/};\${x;/^\$/{s//PermitTunnel no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitTunnel"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}VersionAddendum\(.*\)/{h;s//#VersionAddendum none/};\${x;/^\$/{s//#VersionAddendum none/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's VersionAddendum"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}Banner\(.*\)/{h;s//Banner \/etc\/issue/};\${x;/^\$/{s//Banner \/etc\/issue/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Banner"
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}Subsystem\(.*\)/{h;s//Subsystem sftp internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read/};\${x;/^\$/{s//Subsystem sftp internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Subsystem"
+		# Adding sshd configurations not present in default
+	chroot $mountPoint /bin/sed -i "/# AlpineHarden.sh additions\(.*\)/{h;s//# AlpineHarden.sh additions/};\${x;/^\$/{s//\n# AlpineHarden.sh additions/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not indicate additional sshd configuration in the config file"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}DisableForwarding\(.*\)/{h;s//DisableForwarding yes/};\${x;/^\$/{s//DisableForwarding yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's DisableForwarding"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}FingerprintHash\(.*\)/{h;s//FingerprintHash sha256/};\${x;/^\$/{s//FingerprintHash sha256/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's FingerprintHash"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}ChannelTimeout\(.*\)/{h;s//ChannelTimeout session=20m/};\${x;/^\$/{s//ChannelTimeout session=20m/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChannelTimeout"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}Ciphers\(.*\)/{h;s//Ciphers aes256-gcm@openssh.com,aes256-ctr/};\${x;/^\$/{s//Ciphers aes256-gcm@openssh.com,aes256-ctr/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Ciphers"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}KexAlgorithms\(.*\)/{h;s//KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com/};\${x;/^\$/{s//KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KexAlgorithms"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}MACs\(.*\)/{h;s//MACs hmac-sha2-512-etm@openssh.com/};\${x;/^\$/{s//MACs hmac-sha2-512-etm@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MACs"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}PubkeyAcceptedKeyTypes\(.*\)/{h;s//PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com/};\${x;/^\$/{s//PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PubkeyAcceptedKeyTypes"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}AllowUsers\(.*\)/{h;s//AllowUsers $previewUsername@$localNetwork\/$localNetmask $backupUsername@$localNetwork\/$localNetmask $serverCommandUsername@$localNetwork\/$localNetmask $monitorUsername@$localNetwork\/$localNetmask/};\${x;/^\$/{s//AllowUsers $previewUsername@$localNetwork\/$localNetmask $backupUsername@$localNetwork\/$localNetmask $serverCommandUsername@$localNetwork\/$localNetmask $monitorUsername@$localNetwork\/$localNetmask/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowUsers"
+		# Adding user-specific commands
+	chroot $mountPoint /bin/sed -i "/#SFTP server configuration\(.*\)/{h;s//#SFTP server configuration/};\${x;/^\$/{s//#SFTP server configuration/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not indicate the additional placement of user-restrive sshd interactions in the config file"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}Match User $previewUsername\(.*\)/{h;s//Match User $previewUsername/};\${x;/^\$/{s//Match User $previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $previewUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChrootDirectory \/home\/$previewUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$previewUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $previewUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForceCommand greeting.ksh # For $previewUsername\(.*\)/{h;s//    ForceCommand greeting.ksh # For $previewUsername/};\${x;/^\$/{s//    ForceCommand greeting.ksh # For $previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $previewUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}Match User $serverCommandUsername\(.*\)/{h;s//Match User $serverCommandUsername/};\${x;/^\$/{s//Match User $serverCommandUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $serverCommandUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChrootDirectory \/home\/$serverCommandUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$serverCommandUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$serverCommandUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $serverCommandUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForceCommand greeting.ksh # For $serverCommandUsername\(.*\)/{h;s//    ForceCommand greeting.ksh # For $serverCommandUsername/};\${x;/^\$/{s//    ForceCommand greeting.ksh # For $serverCommandUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $serverCommandUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}Match User $backupUsername\(.*\)/{h;s//Match User $backupUsername/};\${x;/^\$/{s//Match User $backupUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $backupUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChrootDirectory \/home\/$backupUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$backupUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$backupUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $backupUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $backupUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $backupUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $backupUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $backupUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}Match User $monitorUsername\(.*\)/{h;s//Match User $monitorUsername/};\${x;/^\$/{s//Match User $monitorUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $monitorUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChrootDirectory \/home\/$monitorUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$monitorUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$monitorUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $monitorUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $monitorUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $monitorUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $monitorUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $monitorUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}Match User $extractUsername\(.*\)/{h;s//Match User $extractUsername/};\${x;/^\$/{s//Match User $extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $extractUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    AllowUsers $extractUsername\(.*\)/{h;s//    AllowUsers $extractUsername@$localNetwork/$localNetmask/};\${x;/^\$/{s//    AllowUsers $extractUsername@$localNetwork/$localNetmask/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowUsers to permit $extractUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChrootDirectory \/home\/$extractUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$extractUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $extractUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $extractUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $extractUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $extractUsername"
 		# Lockdown ssh_config
-    echo "Host *
-    AddressFamily inet
-    BatchMode no
-    ChallengeResponseAuthentication yes
-    CheckHostIP yes
-    Compression yes
-    CompressionLevel 9
-    ConnectTimeout 99999
-    ForwardAgent no
-    ForwardX11 no
-    GatewayPorts no
-    HashKnownHosts yes
-    LogLevel $sshLogging
-    PasswordAuthentication no
-    PermitLocalCommand no
-    PreferredAuthentications publickey
-    TCPKeepAlive yes
-    Tunnel no
-    UsePrivilegedPort no
-    PubkeyAuthentication yes" > $mountPoint/etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}Host * # AlpineHarden.sh 0\(.*\)/{h;s//Host * # AlpineHarden.sh 0/};\${x;/^\$/{s//Host * # AlpineHarden.sh 0/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; Host"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    AddressFamily \(.*\) # AlpineHarden.sh 1\(.*\)/{h;s//    AddressFamily inet # AlpineHarden.sh 1/};\${x;/^\$/{s//    AddressFamily inet # AlpineHarden.sh 1/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; AddressFamily"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    BatchMode \(.*\) # AlpineHarden.sh 2\(.*\)/{h;s//    BatchMode no # AlpineHarden.sh 2/};\${x;/^\$/{s//    BatchMode no # AlpineHarden.sh 2/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; BatchMode"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChallengeResponseAuthentication \(.*\) # AlpineHarden.sh 3\(.*\)/{h;s//    ChallengeResponseAuthentication yes # AlpineHarden.sh 3/};\${x;/^\$/{s//    ChallengeResponseAuthentication yes # AlpineHarden.sh 3/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; ChallengeResponseAuthentication"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    CheckHostIP \(.*\) # AlpineHarden.sh 4\(.*\)/{h;s//    CheckHostIP yes # AlpineHarden.sh 4/};\${x;/^\$/{s//    CheckHostIP yes # AlpineHarden.sh 4/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; CheckHostIP"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    Compression \(.*\) # AlpineHarden.sh 5\(.*\)/{h;s//    Compression yes # AlpineHarden.sh 5/};\${x;/^\$/{s//    Compression yes # AlpineHarden.sh 5/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; Compression"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    CompressionLevel \(.*\) # AlpineHarden.sh 6\(.*\)/{h;s//    CompressionLevel 9 # AlpineHarden.sh 6/};\${x;/^\$/{s//    CompressionLevel 9 # AlpineHarden.sh 6/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; CompressionLevel"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ConnectTimeout \(.*\) # AlpineHarden.sh 7\(.*\)/{h;s//    ConnectTimeout 99999 # AlpineHarden.sh 7/};\${x;/^\$/{s//    ConnectTimeout 99999 # AlpineHarden.sh 7/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; ConnectTimeout"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForwardAgent \(.*\) # AlpineHarden.sh 8\(.*\)/{h;s//    ForwardAgent no # AlpineHarden.sh 8/};\${x;/^\$/{s//    ForwardAgent no # AlpineHarden.sh 8/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; ForwardAgent"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForwardX11 \(.*\) # AlpineHarden.sh 9\(.*\)/{h;s//    ForwardX11 no # AlpineHarden.sh 9/};\${x;/^\$/{s//    ForwardX11 no # AlpineHarden.sh 9/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; ForwardX11"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    GatewayPorts \(.*\) # AlpineHarden.sh 10\(.*\)/{h;s//    GatewayPorts no # AlpineHarden.sh 10/};\${x;/^\$/{s//    GatewayPorts no # AlpineHarden.sh 10/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; GatewayPorts"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    HashKnownHosts \(.*\) # AlpineHarden.sh 11\(.*\)/{h;s//    HashKnownHosts yes # AlpineHarden.sh 11/};\${x;/^\$/{s//    HashKnownHosts yes # AlpineHarden.sh 11/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; HashKnownHosts"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    LogLevel \(.*\) # AlpineHarden.sh 12\(.*\)/{h;s//    LogLevel $sshLogging # AlpineHarden.sh 12/};\${x;/^\$/{s//    LogLevel $sshLogging # AlpineHarden.sh 12/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; LogLevel"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    PasswordAuthentication \(.*\) # AlpineHarden.sh 13\(.*\)/{h;s//    PasswordAuthentication no # AlpineHarden.sh 13/};\${x;/^\$/{s//    PasswordAuthentication no # AlpineHarden.sh 13/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; PasswordAuthentication"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    PermitLocalCommand \(.*\) # AlpineHarden.sh 14\(.*\)/{h;s//    PermitLocalCommand no # AlpineHarden.sh 14/};\${x;/^\$/{s//    PermitLocalCommand no # AlpineHarden.sh 14/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; PermitLocalCommand"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    PreferredAuthentications \(.*\) # AlpineHarden.sh 15\(.*\)/{h;s//    PreferredAuthentications publickey # AlpineHarden.sh 15/};\${x;/^\$/{s//    PreferredAuthentications publickey # AlpineHarden.sh 15/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; PreferredAuthentications"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    TCPKeepAlive \(.*\) # AlpineHarden.sh 16\(.*\)/{h;s//    TCPKeepAlive yes # AlpineHarden.sh 16/};\${x;/^\$/{s//    TCPKeepAlive yes # AlpineHarden.sh 16/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; TCPKeepAlive"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    Tunnel \(.*\) # AlpineHarden.sh 17\(.*\)/{h;s//    Tunnel no # AlpineHarden.sh 17/};\${x;/^\$/{s//    Tunnel no # AlpineHarden.sh 17/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; Tunnel"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    UsePrivilegedPort \(.*\) # AlpineHarden.sh 18\(.*\)/{h;s//    UsePrivilegedPort no # AlpineHarden.sh 18/};\${x;/^\$/{s//    UsePrivilegedPort no # AlpineHarden.sh 18/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; UsePrivilegedPort"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    PubkeyAuthentication \(.*\) # AlpineHarden.sh 19\(.*\)/{h;s//    PubkeyAuthentication yes # AlpineHarden.sh 19/};\${x;/^\$/{s//    PubkeyAuthentication yes # AlpineHarden.sh 19/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; PubkeyAuthentication"
 		# Generate ssh keys for authorized users
     if [ ! -f "$mountPoint/home/.keys/$extractUsername/authorized_keys" ]; then chroot $mountPoint /bin/echo "$sshUsernameKey" > "$mountPoint/home/.keys/$extractUsername/authorized_keys" || log "CRITICAL: Failed to add ssh public key to /home/.keys for $extractUsername"; fi
     if [ ! -f "$mountPoint/home/.keys/$monitorUsername/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$monitorUsername-key" -t ed25519 -P "$tempSshPass" || log "CRITICAL: Could not generate sshd key for $monitorUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$monitorUsername-key.pub /home/.keys/$monitorUsername/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $monitorUsername"; fi
@@ -1385,7 +1389,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/sed -i "s/            if statinfo.st_uid != 0/            if 1 == 2 and statinfo.st_uid != 0/1" /usr/lib/python3.12/site-packages/ufw/backend.py 2>/dev/null || log "UNEXPECTED: Could not turn off warning of certain files owned by non-root account in ufw"
 
     log "INFO: Configurating fail2ban"
-		# Fail2ban file creation   
+		# Fail2ban file creation   # !!! Fail2ban future configuration
     chroot $mountPoint /bin/echo -e '[INCLUDES]\nbefore = paths-debian.conf\n' > $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to include other relevant standard jail settings"
     chroot $mountPoint /bin/echo -e '[DEFAULT]\nbantime = 1h\nfindtime = 1h\nmaxretry = 3\nbantime.increment = true\nbantime.maxtime = 6000\nbantime.factor = 2\nbantime.overalljails = true\nignorecommand =\nmaxmatches = %(maxretry)s\nbackend = auto\nusedns = warn\nlogencoding = auto\nenabled = false\nmode = normal\nfilter = %(__name__)s[mode=%(mode)s]\n' >> $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to declare default jail settings"
     chroot $mountPoint /bin/echo -e 'destemail=root@localhost\nsender = root@<fq-hostname>\nmta = sendmail\nprotocol = tcp\nchain = <known/chain>\nport = 0:65535\nfail2ban_agent = Fail2Ban%(fail2ban_version)s\nbanaction = iptables-multiport\nbanaction_allports = iptables_allports\naction_ = %(banaction)s[port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]\naction_mw = %(action)s%(mta)s-whois[sender="%(sender)", dest="%(destemail)s", protocol="%(protocol)s", chain="%(chain)s"]\naction_mwl = %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]\naction_xarf = %(action)sxarf-login-attack[service=%(__name__), logpath="%(logpath)s", port="%(port)s""]\naction_cf_mwl = cloudflare[cfuser="%(cfemail)s", cftoken="%(cfapikey)s"] %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]\naction_blocklist_de = blocklist_de[email="%(sender)s", service="%(__name__)s", apikey="%(blocklist_de_apikey)s", agent="%(fail2ban_agent)s"]\naction_abuseipdb = abuseipdb\naction = %(action_)s' >> $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Mostly failed to declare email and management settings for jail"

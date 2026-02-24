@@ -1,5 +1,5 @@
 #TODO: 
-- sed & echo betterment
+- sed betterment
 - Check current log messages
 - linux kernal smarter compile
 - fstab auto-regen
@@ -7,6 +7,15 @@
 - Test if removing dracut specific paramters affect booting; https://man.archlinux.org/man/dracut.cmdline.7.en.txt, https://www.man7.org/linux/man-pages/man7/bootparam.7.html
 
     
+
+
+
+
+
+
+
+
+chroot $mountPoint /bin/sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
 
 
 
