@@ -65,6 +65,8 @@
 # Check that partitions are incrementally increasing
 # Test defineMount function
 # Other packages and commands of interest: agetty (agetty), lsof & lsfd (util-linux-misc)
+# Make $bootPartition $lvmPartition work independetly from each other when installing & formatting
+# Purge root account from having to set password?
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -93,7 +95,7 @@ export devDevice="REPLACEME"
 export tempRootPass="REPLACEME"
 export kernelVersion="REPLACEME" # Could not have this reliable
 export gitPackageCommitHash="REPLACEME" # Scroll through original aports git repo to set the desired hash
-export localNetwork="REPLACEME"
+export localGateway="192.168.0.0"
 export localNetmask="REPLACEME"
 export umask="077"
 export systemArch="$(uname -m)" # Leave this as "$(uname -m)" to automatically find system architecture. If building on a different system, then change this into one of the many values: x86_64, x86, arm*, aarch64, riscv64, loongarch64
@@ -269,8 +271,8 @@ mountPoint:		Declare the directory to make a new mount point for a later chroot 
 mountDevice:		Declare the block device to install alpine system to
 kernelVersion:		Declare which kernel edition we will be using
 gitPackageCommitHash:	Declare where in the git repository we will interact with based on prior history
-localNetwork:		Declare the local LAN network this machine is connect to by providing a base IPv4 address
-localNetmask:		Declare the local LAN network's netmask that will be appeneded to localNetwork
+localGateway:		Declare the local LAN network this machine is connect to by providing a base IPv4 address
+localNetmask:		Declare the local LAN network's netmask that will be appeneded to localGateway
 sshPort:		Declare the default port for ssh servers. Will not tolerate port 22, and must be a system port (0-1023).
 umaks:			Declare the standard umask when creating a new file. Determines the default file permissions assigned to a newly created file.
 bannerIssue:		Declare the message displayed to most unauthenticated users
@@ -330,12 +332,12 @@ interpretArgs() {
     if ! [ -r "$logFile" ] || ! [ -w "$logFile" ]; then echo "CRITICAL: Cannot write and read log file in: $logFile"; exit; fi
 
     # Null check
-    if [ -z "$version" ]; then echo "BAD FORMAT: Provide any number to indicate the version of this script!"; exit; fi
-    if [ -z "$kernelVersion" ]; then echo "BAD FORMAT: Must indicate the version of the linux kernel that is planned to be used!"; exit; fi
-    if [ -z "$logFile" ]; then echo "BAD FORMAT: Will default to /tmp/hardeningAlpine.log due to this being empty!"; fi
-    if [ -z "$logIP" ]; then echo "BAD FORMAT: No ip to indicate a remote logging server!"; exit; fi
-    if [ -z "$systemArch" ]; then echo "BAD FORMAT: Must declare system architecture, leave it as default \"\$(uname -m)\""; exit; fi
-    if [ -z "$buildUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$buildUsername and include a name!"; exit; fi
+    if [ -z "$version" ]; then echo "BAD FORMAT: Provide any number to indicate the version of this script! Fill in \$version"; exit; fi
+    if [ -z "$kernelVersion" ]; then echo "BAD FORMAT: Must indicate the version of the linux kernel that is planned to be used! Fill in \$kernelVersion"; exit; fi
+    if [ -z "$logFile" ]; then echo "BAD FORMAT: Will default to /tmp/hardeningAlpine.log due to \$logFile being empty!"; fi
+    if [ -z "$logIP" ]; then echo "BAD FORMAT: No ip to indicate a remote logging server in var $\logIP!"; exit; fi
+    if [ -z "$systemArch" ]; then echo "BAD FORMAT: Must declare system architecture for var \$systemArch, leave it as default \"\$(uname -m)\""; exit; fi
+    if [ -z "$buildUsername" ]; then echo "BAD FORMAT: Declare username that will be used to build linux kernel! Edit: \$buildUsername and include a name!"; exit; fi
     if [ -z "$monitorUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$monitorUsername and include a name!"; exit; fi
     if [ -z "$powerUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$powerUsername and include a name!"; exit; fi
     if [ -z "$loggerUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$loggerUsername and include a name!"; exit; fi
@@ -347,79 +349,61 @@ interpretArgs() {
     if [ -z "$firewallUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$firewallUsername and include a name!"; exit; fi
     if [ -z "$fail2banUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$fail2banUsername and include a name!"; exit; fi
     if [ -z "$updateUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$updateUsername and include a name!"; exit; fi
-    if [ -z "$extractUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$extractUsername and include a name!"; exit; fi
+    if [ -z "$extractUsername" ]; then echo "BAD FORMAT: Declare username that will be used to extract sensitive information! Edit: \$extractUsername and include a name!"; exit; fi
     if [ -z "$sshUsernameKey" ]; then echo "BAD FORMAT: Public key variable must be configured before usage! Edit: \$sshUsernameKey and include a public key!"; exit; fi
-    if [ -z "$rootSize" ]; then echo "BAD FORMAT: Missing required value in rootSize"; exit; fi
-    if [ -z "$homeSize" ]; then echo "BAD FORMAT: Missing required value in homeSize"; exit; fi
-    if [ -z "$varSize" ]; then echo "BAD FORMAT: Missing required value in varSize"; exit; fi
-    if [ -z "$varTmpSize" ]; then echo "BAD FORMAT: Missing required value in varTmpSize"; exit; fi
-    if [ -z "$varLogSize" ]; then echo "BAD FORMAT: Missing required value in varLogSize"; exit; fi
+    if [ -z "$rootSize" ]; then echo "BAD FORMAT: Missing required value in \$rootSize to indicate the size of a partition"; exit; fi
+    if [ -z "$homeSize" ]; then echo "BAD FORMAT: Missing required value in \$homeSize to indicate the size of a partition"; exit; fi
+    if [ -z "$varSize" ]; then echo "BAD FORMAT: Missing required value in \$varSize to indicate the size of a partition"; exit; fi
+    if [ -z "$varTmpSize" ]; then echo "BAD FORMAT: Missing required value in \$varTmpSize to indicate the size of a partition"; exit; fi
+    if [ -z "$varLogSize" ]; then echo "BAD FORMAT: Missing required value in \$varLogSize to indicate the size of a partition"; exit; fi
     if [ -z "$lvmSize" ] && ! $lvmFull; then echo "BAD FORMAT: \$lvmFull is declared to not take up the entire disk, so declare how much space it will take in: \$lvmSize"; exit; fi
-    if [ -z "$localhostName" ]; then echo "BAD FORMAT: Missing required value in localhostName"; exit; fi
-    if [ -z "$lvmName" ]; then echo "BAD FORMAT: Missing required value in lvmName"; exit; fi
-    if [ -z "$keyboardLayout" ]; then echo "BAD FORMAT: Missing required value in keyboardLayout"; exit; fi
-    if [ -z "$timezone" ]; then echo "BAD FORMAT: Missing required value in timezone"; exit; fi
-    if [ -z "$dnsList" ]; then echo "BAD FORMAT: Missing required value in dnsList"; exit; fi
-    if [ -z "$apkRepoList" ]; then echo "BAD FORMAT: Missing required value in apkRepoList"; exit; fi
-    if [ -z "$devDevice" ]; then echo "BAD FORMAT: Missing required value in devDevice"; exit; fi
-    if [ -z "$tempRootPass" ]; then echo "BAD FORMAT: Enter a password for the root user. It cannot be empty!"; exit; fi
-    if [ -z "$tempSshPass" ]; then echo "BAD FORMAT: Enter a password for ssh key generation! It cannot be empty!"; exit; fi
-    if [ -z "$gLocal" ]; then echo "BAD FORMAT: Automatically assume gLocal is meant to be declared as false; indicating this is NOT a local installation"; gLocal=false; fi
-    if [ -z "$gKernelUnmodified" ]; then echo "BAD FORMAT: Automatically assume the installation is meant to use the existing kernel"; gKernelUnmodified=true; fi
-    if [ -z "$gPartition" ]; then echo "BAD FORMAT: Assume we are not formatting any devices for installing Alpine"; gPartition=false; fi
-    if [ -z "$gKernelPartition" ]; then echo "BAD FORMAT: Assume we are not formatting any devices for installing a seperate compiled kernel"; gKernelPartition=false; fi
-    if [ -z "$lvmFull" ]; then echo "BAD FORMAT: Assuming that lvm will take up the remainder of the disk"; lvmFull=true; fi
-    if [ -z "$partitionSector" ]; then echo "BAD FORMAT: Must indicate the sector of the block device that indicates where our first partition resides!"; exit; fi
-    if [ -z "$kernelPartitionSector" ]; then echo "BAD FORMAT: Must indicate kernel storage partition that will be formed or used!"; exit; fi
-    if [ -z "$gitPackageCommitHash" ]; then echo "BAD FORMAT: Must indicate the git branch hash that is expected to be used!"; exit; fi
-    if [ -z "$localNetwork" ]; then echo "BAD FORMAT: Must provide a IPv4 base address for the local network!"; exit; fi
-    if [ -z "$localNetmask" ]; then echo "BAD FORMAT: Must provide a IPv4 local network netmask!"; exit; fi
-    if [ -z "$sshPort" ]; then echo "BAD FORMAT: Must provide a valid port number that is in range of 1-1023, and is not 22!"; exit; fi
-    if [ -z "$umask" ]; then echo "BAD FORMAT: Must provide a non-empty umaks value!"; exit; fi
-    if [ -z "$bannerIssue" ]; then echo "BAD FORMAT: Must provide a non-empty warning to unauthenticated users!"; exit; fi
-    if [ -z "$bannerMotd" ]; then echo "BAD FORMAT: Must provide a non-empty welcoming to authenticated users!"; exit; fi
+    if [ -z "$localhostName" ]; then echo "BAD FORMAT: Missing required value in \$localhostName to name the system"; exit; fi
+    if [ -z "$lvmName" ]; then echo "BAD FORMAT: Missing required value in \$lvmName to name the lvm partition group"; exit; fi
+    if [ -z "$keyboardLayout" ]; then echo "BAD FORMAT: Missing required value in \$keyboardLayout"; exit; fi
+    if [ -z "$timezone" ]; then echo "BAD FORMAT: Missing required value in \$timezone to declare the timezone of the system"; exit; fi
+    if [ -z "$dnsList" ]; then echo "BAD FORMAT: Missing required value in \$dnsList to select whom we trust to resolve our DNS requests"; exit; fi
+    if [ -z "$apkRepoList" ]; then echo "BAD FORMAT: Missing required value in \$apkRepoList to select whom we trust to update and receive packages from"; exit; fi
+    if [ -z "$devDevice" ]; then echo "BAD FORMAT: Missing required value in \$devDevice to select if we are using udev, mdev or similar from setup-devd"; exit; fi
+    if [ -z "$tempRootPass" ]; then echo "BAD FORMAT: Enter a password for the root user in $tempRootPass. It cannot be empty!"; exit; fi
+    if [ -z "$tempSshPass" ]; then echo "BAD FORMAT: Enter a password for ssh key generation in $tempSshPass! It cannot be empty!"; exit; fi
+    if [ -z "$gLocal" ]; then echo "BAD FORMAT: Empty value for \$gLocal implies default value of false; indicating this is NOT a local installation"; gLocal=false; fi
+    if [ -z "$gKernelUnmodified" ]; then echo "BAD FORMAT: Empty value for \$gKernelUnmodified implies default value of true; indicating this installation is meant to use the existing kernel"; gKernelUnmodified=true; fi
+    if [ -z "$gPartition" ]; then echo "BAD FORMAT: Empty value for \$gPartition implies we are not formatting any devices for installing Alpine"; gPartition=false; fi
+    if [ -z "$gKernelPartition" ]; then echo "BAD FORMAT: Empty value for \$gKernelPartition implies we are not formatting any devices for installing a seperate compiled kernel"; gKernelPartition=false; fi
+    if [ -z "$lvmFull" ]; then echo "BAD FORMAT: Empty value for $lvmFull implies lvm partition will take up the remainder of the disk"; lvmFull=true; fi
+    if [ -z "$partitionSector" ]; then echo "BAD FORMAT: Must indicate the starting sector offset for formatting the first partition. Change \$partitionSector"; exit; fi
+    if [ -z "$kernelPartitionSector" ]; then echo "BAD FORMAT: Must indicate the starting kernel sector offset for formating the kernel partition. Change \$kernelPartitionSector"; exit; fi
+    if [ -z "$gitPackageCommitHash" ]; then echo "BAD FORMAT: Must indicate the git branch hash that is expected to be used. Change \$gitPackageCommitHash!"; exit; fi
+    if [ -z "$localGateway" ]; then echo "BAD FORMAT: Must provide a IPv4 base address for the local network for variable \$localGateway"; exit; fi
+    if [ -z "$localNetmask" ]; then echo "BAD FORMAT: Must provide a IPv4 local network netmask for variable \$localNetmask!"; exit; fi
+    if [ -z "$sshPort" ]; then echo "BAD FORMAT: Empty value for \$sshPort. Provide a valid port number that is in range of 1-1023, and is not 22!"; exit; fi
+    if [ -z "$umask" ]; then echo "BAD FORMAT: Must provide a non-empty \$umaks value for declare default permissions when a file is created!"; exit; fi
+    if [ -z "$bannerIssue" ]; then echo "BAD FORMAT: Must provide a non-empty warning to unauthenticated users on variable $bannerIssue!"; exit; fi
+    if [ -z "$bannerMotd" ]; then echo "BAD FORMAT: Must provide a non-empty welcoming to authenticated users on variable $bannerMotd!"; exit; fi
 
     # Format check
-    if ! (echo $logIP | grep -Eq ^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}$); then echo "BAD FORMAT: Not a valid IPv4 format IP address for logging capabilities! Edit: logIP"; exit; fi
-    if ! (echo $localNetwork | grep -Eq ^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}$); then echo "BAD FORMAT: Not a valid IPv4 format IP address for local LAN network! Edit: localNetwork"; exit; fi
+    if ! (echo $logIP | grep -Eq ^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}$); then echo "BAD FORMAT: Not a valid IPv4 format IP address for logging capabilities! Edit: \$logIP"; exit; fi
+    if ! (echo $localGateway | grep -Eq ^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}$); then echo "BAD FORMAT: Not a valid IPv4 format IP address for local LAN network! Edit: \$localGateway"; exit; fi
+    local checkFail=false
     for i in $dnsList; do # Verify valid ipv4 format of dnslist
-        if ! (echo $i | grep -Eq ^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}$); then echo "BAD FORMAT: Not a valid ip address declared within the dnsList: $i" 2>/dev/null; exit; fi
+        if ! (echo $i | grep -Eq ^[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}$); then echo "BAD FORMAT: Not a valid ip address declared within the \$dnsList: $i" 2>/dev/null; checkFail=true; fi
     done
+    if $checkFail; then exit; fi
     for j in $apkRepoList; do
-        if ! (echo $j | grep -Eq "^https://[^ ]*[^/]$"); then echo "BAD FORMAT: Not a valid repository declared. Either not a https link, or user has included a '/' at the end: $j" 2>/dev/null; exit; fi
+        if ! (echo $j | grep -Eq "^https://[^ ]*[^/]$"); then echo "BAD FORMAT: Invalid format for a URL declared within $apkRepoList: $j" 2>/dev/null; checkFail=true; fi
     done
-    if (! echo $rootSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in rootSize: $rootSize" 2>/dev/null; exit; fi
-    if (! echo $homeSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in homeSize: $homeSize" 2>/dev/null; exit; fi
-    if (! echo $varSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varSize: $varSize" 2>/dev/null; exit; fi
-    if (! echo $varTmpSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varTmpSize: $varTmpSize" 2>/dev/null; exit; fi
-    if (! echo $varLogSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in varLogSize: $varLogSize" 2>/dev/null; exit; fi
-    if (! echo $timezone | grep -Eq [A-z]+/[A-z]); then echo "BAD FORMAT: Not a valid timezone declaration! $timezone" 2>/dev/null; exit; fi
+    if $checkFail; then exit; fi
+    if (! echo $rootSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in \$rootSize: $rootSize" 2>/dev/null; exit; fi
+    if (! echo $homeSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in \$homeSize: $homeSize" 2>/dev/null; exit; fi
+    if (! echo $varSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in \$varSize: $varSize" 2>/dev/null; exit; fi
+    if (! echo $varTmpSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in \$varTmpSize: $varTmpSize" 2>/dev/null; exit; fi
+    if (! echo $varLogSize | grep -Eq -e ^[0-9]*[.]\{0,1\}[0-9]+[kKmMgGtTpPeE]$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTP]B$ -e ^[0-9]*[.]\{0,1\}[0-9]+EX$ -e ^[0-9]*[.]\{0,1\}[0-9]+[KMGTPE]iB$); then echo "BAD FORMAT: Not a valid declaration for the size type expected in \$varLogSize: $varLogSize" 2>/dev/null; exit; fi
+    if (! echo $timezone | grep -Eq [A-z]+/[A-z]); then echo "BAD FORMAT: Not a valid timezone declaration in var \$timezone! $timezone" 2>/dev/null; exit; fi
     if (! echo $sshPort | grep -Eq ^[0-9]) && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number for \$sshPort that is in range of 1-1023, and is not 22!"; exit; fi
-    if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format; like 022 or 077!"; exit; fi
-    if (echo $systemArch | grep -v -e ^x86_64$ -e ^x86$ -e ^arm.*$ -e ^aarch64$ -e ^riscv64$ -e ^loongarch64$); then echo "BAD FORMAT: Invalid system architecture found! Please default to \"\$(uname -m)\" or provide the right accepted architecture value for \$systemArch"; exit; fi
+    if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format in var \$umask; like 022 or 077!"; exit; fi
+    if (echo $systemArch | grep -v -e ^x86_64$ -e ^x86$ -e ^arm.*$ -e ^aarch64$ -e ^riscv64$ -e ^loongarch64$); then echo "BAD FORMAT: Invalid system architecture found in var \$systemArch! Please default to \"\$(uname -m)\" or provide the right accepted architecture value for \$systemArch"; exit; fi
     
     log "INFO: Finished reading all variables: $*"
-}
-
-# Print what this script will apply
-printVariables() {
-    # Mention global variables
-    echo "
-Script configuration:
-Mode; Pre-installation: $pre | Post-installation: $post | Verify-installation: $verify | Delete-installation: $rmAlpine
-Mount point behavior: Verbosity: $verbose | Local installation: $gLocal | Unmodified kernel: $gKernelUnmodified | Mount point: $mountPoint
-Formatting: Fresh alpine installation: $gPartition | Fresh kernel installation: $gKernelPartition
-Device paths (if used & empty, will ask): Boot: $bootPartition | LVM: $lvmPartition | Kernel: $kernelPartition
-"
-
-    # Last chance to back out
-    while true; do
-        read -p "Are the above settings and variables configured correctly? y/n: " yn
-        case $yn in
-            [Yy]* ) break;;
-            [Nn]* ) exit;;
-        esac
-    done
 }
 
 # Reset partitions and installation on detected drive
@@ -435,18 +419,18 @@ removeAlpine() {
 
     # Unmoount devices from known chroot environment
     log "INFO: Started umount-ing alpine!"
-    if [ ! -b "$lvmPartition" ]; then
+    if [ -b "$lvmPartition" ]; then
 	    vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions to unmount partitions"
     	for i in $previewUsername $serverCommandUsername; do
     		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
     		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount ld-musl-aarch64.so.1 for $i user; ld-musl-aarch64.so.1"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount libncursesw.so.6 for $i user; libncursesw.so.6"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount libcrypto.so.3 for $i user; libcrypto.so.3"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libacl.so.1 for $i user; libacl.so.1"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libattr.so.1 for $i user; libattr.so.1"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount libutmps.so.0.1 for $i user; libutmps.so.0.1"; fi
-    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount libskarnet.so.2.14 for $i user; libskarnet.so.2.14"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount ld-musl-aarch64.so.1 for $i user"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount libncursesw.so.6 for $i user"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount libcrypto.so.3 for $i user"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libacl.so.1 for $i user"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libattr.so.1 for $i user"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount libutmps.so.0.1 for $i user"; fi
+    		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount libskarnet.so.2.14 for $i user"; fi
     		if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
     	done
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/boot/efi " 2>/dev/null)" ]; then umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"; fi
@@ -459,28 +443,28 @@ removeAlpine() {
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/sys " 2>/dev/null)" ]; then umount "$mountPoint"/sys 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/sys"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/dev " 2>/dev/null)" ]; then umount "$mountPoint"/dev 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/dev"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/run " 2>/dev/null)" ]; then umount "$mountPoint"/run 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/run"; fi
-    	umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
-    	rmdir "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not remove $mountPoint"
+    	umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on $mountPoint"
+    	rmdir "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not remove $mountPoint directory"
 
     	# Remove vg and pv recognition from lvm
     	vgremove "$lvmName" || log "UNEXPECTED: Could not remove $lvmname as a valid recognized name from system"
-    	pvremove "$lvmPartition" || log "UNEXPECTED: Could not remove lvm signature from physical device"
+    	pvremove "$lvmPartition" || log "UNEXPECTED: Could not remove lvm signature from physical device at $lvmPartition"
 
     	# Remove lvm partition
     	local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
     	local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
-    	parted -a optimal "$deviceLvm" "rm $partLvmNumber" 2>/dev/null || log "CRITICAL: Could not remove LVM partition $partLvmNumber on physical device"
+    	parted -a optimal "$deviceLvm" "rm $partLvmNumber" 2>/dev/null || log "CRITICAL: Could not remove LVM partition $partLvmNumber on physical device at $deviceLvm"
 	fi
 
     # Check if both partitions exist
-    if [ ! -b "$bootPartition" ] ; then
+    if [ -b "$bootPartition" ] ; then
     	# Unmount partition
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/boot/efi " 2>/dev/null)" ]; then umount "$mountPoint"/boot/efi 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/boot/efi"; fi
 
     	# Remove recognized partitions from device
     	local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
     	local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
-    	parted -a optimal "$deviceBoot" "rm $partBootNumber" 2>/dev/null || log "CRITICAL: Could not remove EFI partition $partBootNumber on physical device"
+    	parted -a optimal "$deviceBoot" "rm $partBootNumber" 2>/dev/null || log "CRITICAL: Could not remove EFI/ESP partition $partBootNumber on physical device at $deviceBoot"
     fi
 
     # Confirmation message
@@ -594,9 +578,9 @@ defineMount() {
         
         # Partition tests:
 	        # Duplicate entry
-		if ! $gLocal && [ "$lvmPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-		if ! $gLocal && [ "$kernelPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$kernelPartition" ]; then echo "Duplicate conflicting entry with: $lvmPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-		if ! $gKernelUnmodified && [ "$lvmPartition" = "$kernelPartition" ] && [ ! -z "$kernelPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with: $kernelPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $gLocal && [ "$lvmPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry bewteen $lvmPartition and $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $gLocal && [ "$kernelPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$kernelPartition" ]; then echo "Duplicate conflicting entry between $kernelPartition and $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $gKernelUnmodified && [ "$lvmPartition" = "$kernelPartition" ] && [ ! -z "$kernelPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with between $lvmPartition and $kernelPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	    	# Valid partition scheme
@@ -609,9 +593,9 @@ defineMount() {
     	if ! $gLocal && [ ! -b "$bootPartition" ] && $gPartition; then echo "vfat bootPartition at $bootPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; bootExist=false; fi
     	if ! $gLocal && [ ! -b "$lvmPartition" ] && $gPartition; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; lvmExist=false; fi
     	if ! $gKernelUnmodified && [ ! -b "$kernelPartition" ] && $gKernelPartition; then echo "kernelPartition at $gKernelPartition partition currently does not exist, but will format due to gKernelPartition being specified as $gKernelPartition"; kernelExist=false; fi
-		if [ ! -b "$bootPartition" ] && $bootExist; then echo "vfat bootPartition at $bootPartition partition currently does not exist, and formatting is currently disabled"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
-		if [ ! -b "$lvmPartition" ] && $lvmExist; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, and formatting is currently disabled"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
-		if [ ! -b "$kernelPartition" ] && $kernelExist; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+		if [ ! -b "$bootPartition" ] && $bootExist; then echo "vfat bootPartition at $bootPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
+		if [ ! -b "$lvmPartition" ] && $lvmExist; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
+		if [ ! -b "$kernelPartition" ] && $kernelExist; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	        # Are we mounting non-existant devices without formatting?
@@ -621,26 +605,27 @@ defineMount() {
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
         
         	# Final sanity check when formatting is disabled: IS boot vfat?, IS lvm LVM2_member, and IS kernel xfs?
-        if ! $gLocal && [ "$(blkid $bootPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "vfat" ] && ! $gPartition; then echo "Partition at $bootPartition is not FAT32/vfat! Enable formatting or pick a different partition"; blockList="\?"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
-# !!! valid lvm partition is not showing as LVM2_MEMBER        if ! $gLocal && [ "$(blkid $lvmPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "LVM2_member" ] && ! $gPartition; then echo "Partition at $lvmPartition is not LVM2_member! Enable formatting or pick a different partition"; blockList="\?"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
+    	local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
+    	local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
+    	local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
+    	local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
+        if ! $gLocal && [ -z "$(fdisk -l $deviceBoot | grep $bootPartition | grep -o ef 2>/dev/null)" ] && ! $gPartition; then echo "Partition at $bootPartition does not have efi/esp partition identifier! Enable formatting or pick a different partition"; blockList="\?"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
+		if ! $gLocal && [ -z "$(fdisk -l $deviceLvm | grep $lvmPartition | grep -o 8e 2>/dev/null)" ] && ! $gPartition; then echo "Partition at $lvmPartition does not have lvm partition identifier! Enable formatting or pick a different partition"; blockList="\?"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
         if ! $gKernelUnmodified && [ "$(blkid $kernelPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "xfs" ] && ! $gKernelPartition; then echo "Partition at $kernelPartition is not xfs! Enable formatting or pick a different partition"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
         
         	# Is kernel partition in the same device where alpine is installed?
         if ! $gLocal && ! $gKernelUnmodified; then
-			# Boot partition
-    		local partBootNumber="$(echo $bootPartition | grep -Eo [0123456789]*$)"
-    		local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
-    		local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
-    		local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
-    		if [ ! -z "$(echo $kernelPartition | grep $deviceBoot)" ] || [ ! -z "$(echo $kernelPartition | grep $deviceLvm)" ]; then echo "Kernel device should be in a seperate disk to promote re-usage of the kernel"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+			# Boot partition and lvm partition must not reside in the same device!
+    		if [ ! -z "$(echo $kernelPartition | grep $deviceBoot)" ] || [ ! -z "$(echo $kernelPartition | grep $deviceLvm)" ]; then echo "Kernel device should be in a seperate disk to promote re-usage of the kernel. Kernel device parameters reset"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
         fi
         
         # Break loop if everything is satisfied
         if $bootSectorChosen && $lvmSectorChosen && $kernelSectorChosen; then break; fi
 	done
-	log "INFO: vfat boot partition at $bootPartition; does it currently exist? $bootExist, erasure enabled? $gPartition"
-	log "INFO: LVM2_member lvm partition at $lvmPartition; does it currently exist? $lvmExist, erasure enabled? $gPartition"
-	if ! $gKernelUnmodified; then log "INFO: xfs kernel partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition"; fi
+	log "INFO: vfat boot partition at $bootPartition; does it currently exist? $bootExist, erasure enabled? $gPartition, initial sector offset; $partitionSector, boot size; $bootSize"
+	log "INFO: LVM2_member lvm partition at $lvmPartition; does it currently exist? $lvmExist, erasure enabled? $gPartition, use entire disk? $lvmFull, if not then size? $lvmSize"
+	if ! $gKernelUnmodified; then log "INFO: xfs kernel partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition, initial sector offset; $kernelPartitionSector"; fi
 
 	# Ensure $mountPoint is defined in a directory of /mnt
 	if ! $gLocal; then
@@ -726,15 +711,15 @@ defineMount() {
     		pvcreate -ff "$lvmPartition" 2>/dev/null || log "CRITICAL: Could not declare lvm partition signature"
     		vgcreate "$lvmName" "$lvmPartition" 2>/dev/null || log "CRITICAL: Could not declare lvm logical group"
     		log "INFO: Created pv and vg device"
-    		lvcreate -n "$localhostName".root -L "$rootSize" "$lvmName" 2>/dev/null || log "CRITICAL: Could not make root partition"
+    		lvcreate -n "$localhostName".root -L "$rootSize" "$lvmName" 2>/dev/null || log "CRITICAL: Could not make lvm root partition"
     		log "INFO: Created root partition for: $rootSize"
-    		lvcreate -n "$localhostName".home -L "$homeSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Coild not make home partition"
+    		lvcreate -n "$localhostName".home -L "$homeSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Coild not make lvm home partition"
     		log "INFO: Created home partition for: $homeSize"
-    		lvcreate -n "$localhostName".var -L "$varSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make var partition"
+    		lvcreate -n "$localhostName".var -L "$varSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make lvm var partition"
     		log "INFO: Created var partition for: $varSize"
-    		lvcreate -n "$localhostName".var.tmp -L "$varTmpSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make var/tmp partition"
+    		lvcreate -n "$localhostName".var.tmp -L "$varTmpSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make lvm var/tmp partition"
     		log "INFO: Created var/tmp partition for: $varTmpSize"
-    		lvcreate -n "$localhostName".var.log -L "$varLogSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make var/log partition"
+    		lvcreate -n "$localhostName".var.log -L "$varLogSize" "$lvmName" 2>/dev/null || log "UNEXPECTED: Could not make lvm var/log partition"
     		log "INFO: Created var/log partition for: $varLogSize"
     	fi
     	vgchange -ay 2>/dev/null || log "UNEXPECTED: Could not enable logical partitions"
@@ -775,7 +760,7 @@ defineMount() {
 		log "INFO: Mounting all Alpine partitions"
 	    vgchange -ay 2>/dev/null || log "CRITICAL: Could not enable logical partitions"
     	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.root on $mountPoint " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".root "$mountPoint" 2>/dev/null || log "CRITICAL: Lacked capabilities to mount $lvmName to $mountPoint"; fi
-    	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.home on $mountPoint/home " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".home "$mountPoint"/home 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount $lvmName to $mountPoint"; fi
+    	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.home on $mountPoint/home " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".home "$mountPoint"/home 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount $lvmName to $mountPoint/home"; fi
     	if [ -z "$(mount | grep "$bootPartition on $mountPoint/boot/efi " 2>/dev/null)" ]; then mount -t vfat "$bootPartition" "$mountPoint"/boot/efi 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount efi partition to $mountPoint/boot/efi"; fi
     	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.var on $mountPoint/var " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".var "$mountPoint"/var 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var partition to $mountPoint/var"; fi
     	if [ -z "$(mount | grep "/dev/$lvmName/$localhostName.var.log on $mountPoint/var/log " 2>/dev/null)" ]; then mount -t ext4 /dev/"$lvmName"/"$localhostName".var.log "$mountPoint"/var/log 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount var/log partition to $mountPoint/var/log"; fi
@@ -805,7 +790,7 @@ defineMount() {
 		if [ -z "$(chroot $mountPoint /bin/mount | grep "/sys/firmware/efi/efivars " 2>/dev/null)" ]; then chroot $mountPoint /bin/mount -t efivarfs none "/sys/firmware/efi/efivars" 2>/dev/null || log "UNEXPECTED: Could not mount efivarsfs to ensure existing EFI variables exist. Ignore if this system doesn't have UEFI"; fi
 		if [ -z "$(ls -A $mountPoint/etc/uefi-keys 2>/dev/null))" ]; then chroot $mountPoint /sbin/apk add efi-mkkeys 2>/dev/null || log "CRITICAL: Could not install efi-mkkeys package for generating UEFI keys"; chroot $mountPoint /usr/bin/efi-mkkeys -s "$lvmName.$localhost" -o /etc/uefi-keys 2>/dev/null || log "CRITICAL: Could not generate UEFI keys for signing kernal"; chroot $mountPoint /sbin/apk del efi-mkkeys 2>/dev/null || log "CRITICAL: Could not remove obsolete efi-mkkeys package"; fi
 		chroot $mountPoint /sbin/apk fix kernel-hooks 2>/dev/null || log "UNEXPECTED: Could not cause the (re-)generation of a linux kernel"
-		chroot $mountPoint /bin/sed -i "/#\{0,2\}disable_trigger\(.*\)/{h;s//disable_trigger=yes/};\${x;/^\$/{s//disable_trigger=yes/;H};x}" /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not ensure mkinitfs is disabled for generating kernals"
+		chroot $mountPoint /bin/sed -i "/#\{0,2\}disable_trigger\(.*\)/{h;s//disable_trigger=yes/};\${x;/^\$/{s//disable_trigger=yes/;H};x}" /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not ensure mkinitfs is disabled when generating kernals"
 		chroot $mountPoint /usr/bin/sbctl create-keys 2>/dev/null || log "UNEXPECTED: Could not create secureboot keys"
 		chroot $mountPoint /usr/bin/sbctl sign --save "/boot/efi/EFI/boot/boot$systemArchFallbackName.efi" 2>/dev/null || log "UNEXPECTED: Could not sign and enroll out current kernel at /boot/efi/EFI/boot/boot$systemArchFallbackName.efi for secureboot"
 	#	chroot $mountPoint /usr/bin/sbctl enroll-keys -m 2>/dev/null || log "UNEXPECTED: Could not synchronize secureboot keys. Ignore if this is not a UEFI system" # Preparing secure-boot, but not enforcing it until a clear UEFI and BIOS seperator is distinguish
@@ -843,8 +828,8 @@ defineMount() {
     	log "INFO: Passed kernel formatting stage"
 
 		# umount the root and var partition
-	    umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"
-		umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
+#	    umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"
+#		umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
 
     	log "INFO: Formatting kernel disk complete"
 	fi
@@ -865,6 +850,7 @@ defineMount() {
 # !!!	log "INFO: Finish preparing block devices"
 }
 
+# Primarely derived from setup-alpine script
 setupAlpine() {
     log "INFO: Started default alpine installation"
     setup-hostname "$localhostName" 2>/dev/null || log "UNEXPECTED: Could not declare device's hostname"
@@ -874,17 +860,17 @@ setupAlpine() {
     setup-devd -C "$devDevice" 2>/dev/null || log "UNEXPECTED: Could not set mdev for devd"
     setup-dns "$dnsList" 2>/dev/null || log "CRITICAL: Could not set up local dns"
     ntpd -q -p us.pool.ntp.org 2>/dev/null || log "CRITICAL: Could not set up local time with ntpd"
-    rc-update --quiet add networking boot 2>/dev/null || log "UNEXPECTED: Could not add networking and boot services to rc"
-    rc-update --quiet add seedrng boot 2>/dev/null || rc-update --quiet add urandom boot 2>/dev/null || log "UNEXPECTED: Could not add seedrng and boot to rc"
-    rc-update --quiet add crond 2>/dev/null || log "UNEXPECTED: Could not setup crond to rc"
-    rc-update --quiet add acpid 2>/dev/null || log "UNEXPECTED: Could not setup acpid to rc"
+    rc-update --quiet add networking boot 2>/dev/null || log "UNEXPECTED: Could not add networking and boot services with rc-update"
+    rc-update --quiet add seedrng boot 2>/dev/null || rc-update --quiet add urandom boot 2>/dev/null || log "UNEXPECTED: Could not add seedrng and boot with rc-update"
+    rc-update --quiet add crond 2>/dev/null || log "UNEXPECTED: Could not setup crond with rc-update"
+    rc-update --quiet add acpid 2>/dev/null || log "UNEXPECTED: Could not setup acpid with rc-update"
     openrc boot 2>/dev/null || log "UNEXPECTED: Could not interact with boot runlevel"
     openrc default 2>/dev/null || log "UNEXPECTED: Could not interact with default runlevel"
     	# Adding writing permission
     chmod u+w /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add writing permission for /etc/apk/repositories"
     chmod u+w /etc/hosts 2>/dev/null || log "UNEXPECTED: Could not add writing permission for /etc/hosts"
-    sed -i "/#\{0,2\}127.0.0.1  $localhostName.$localhostName $localhostName\(.*\)/{h;s//127.0.0.1  $localhostName.$localhostName $localhostName/};\${x;/^\$/{s//127.0.0.1  $localhostName.$localhostName $localhostName/;H};x}" /etc/hosts 2>/dev/null || log "CRITICAL: Could not declare local resolved names to /etc/hosts"
-    sed -i "/#\{0,2\}# APK Repositories configured by automated tool:\(.*\)/{h;s//# APK Repositories configured by automated tool:\n/};\${x;/^\$/{s//# APK Repositories configured by automated tool:\n/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Did not reset prior apk repository list"
+    sed -i "/#\{0,2\}127.0.0.1  $localhostName.$localhostName $localhostName\(.*\)/{h;s//127.0.0.1  $localhostName.$localhostName $localhostName/};\${x;/^\$/{s//127.0.0.1  $localhostName.$localhostName $localhostName/;H};x}" /etc/hosts 2>/dev/null || log "UNEXPECTED: Could not declare local resolved names to /etc/hosts"
+    sed -i "/#\{0,2\}# APK Repositories configured by automated tool:\(.*\)/{h;s//# APK Repositories configured by automated tool:\n/};\${x;/^\$/{s//# APK Repositories configured by automated tool:\n/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not indicate on /etc/apk/repositories has been tampered with"
     if [ -f "/etc/apk/repositories" ]; then rm /etc/apk/repositories; fi
     for i in $apkRepoList; do
         sed -i "/#\{0,2\}$i/main\(.*\)/{h;s//$i/main/};\${x;/^\$/{s//$i/main/;H};x}" /etc/apk/repositories 2>/dev/null || log "CRITICAL: Could not add a main repository for apk: $i/main"
@@ -902,9 +888,9 @@ setupAlpine() {
     setup-keymap "$keyboardLayout" "$keyboardLayout" 2>/dev/null || log "UNEXPECTED: Could not setup device's keyboard keymap"
     rc-update --quiet del loadkmap boot 2>/dev/null || log "UNEXPECTED: Could not remove unncessary service that fails on boot"
     echo "root:$tempRootPass" | chpasswd || log "UNEXPECTED: Did not change root password"
-	rc-update --quiet add lvm 2>/dev/null || log "UNEXPECTED: Did not add lvm services to rc"
-    apk add parted lvm2 e2fsprogs xfsprogs dosfstools tzdata systemd-efistub secureboot-hook sbctl || log "Unexpected: Could not install all required software"
-    log "INFO: Almost finished default alpine installation!"
+	rc-update --quiet add lvm 2>/dev/null || log "UNEXPECTED: Did not add lvm services with rc-update"
+    apk add parted lvm2 e2fsprogs xfsprogs dosfstools tzdata systemd-efistub secureboot-hook sbctl || log "UNEXPECTED: Could not install all required software"
+    log "INFO: Finished pre-setup for default alpine installation!"
 }
 
 # !!!
@@ -1042,29 +1028,29 @@ configLocalInstallation() {
     chroot $mountPoint /bin/chmod u+w /etc/securetty 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/securetty be modified by root"
     chroot $mountPoint /bin/chmod u+w /etc/profile 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/profile be modified by root"
     chroot $mountPoint /bin/chmod u+w /etc/mdev.conf 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/mdev.conf be modified by root"
-    chroot $mountPoint /bin/chmod u+w /etc/init.d/acpid 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/acpid"
-    chroot $mountPoint /bin/chmod u+w /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/chronyd"
-    chroot $mountPoint /bin/chmod u+w /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/sshd";
-    chroot $mountPoint /bin/chmod u+w /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not enable writing permission on /etc/init.d/fail2ban"
-    chroot $mountPoint /bin/chmod u+w /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to writable"
-    if [ -f "$mountPoint/etc/doas.d/daemon.conf" ]; then chroot $mountPoint /bin/chmod u+w /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not make /etc/doas.d/daemon.conf writable"; fi
-    chroot $mountPoint /bin/chmod u+w /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/ssh_config permissions to writable"
-    chroot $mountPoint /bin/chmod u+w /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to writable"
-    if [ -f "$mountPoint/etc/fail2ban/jail.local" ]; then chroot $mountPoint /bin/chmod u+w /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not guanratee local jail permissions are writable"; fi
-    chroot $mountPoint /bin/chmod u+w /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change fail2ban configuration file permissions to writable"
+    chroot $mountPoint /bin/chmod u+w /etc/init.d/acpid 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/init.d/acpid be modified by root"
+    chroot $mountPoint /bin/chmod u+w /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/init.d/chronyd be modified by root"
+    chroot $mountPoint /bin/chmod u+w /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/init.d/sshd be modified by root";
+    chroot $mountPoint /bin/chmod u+w /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/init.d/fail2ban be modified by root"
+    chroot $mountPoint /bin/chmod u+w /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/ssh/moduli be modified by root"
+    if [ -f "$mountPoint/etc/doas.d/daemon.conf" ]; then chroot $mountPoint /bin/chmod u+w /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/doas.d/daemon.conf be modified by root"; fi
+    chroot $mountPoint /bin/chmod u+w /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/ssh/ssh_config be modified by root"
+    chroot $mountPoint /bin/chmod u+w /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/default/ufw be modified by root"
+    if [ -f "$mountPoint/etc/fail2ban/jail.local" ]; then chroot $mountPoint /bin/chmod u+w /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/fail2ban/jail.local be modified by root"; fi
+    chroot $mountPoint /bin/chmod u+w /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not guarantee that /etc/fail2ban/fail2ban.conf be modified by root"
     
     # Remove any bindings that exist in home directory temporarely: To see 0000 permission on mounting points
     log "INFO: Temporarely removing previous bindings in chroot environment"
     for i in $previewUsername $serverCommandUsername; do
    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount ld-musl-aarch64.so.1 for $i user; ld-musl-aarch64.so.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user; libncursesw.so.6"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount libncursesw.so.6 for $i user; libcrypto.so.3"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libacl.so.1 for $i user; libacl.so.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libattr.so.1 for $i user; libattr.so.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount libutmps.so.0.1 for $i user; libutmps.so.0.1"; fi
-    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount libskarnet.so.2.14 for $i user; libskarnet.so.2.14"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/lib/ld-musl-aarch64.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount ld-musl-aarch64.so.1 for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libncursesw.so.6 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libcrypto.so.3 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not umount libncursesw.so.6 for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libacl.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libacl.so.1 for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libattr.so.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not umount libattr.so.1 for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libutmps.so.0.1 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not umount libutmps.so.0.1 for $i user"; fi
+    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/usr/lib/libskarnet.so.2.14 " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not umount libskarnet.so.2.14 for $i user"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
     done
     
@@ -1073,18 +1059,18 @@ configLocalInstallation() {
     chroot $mountPoint /bin/mkdir -p /var/run/acpid 2>/dev/null || log "UNEXPECTED: Could not create directory for acpid pid file"
     chroot $mountPoint /bin/mkdir -p /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not create directory for fail2ban pid file"
     chroot $mountPoint /bin/mkdir -p /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd pid file"
-    chroot $mountPoint /bin/mkdir -p "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory as /home/.keys"
+    chroot $mountPoint /bin/mkdir -p "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd key storage"
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
         chroot $mountPoint /bin/mkdir -p "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $i"
         chroot $mountPoint /bin/mkdir -p "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not create syslog hook directory for mounted dev file"
-        chroot $mountPoint /bin/mkdir -p "/home/.keys/$i" 2>/dev/null || log "UNEXPECTED: Could not make ssh directory for $i"
+        chroot $mountPoint /bin/mkdir -p "/home/.keys/$i" 2>/dev/null || log "UNEXPECTED: Could not make sshd key storage directory for $i"
     done
     for i in $previewUsername $serverCommandUsername; do
-    	chroot $mountPoint /bin/mkdir -p "/home/$i/usr" 2>/dev/null || log "CRITICAL: Could not make a new usr directory for $i"
-    	chroot $mountPoint /bin/mkdir -p "/home/$i/usr/lib" 2>/dev/null || log "CRITICAL: Could not make a new usr/lib directory for $i"
-    	chroot $mountPoint /bin/mkdir -p "/home/$i/lib" 2>/dev/null || log "CRITICAL: Could not make a new lib directory for $i"
-    	chroot $mountPoint /bin/mkdir -p "/home/$i/bin" 2>/dev/null || log "CRITICAL: Could not make a new bin directory for $i"
-    	chroot $mountPoint /bin/mkdir -p "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not make a new dev/pts directory for $i; pts"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/usr" 2>/dev/null || log "CRITICAL: Could not make a new /usr directory for $i"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/usr/lib" 2>/dev/null || log "CRITICAL: Could not make a new /usr/lib directory for $i"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/lib" 2>/dev/null || log "CRITICAL: Could not make a new /lib directory for $i"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/bin" 2>/dev/null || log "CRITICAL: Could not make a new /bin directory for $i"
+    	chroot $mountPoint /bin/mkdir -p "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not make a new /dev/pts directory for $i; pts"
     done
     	# touch
     chroot $mountPoint /bin/touch /var/log/acpid.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for acpid service"
@@ -1093,7 +1079,7 @@ configLocalInstallation() {
     chroot $mountPoint /bin/touch /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file for fail2ban service"
     chroot $mountPoint /bin/touch /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "CRITICAL: Could not generate a sqlite3 database for fail2ban"
     chroot $mountPoint /bin/touch /etc/fail2ban/jail.local 2>/dev/null || log "CRITICAL: Failed to create configuration file for fail2ban"
-    chroot $mountPoint /bin/touch /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not generate a doas configuration file meant for principle of least priviledge"
+    chroot $mountPoint /bin/touch /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not generate a doas configuration file meant for downgrading root user"
     for i in $previewUsername $serverCommandUsername; do
     	chroot $mountPoint /bin/touch "/home/$i/bin/rksh" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; rksh"
     	chroot $mountPoint /bin/touch "/home/$i/bin/echo" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; echo"
@@ -1113,16 +1099,16 @@ configLocalInstallation() {
     log "INFO: Chroot bindings added to fstab"
 		# Modifying fstab to bind files to certain locations in home director for $previewUsername & $serverCommandUsername chroot environment
     for i in $previewUsername $serverCommandUsername; do
-        chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/bin\/ksh\t\/home\/$i\/bin\/rksh\t\(.*\)/{h;s//^\/bin\/ksh\t\/home\/$i\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/bin\/ksh\t\/home\/$i\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include bin/rksh in fstab for $i user"
-    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/bin\/coreutils\t\/home\/$i\/bin\/echo\t\(.*\)/{h;s//^\/bin\/coreutils\t\/home\/$i\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/bin\/coreutils\t\/home\/$i\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include bin/echo in fstab for $i user"
-    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\t\(.*\)/{h;s//^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include lib/ld-musl-aarch64.so.1 in fstab for $i user"
-    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\(.*\)/{h;s//^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libncursesw.so.6 in fstab for $i user"
-    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\t\(.*\)/{h;s//^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libcrypto.so.3 in fstab for $i user"
-    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\t\(.*\)/{h;s//^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libacl.so.1 in fstab for $i user"
-    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\t\(.*\)/{h;s//^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libattr.so.1 in fstab for $i user"
-    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\t\(.*\)/{h;s//^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libutmps.so.0.1 in fstab for $i user"
-    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\t\(.*\)/{h;s//^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include usr/lib/libskarnet.so.2.14 in fstab for $i user"
-        chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/dev\/pts\t\/home\/$i\/dev\/pts\t\(.*\)/{h;s//^\/dev\/pts\t\/home\/$i\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$/};\${x;/^\$/{s//^\/dev\/pts\t\/home\/$i\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include dev/pts in fstab for $i user"
+        chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/bin\/ksh\t\/home\/$i\/bin\/rksh\t\(.*\)/{h;s//^\/bin\/ksh\t\/home\/$i\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/bin\/ksh\t\/home\/$i\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /bin/rksh in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/bin\/coreutils\t\/home\/$i\/bin\/echo\t\(.*\)/{h;s//^\/bin\/coreutils\t\/home\/$i\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/bin\/coreutils\t\/home\/$i\/bin\/echo\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /bin/echo in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\t\(.*\)/{h;s//^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/lib\/ld-musl-aarch64.so.1\t\/home\/$i\/lib\/ld-musl-aarch64.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /lib/ld-musl-aarch64.so.1 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\(.*\)/{h;s//^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libncursesw.so.6\t\/home\/$i\/usr\/lib\/libncursesw.so.6\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /usr/lib/libncursesw.so.6 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\t\(.*\)/{h;s//^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libcrypto.so.3\t\/home\/$i\/usr\/lib\/libcrypto.so.3\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /usr/lib/libcrypto.so.3 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\t\(.*\)/{h;s//^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libacl.so.1\t\/home\/$i\/usr\/lib\/libacl.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /usr/lib/libacl.so.1 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\t\(.*\)/{h;s//^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libattr.so.1\t\/home\/$i\/usr\/lib\/libattr.so.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /usr/lib/libattr.so.1 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\t\(.*\)/{h;s//^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libutmps.so.0.1\t\/home\/$i\/usr\/lib\/libutmps.so.0.1\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /usr/lib/libutmps.so.0.1 in fstab for $i user"
+    	chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\t\(.*\)/{h;s//^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/};\${x;/^\$/{s//^\/usr\/lib\/libskarnet.so.2.14\t\/home\/$i\/usr\/lib\/libskarnet.so.2.14\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /usr/lib/libskarnet.so.2.14 in fstab for $i user"
+        chroot $mountPoint /bin/sed -i "/#\{0,2\}^\/dev\/pts\t\/home\/$i\/dev\/pts\t\(.*\)/{h;s//^\/dev\/pts\t\/home\/$i\/dev\/ipts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$/};\${x;/^\$/{s//^\/dev\/pts\t\/home\/$i\/dev\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /dev/pts in fstab for $i user"
     done
     	# Adding /home directory binds for logging
 #    for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
@@ -1167,30 +1153,30 @@ print \"You have connected succesfully! Built-in commands will be here soon.\"" 
 
     # Disable TTY interfaces from inittab to limit entry points of root access
     log "INFO: Disabling root login via serial consoles"
-    chroot $mountPoint /bin/sed -i 's/^tty/#tty/g' /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not stop the creation of getty instances"
+# !!!    chroot $mountPoint /bin/sed -i 's/^tty/#tty/g' /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not stop the creation of getty instances when computer boots up"
     chroot $mountPoint /bin/sed -i 's/^\:\:ctrlaltdel/#\:\:ctrlaltdel/g' /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not remove keyboard sequence reboot command"
 # !!!    chroot $mountPoint /bin/echo > $mountPoint/etc/securetty 2>/dev/null || log "UNEXPECTED: Could not modify which interfaces a root user can login from" # Figure out how to login locally
 
     # Modifying /etc/profile and mdev.conf
     log "INFO: Increasing umask value in /etc/profile and mdev.conf"
-    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}umask\(.*\)/umask $umask/g" /etc/profile || log "UNEXPECTED: Could not change umask from default 022"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}umask\(.*\)/umask $umask/g" /etc/profile || log "UNEXPECTED: Could not change umask from default"
     chroot $mountPoint /bin/sed -i 's/^random\(.*\)/random  root:root 0664/g' /etc/mdev.conf 2>/dev/null || log "UNEXPECTED: Could not ensure linux random device is read only by anyone else"
-    chroot $mountPoint /bin/sed -i 's/^net\/tun\(.*\)/net\/tun[0-9]*   root:netdev 0660/g' /etc/mdev.conf 2>/dev/null || log "UNEXPECTED: Could not ensure linux random device is not accessible for anyone else"
-    chroot $mountPoint /bin/sed -i 's/^net\/tap\(.*\)/net\/tap[0-9]*   root:netdev 0660/g' /etc/mdev.conf 2>/dev/null || log "UNEXPECTED: Could not ensure linux random device is not accessible for anyone else"
+    chroot $mountPoint /bin/sed -i 's/^net\/tun\(.*\)/net\/tun[0-9]*   root:netdev 0660/g' /etc/mdev.conf 2>/dev/null || log "UNEXPECTED: Could not ensure linux internet tun device is not accessible for anyone else"
+    chroot $mountPoint /bin/sed -i 's/^net\/tap\(.*\)/net\/tap[0-9]*   root:netdev 0660/g' /etc/mdev.conf 2>/dev/null || log "UNEXPECTED: Could not ensure linux internet tap device is not accessible for anyone else"
 
     log "INFO: Modifying /etc/init.d services"
 		# Commands
     chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/acpid 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/acpid to change starting command to be doas"
     chroot $mountPoint /bin/sed -i "s/^command=\"\(.*\)/command=\"\/usr\/bin\/doas\"/g" /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/chronyd to change starting command to be doas"
-    chroot $mountPoint /bin/sed -i "s/^command=\"\$\(.*\)/command=\"\/usr\/sbin\/sshd.pam\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change starting command"
-    chroot $mountPoint /bin/sed -i "s/^FAIL2BAN=\"\(.*\)/FAIL2BAN=\"\/usr\/bin\/doas -u $fail2banUsername \/usr\/bin\/fail2ban-client \$\{FAIL2BAN_OPTIONS\}\"/g" /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/fail2ban to change variable that starts and turns off fail2ban"
+    chroot $mountPoint /bin/sed -i "s/^command=\"\$\(.*\)/command=\"\/usr\/sbin\/sshd.pam\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change starting command to be sshd.pam"
+    chroot $mountPoint /bin/sed -i "s/^FAIL2BAN=\"\(.*\)/FAIL2BAN=\"\/usr\/bin\/doas -u $fail2banUsername \/usr\/bin\/fail2ban-client \$\{FAIL2BAN_OPTIONS\}\"/g" /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/fail2ban to ensure doas can starts, restart and stop fail2ban"
 		# Command args
     chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u $powerUsername \/sbin\/acpid -l --foreground --pidfile \/var\/run\/acpid\/acpid.pid --lockfile \/var\/run\/acpid\/acpid.lock --socketfile \/var\/run\/acpid\/acpid.socket --socketgroup acpi --socketmode 660\"/g" /etc/init.d/acpid 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/acpid to change command_args for acpid service"
     chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"-u chrony \/usr\/sbin\/chronyd -u chrony -U -F 1 -f \/etc\/chrony\/chrony.conf -L 0 -l \/var\/log\/chronyd.log\"/g" /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/chronyd to change command_args for chronyd service"
     chroot $mountPoint /bin/sed -i "s/^command_args=\"\(.*\)/command_args=\"\${SSHD_OPTS} -f \/etc\/ssh\/sshd_config -E \/var\/log\/sshd.log\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change command_args for sshd service"
 		# Pid file
     chroot $mountPoint /bin/sed -i "s/^pidfile=\"\(.*\)/pidfile=\"\/run\/acpid\/\$RC_SVCNAME.pid\"/g" /etc/init.d/acpid 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/acpid to change pidfile for acpid service"    
-    chroot $mountPoint /bin/sed -i "s/^pidfile=\"\(.*\)/pidfile=\"\$\{SSHD_PIDFILE:-\"\/run\/sshd\/\$RC_SVCNAME.pid\"\}\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change pid location"
+    chroot $mountPoint /bin/sed -i "s/^pidfile=\"\(.*\)/pidfile=\"\$\{SSHD_PIDFILE:-\"\/run\/sshd\/\$RC_SVCNAME.pid\"\}\"/g" /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not modify /etc/init.d/sshd to change pidfile for sshd service"
 
     log "INFO: Configurating doas"
 		# Append permenant file command to permit root to start a service as another user
@@ -1202,7 +1188,7 @@ print \"You have connected succesfully! Built-in commands will be here soon.\"" 
     chroot $mountPoint /bin/sed -i "/#\{0,2\}permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args reload\(.*\)/{h;s//permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args reload/};\${x;/^\$/{s//permit nopass root as $fail2banUsername cmd \/usr\/bin\/fail2ban-client args reload/;H};x}" /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to include Fail2ban reload service!"
 		# Create temp file
     chroot $mountPoint /bin/echo "# Doas configuration for temp ssh service
-permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/tempUser.conf 2>/dev/null || log "UNEXPECTED: Could not create temp doas configuration file!"
+permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/tempUser.conf 2>/dev/null || log "UNEXPECTED: Could not create temp doas configuration file for $extractUsername user!"
 
 # !!! ACPID CONFIGURATION
     log "INFO: Configurating ACPID"
@@ -1273,7 +1259,7 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}KexAlgorithms\(.*\)/{h;s//KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com/};\${x;/^\$/{s//KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KexAlgorithms"
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}MACs\(.*\)/{h;s//MACs hmac-sha2-512-etm@openssh.com/};\${x;/^\$/{s//MACs hmac-sha2-512-etm@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MACs"
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}PubkeyAcceptedKeyTypes\(.*\)/{h;s//PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com/};\${x;/^\$/{s//PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PubkeyAcceptedKeyTypes"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}AllowUsers\(.*\)/{h;s//AllowUsers $previewUsername@$localNetwork\/$localNetmask $backupUsername@$localNetwork\/$localNetmask $serverCommandUsername@$localNetwork\/$localNetmask $monitorUsername@$localNetwork\/$localNetmask/};\${x;/^\$/{s//AllowUsers $previewUsername@$localNetwork\/$localNetmask $backupUsername@$localNetwork\/$localNetmask $serverCommandUsername@$localNetwork\/$localNetmask $monitorUsername@$localNetwork\/$localNetmask/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowUsers"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}AllowUsers\(.*\)/{h;s//AllowUsers $previewUsername@$localGateway\/$localNetmask $backupUsername@$localGateway\/$localNetmask $serverCommandUsername@$localGateway\/$localNetmask $monitorUsername@$localGateway\/$localNetmask/};\${x;/^\$/{s//AllowUsers $previewUsername@$localGateway\/$localNetmask $backupUsername@$localGateway\/$localNetmask $serverCommandUsername@$localGateway\/$localNetmask $monitorUsername@$localGateway\/$localNetmask/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowUsers"
 		# Adding user-specific commands
 	chroot $mountPoint /bin/sed -i "/#SFTP server configuration\(.*\)/{h;s//#SFTP server configuration/};\${x;/^\$/{s//#SFTP server configuration/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not indicate the additional placement of user-restrive sshd interactions in the config file"
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}Match User $previewUsername\(.*\)/{h;s//Match User $previewUsername/};\${x;/^\$/{s//Match User $previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $previewUsername"
@@ -1289,7 +1275,7 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChrootDirectory \/home\/$monitorUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$monitorUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$monitorUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $monitorUsername"
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $monitorUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $monitorUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $monitorUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $monitorUsername"
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}Match User $extractUsername\(.*\)/{h;s//Match User $extractUsername/};\${x;/^\$/{s//Match User $extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $extractUsername"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    AllowUsers $extractUsername\(.*\)/{h;s//    AllowUsers $extractUsername@$localNetwork/$localNetmask/};\${x;/^\$/{s//    AllowUsers $extractUsername@$localNetwork/$localNetmask/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowUsers to permit $extractUsername"
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}    AllowUsers $extractUsername\(.*\)/{h;s//    AllowUsers $extractUsername@$localGateway/$localNetmask/};\${x;/^\$/{s//    AllowUsers $extractUsername@$localGateway/$localNetmask/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowUsers to permit $extractUsername"
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChrootDirectory \/home\/$extractUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$extractUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $extractUsername"
 	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $extractUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $extractUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $extractUsername"
 		# Lockdown ssh_config
@@ -1331,7 +1317,7 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     if [ ! -z "$(chroot $mountPoint /usr/bin/awk '$5 < 3071' /etc/ssh/moduli)" ]; then
         log "INFO: Removing small Diffie-Hellman moduli that are less than 3071 bits"
         chroot $mountPoint /usr/bin/awk '$5 >= 3071' /etc/ssh/moduli > $mountPoint/etc/ssh/moduli.safer 2>/dev/null || log "UNEXPECTED: Could not filter out bits less than 3071 in /etc/ssh/moduli"
-        chroot $mountPoint /bin/mv /etc/ssh/moduli.safer /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not override /etc/ssh/moduli with less vulnerable bits"
+        chroot $mountPoint /bin/mv /etc/ssh/moduli.safer /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not override /etc/ssh/moduli with less vulnerable bits from /etc/ssh/moduli.safer"
     fi
     
     log "INFO: Configurating UFW"
@@ -1379,7 +1365,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /usr/sbin/ufw allow out log from any to any app DNSListener 2>/dev/null || log "UNEXPECTED: Failed to permit DNS port 53 esgress through firewall"
     chroot $mountPoint /usr/sbin/ufw allow out log from any to any app NTPListener 2>/dev/null || log "UNEXPECTED: Failed to permit NTP port 123 esgress through firewall"
 		# Add rate limit and open ssh port
-    chroot $mountPoint /usr/sbin/ufw limit in log from "$localNetwork"/"$localNetmask" to "$localNetwork"/"$localNetmask" app SSHServer 2>/dev/null || log "CRITICAL: Failed to limit ports $sshPort for ingress traffic for ufw firewall"
+    chroot $mountPoint /usr/sbin/ufw limit in log from "$localGateway"/"$localNetmask" to "$localGateway"/"$localNetmask" app SSHServer 2>/dev/null || log "CRITICAL: Failed to limit ports $sshPort for ingress traffic on ufw firewall"
 		# Removing newly downloaded files if ufw was previously uninstalled
     if [ -f "$mountPoint/etc/init.d/ufw.apk-new" ]; then chroot $mountPoint /bin/rm /etc/init.d/ufw.apk-new 2>/dev/null || log "UNEXPECTED: Could not remove redundant default file: /etc/init.d/ufw.apk-new"; fi
     if [ -f "$mountPoint/etc/ufw/ufw.conf.apk-new" ]; then chroot $mountPoint /bin/rm /etc/ufw/ufw.conf.apk-new 2>/dev/null || log "UNEXPECTED: Could not remove redundant default file: /etc/ufw/ufw.conf.apk-new"; fi
@@ -1434,7 +1420,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /bin/dmesg 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dmesg"
     chroot $mountPoint /bin/chmod 0500 /bin/kmod 2>/dev/null || log "UNEXPECTED: Could not change permissions for; kmod"
     chroot $mountPoint /bin/chmod 4510 /bin/bbsuid 2>/dev/null || log "UNEXPECTED: Could not change permissions for; bbsuid" # !!! Reconsider its permissions
-    chroot $mountPoint /bin/chmod 0510 /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change /bin/ksh file permissions"
+    chroot $mountPoint /bin/chmod 0510 /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ksh"
     chroot $mountPoint /bin/chmod 4510 /bin/su 2>/dev/null || log "UNEXPECTED: Could not change permissions for; su"
     chroot $mountPoint /bin/chmod 0500 /bin/login 2>/dev/null || log "UNEXPECTED: Could not change permissions for; login"
     chroot $mountPoint /bin/chmod 0500 /bin/lsblk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lsblk"
@@ -1461,13 +1447,13 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /sbin/nlplug-findfs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nlplug-findfs"
     chroot $mountPoint /bin/chmod 0500 /sbin/mkinitfs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mkinitfs"
     chroot $mountPoint /bin/chmod 0500 /sbin/bootchartd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; bootchartd"
-    chroot $mountPoint /bin/chmod 0510 /sbin/acpid 2>/dev/null || log "UNEXPECTED: Could not change /sbin/acpid file permissions"
-    chroot $mountPoint /bin/chmod 0500 /sbin/sulogin 2>/dev/null || log "UNEXPECTED: Could not change /sbin/sulogin file permissions"
-    chroot $mountPoint /bin/chmod 0501 /sbin/nologin 2>/dev/null || log "UNEXPECTED: Could not change /sbin/nologin file permissions"
-    chroot $mountPoint /bin/chmod 0500 /sbin/runuser 2>/dev/null || log "UNEXPECTED: Could not change /sbin/runuser file permissions"
-    chroot $mountPoint /bin/chmod 0500 /sbin/mkfs.fat 2>/dev/null || log "UNEXPECTED: Could not change /sbin/mkfs.fat file permissions"
-    chroot $mountPoint /bin/chmod 0500 /sbin/fatlabel 2>/dev/null || log "UNEXPECTED: Could not change /sbin/fatlabel file permissions"
-    chroot $mountPoint /bin/chmod 0500 /sbin/fsck.fat 2>/dev/null || log "UNEXPECTED: Could not change /sbin/fsck.fat file permissions"
+    chroot $mountPoint /bin/chmod 0510 /sbin/acpid 2>/dev/null || log "UNEXPECTED: Could not change permissions for; acpid"
+    chroot $mountPoint /bin/chmod 0500 /sbin/sulogin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sulogin"
+    chroot $mountPoint /bin/chmod 0501 /sbin/nologin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nologin"
+    chroot $mountPoint /bin/chmod 0500 /sbin/runuser 2>/dev/null || log "UNEXPECTED: Could not change permissions for; runuser"
+    chroot $mountPoint /bin/chmod 0500 /sbin/mkfs.fat 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mkfs.fat"
+    chroot $mountPoint /bin/chmod 0500 /sbin/fatlabel 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fatlabel"
+    chroot $mountPoint /bin/chmod 0500 /sbin/fsck.fat 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fsck.fat"
 
     log "INFO: Setting permissions on /usr/bin executables"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/xargs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xargs"
@@ -1499,52 +1485,52 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /usr/bin/uniso 2>/dev/null || log "UNEXPECTED: Could not change permissions for; uniso"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/logger 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logger"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/lddtree 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lddtree"
-    chroot $mountPoint /bin/chmod 0510 /usr/bin/doas 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/doas file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/passwd 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/passwd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/gpasswd 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/gpasswd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/expiry 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/expiry file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/chsh 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/chsh file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/chfn 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/chfn file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/chage 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/chage file permissions"
-    chroot $mountPoint /bin/chmod 0510 /usr/bin/at 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/at file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/batch 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/batch file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/acpi_listen 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/acpi_listen file permissions"
+    chroot $mountPoint /bin/chmod 0510 /usr/bin/doas 2>/dev/null || log "UNEXPECTED: Could not change permissions for; doas"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/passwd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; passwd"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/gpasswd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; gpasswd"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/expiry 2>/dev/null || log "UNEXPECTED: Could not change permissions for; expiry"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/chsh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chsh"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/chfn 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chfn"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/chage 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chage"
+    chroot $mountPoint /bin/chmod 0510 /usr/bin/at 2>/dev/null || log "UNEXPECTED: Could not change permissions for; at"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/batch 2>/dev/null || log "UNEXPECTED: Could not change permissions for; batch"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/acpi_listen 2>/dev/null || log "UNEXPECTED: Could not change permissions for; acpi_listen"
     chroot $mountPoint /bin/chmod 0510 /usr/bin/python3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; python3.12"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/pydoc3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pydoc3.12"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/2to3-3.12 2>/dev/null || log "UNEXPECTED: Could not change permissions for; 2to3-3.12"
     chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-server"
     chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-regex 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-regex"
     chroot $mountPoint /bin/chmod 0550 /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban-client"
-    chroot $mountPoint /bin/chmod 0550 /usr/bin/env 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/env file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/newgrp 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/newgrp file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/lslogins 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/lslogins file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/lastlog2 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/lastlog2 file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/last 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/last file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/addr2line 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/addr2line file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/as 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/as file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/strip 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/strip file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/efi-mkuki 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/efi-mkuki file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbattach 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbattach file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/objcopy 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/objcopy file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/c++filt 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/c++filt file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/ld 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/ld file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/strings 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/strings file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/ar 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/ar file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbctl 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbctl file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/readelf 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/readelf file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/dwp 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/dwp file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbsign 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbsign file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/elfedit 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/elfedit file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/size 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/size file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbkeysync 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbkeysync file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbverify 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbverify file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/ranlib 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/ranlib file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/ld.bfd 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/ld.bfd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/objdump 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/objdump file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbvarsign 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbvarsign file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbsiglist 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/sbsiglist file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/nm 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/nm file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/gprof 2>/dev/null || log "UNEXPECTED: Could not change /usr/bin/gprof file permissions"
+    chroot $mountPoint /bin/chmod 0550 /usr/bin/env 2>/dev/null || log "UNEXPECTED: Could not change permissions for; env"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/newgrp 2>/dev/null || log "UNEXPECTED: Could not change permissions for; newgrp"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/lslogins 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lslogins"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/lastlog2 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lastlog2"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/last 2>/dev/null || log "UNEXPECTED: Could not change permissions for; last"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/addr2line 2>/dev/null || log "UNEXPECTED: Could not change permissions for; addr2line"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/as 2>/dev/null || log "UNEXPECTED: Could not change permissions for; as"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/strip 2>/dev/null || log "UNEXPECTED: Could not change permissions for; strip"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/efi-mkuki 2>/dev/null || log "UNEXPECTED: Could not change permissions for; efi-mkuki"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbattach 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sbattach"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/objcopy 2>/dev/null || log "UNEXPECTED: Could not change permissions for; objcopy"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/c++filt 2>/dev/null || log "UNEXPECTED: Could not change permissions for; c++filt"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/ld 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ld"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/strings 2>/dev/null || log "UNEXPECTED: Could not change permissions for; strings"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/ar 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ar"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbctl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sbctl"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/readelf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; readelf"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/dwp 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dwp"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbsign 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sbsign"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/elfedit 2>/dev/null || log "UNEXPECTED: Could not change permissions for; elfedit"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/size 2>/dev/null || log "UNEXPECTED: Could not change permissions for; size"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbkeysync 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sbkeysync"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbverify 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sbverify"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/ranlib 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ranlib"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/ld.bfd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ld.bfd"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/objdump 2>/dev/null || log "UNEXPECTED: Could not change permissions for; objdump"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbvarsign 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sbvarsign"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/sbsiglist 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sbsiglist"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/nm 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nm"
+    chroot $mountPoint /bin/chmod 0500 /usr/bin/gprof 2>/dev/null || log "UNEXPECTED: Could not change permissions for; gprof"
 
     log "INFO: Setting permissions on /usr/sbin executables"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/partprobe 2>/dev/null || log "UNEXPECTED: Could not change permissions for; partprobe"
@@ -1578,358 +1564,358 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/setup-apkcache 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setup-apkcache"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/setup-alpine 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setup-alpine"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/setup-acf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setup-acf"
-    chroot $mountPoint /bin/chmod 0510 /usr/sbin/setcap 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/setcap file permissions"
-    chroot $mountPoint /bin/chmod 0510 /usr/sbin/getcap 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/getcap file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/vipw 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/vipw file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/usermod 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/usermod file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/userdel 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/userdel file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/useradd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/useradd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/pwck 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/pwck file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/newusers 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/newusers file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/logoutd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/logoutd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grpck 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/grpck file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/groupmod 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/groupmod file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/groupmems 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/groupmems file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/groupdel 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/groupdel file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/groupadd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/groupadd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/chpasswd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/chpasswd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/chgpasswd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/chgpasswd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/unix_chkpwd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/unix_chkpwd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/pwhistory_helper 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/pwhistory_helper file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/pam_timestamp_check 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/pam_timestamp_check file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/pam_namespace_helper 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/pam_namespace_helper file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/mkhomedir_helper 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/mkhomedir_helper file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/atd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/atd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/atrun 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/atrun file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/faillock 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/faillock file permissions"
-    chroot $mountPoint /bin/chmod 0500 /usr/sbin/kacpimon 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/kacpimon file permissions"
-    chroot $mountPoint /bin/chmod 0510 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/chronyd file permissions"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/setcap 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setcap"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/getcap 2>/dev/null || log "UNEXPECTED: Could not change permissions for; getcap"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/vipw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; vipw"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/usermod 2>/dev/null || log "UNEXPECTED: Could not change permissions for; usermod"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/userdel 2>/dev/null || log "UNEXPECTED: Could not change permissions for; userdel"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/useradd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; useradd"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/pwck 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pwck"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/newusers 2>/dev/null || log "UNEXPECTED: Could not change permissions for; newusers"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/logoutd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logoutd"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/grpck 2>/dev/null || log "UNEXPECTED: Could not change permissions for; grpck"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/groupmod 2>/dev/null || log "UNEXPECTED: Could not change permissions for; groupmod"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/groupmems 2>/dev/null || log "UNEXPECTED: Could not change permissions for; groupmems"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/groupdel 2>/dev/null || log "UNEXPECTED: Could not change permissions for; groupdel"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/groupadd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; groupadd"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/chpasswd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chpasswd"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/chgpasswd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chgpasswd"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/unix_chkpwd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; unix_chkpwd"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/pwhistory_helper 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pwhistory_helper"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/pam_timestamp_check 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pam_timestamp_check"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/pam_namespace_helper 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pam_namespace_helper"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/mkhomedir_helper 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mkhomedir_helper"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/atd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; atd"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/atrun 2>/dev/null || log "UNEXPECTED: Could not change permissions for; atrun"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/faillock 2>/dev/null || log "UNEXPECTED: Could not change permissions for; faillock"
+    chroot $mountPoint /bin/chmod 0500 /usr/sbin/kacpimon 2>/dev/null || log "UNEXPECTED: Could not change permissions for; kacpimon"
+    chroot $mountPoint /bin/chmod 0510 /usr/sbin/chronyd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chronyd"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xtables-nft-multi"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/iptables-apply 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables-apply"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/nft 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nft"
-    chroot $mountPoint /bin/chmod 0550 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/sbin/ufw file permissions"
+    chroot $mountPoint /bin/chmod 0550 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logrotate"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/efibootmgr 2>/dev/null || log "UNEXPECTED: Could not change permissions for; efibootmgr"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/efibootdump 2>/dev/null || log "UNEXPECTED: Could not change permissions for; efibootdump"
 
     log "INFO: Setting permission on /etc files and directories"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/access.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/access.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/faillock.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/faillock.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/group.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/group.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/limits.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/limits.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/namespace.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/namespace.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/namespace.init 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/namespace.init file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/pam_env.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/pam_env.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/pwhistory.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/pwhistory.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/time.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/time.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/chsh 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d/chsh file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/shadow-utils 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d/shadow-utils file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/doas.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.conf file permissions"
-    chroot $mountPoint /bin/chmod 0510 /etc/acpi/handler.sh 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi/handler.sh file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/acpi/events/anything 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi/events/anything file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/alpine-release 2>/dev/null || log "UNEXPECTED: Could not change alpine-release file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/e2scrub.conf 2>/dev/null || log "UNEXPECTED: Could not change e2scrub.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not change fstab file permissions"
-    chroot $mountPoint /bin/chmod 0640 /etc/group 2>/dev/null || log "UNEXPECTED: Could not change group file permissions"
-    chroot $mountPoint /bin/chmod 0640 /etc/group- 2>/dev/null || log "UNEXPECTED: Could not change group- file permissions"
-    chroot $mountPoint /bin/chmod 0404 /etc/hostname 2>/dev/null || log "UNEXPECTED: Could not change hostname file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/hosts 2>/dev/null || log "UNEXPECTED: Could not change hosts file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not change inittab file permissions"
-    chroot $mountPoint /bin/chmod 0404 /etc/inputrc 2>/dev/null || log "UNEXPECTED: Could not change inputrc file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/issue 2>/dev/null || log "UNEXPECTED: Could not change issue file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/mdev.conf 2>/dev/null || log "UNEXPECTED: Could not change mdev.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/mke2fs.conf 2>/dev/null || log "UNEXPECTED: Could not change mke2fs.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/modules 2>/dev/null || log "UNEXPECTED: Could not change modules file permissions"
-    chroot $mountPoint /bin/chmod 0404 /etc/motd 2>/dev/null || log "UNEXPECTED: Could not change modules file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/nsswitch.conf 2>/dev/null || log "UNEXPECTED: Could not change nsswitch.conf file permissions"
-    chroot $mountPoint /bin/chmod 0604 /etc/passwd 2>/dev/null || log "UNEXPECTED: Could not change passwd file permissions"
-    chroot $mountPoint /bin/chmod 0604 /etc/passwd- 2>/dev/null || log "UNEXPECTED: Could not change passwd- file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/profile 2>/dev/null || log "UNEXPECTED: Could not change profile file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/protocols 2>/dev/null || log "UNEXPECTED: Could not change protocols file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/rc.conf 2>/dev/null || log "UNEXPECTED: Could not change rc.conf file permissions"
-    chroot $mountPoint /bin/chmod 0404 /etc/resolv.conf 2>/dev/null || log "UNEXPECTED: Could not change resolv.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/securetty 2>/dev/null || log "UNEXPECTED: Could not change /etc/securetty file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/services 2>/dev/null || log "UNEXPECTED: Could not change services file permissions"
-    chroot $mountPoint /bin/chmod 0640 /etc/shadow 2>/dev/null || log "UNEXPECTED: Could not change shadow file permissions"
-    chroot $mountPoint /bin/chmod 0640 /etc/shadow- 2>/dev/null || log "UNEXPECTED: Could not change shadow- file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/shells 2>/dev/null || log "UNEXPECTED: Could not change shells file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change sysctl.conf file permissions"
-    chroot $mountPoint /bin/chmod 0550 /etc/acpi/PWRF/00000080 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi/PWRF/00000080 file permissions"
-    chroot $mountPoint /bin/chmod 0600 /etc/apk/arch 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/arch file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/repositories file permissions"
-    chroot $mountPoint /bin/chmod 0644 /etc/apk/world 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/world file permissions to there default"
-    chroot $mountPoint /bin/chmod 0644 /etc/busybox-paths.d/busybox 2>/dev/null || log "UNEXPECTED: Could not change /etc/busybox-paths.d/busybox file permissions"
-    chroot $mountPoint /bin/chmod 0604 /etc/chrony/chrony.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/chrony/chrony.conf file permissions"
-    chroot $mountPoint /bin/chmod 0600 /etc/crontabs/root 2>/dev/null || log "UNEXPECTED: Could not change /etc/crontabs/root file permissions"
-    chroot $mountPoint /bin/chmod 0600 /etc/keymap/us.bmap.gz 2>/dev/null || log "UNEXPECTED: Could not change /etc/keymap/us.bmap.gz file permissions"
-    chroot $mountPoint /bin/chmod 0000 /etc/lvm/lvm.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/lvm.conf file permissions"
-    chroot $mountPoint /bin/chmod 0600 /etc/lvm/lvmlocal.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/lvmlocal.conf file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/network/if-pre-up.d/bridge 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-pre-up.d/bridge file permissions"
-    chroot $mountPoint /bin/chmod 0750 /etc/network/if-up.d/dad 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-up.d/dad file permissions"
-    chroot $mountPoint /bin/chmod 0600 /etc/secfixes.d/alpine 2>/dev/null || log "UNEXPECTED: Could not change /etc/secfixes.d/alpine file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/acpid 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/acpid file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/atd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/atd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/binfmt 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/binfmt file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/bootmisc 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/bootmisc file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/cgroups 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/cgroups file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/chronyd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/consolefont 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/consolefont file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/crond 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/crond file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/devfs 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/devfs file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/dmesg 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/dmesg file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/fail2ban file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/firstboot 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/firstboot file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/fsck 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/fsck file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/hostname 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/hostname file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/hwclock 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/hwclock file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/hwdrivers 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/hwdrivers file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/killprocs 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/killprocs file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/klogd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/klogd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/loadkmap 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/loadkmap file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/local 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/local file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/localmount 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/localmount file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/loopback 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/loopback file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/lvm 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/lvm file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/machine-id 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/machine-id file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/mdev 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/mdev file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/modloop 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/modloop file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/modules 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/mount-ro 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/mount-ro file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/mtab 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/mtab file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/net-online 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/net-online file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/netmount 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/netmount file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/networking 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/networking file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ntpd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ntpd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/numlock 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/numlock file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/osclock 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/osclock file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/procfs 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/procfs file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/rdate 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/rdate file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/root 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/root file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/runsvdir 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/runsvdir file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/s6-svscan 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/s6-svscan file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/save-keymaps 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/save-keymaps file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/save-termencoding 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/save-termencoding file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/savecache 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/savecache file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/seedrng 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/seedrng file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sshd file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/staticroute 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/staticroute file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/swap 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/swap file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/swclock 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/swclock file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sysctl 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sysctl file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sysfs 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sysfs file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sysfsconf 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/sysfsconf file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/syslog 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/syslog file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/termencoding 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/termencoding file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/user 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/user file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/watchdog 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/watchdog file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/daemon.conf file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/doas.d/tempUser.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/tempUser.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/sshd_config permissions to readable"
-    chroot $mountPoint /bin/chmod 0440 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh/ssh_config permissions to readable"
-    chroot $mountPoint /bin/chmod 0440 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change moduli's permission to readable"
-    chroot $mountPoint /bin/chmod 0440 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/default/ufw permissions to readable"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh profile permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change apk profile permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ntp profile permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change dns profile permissions"
-    chroot $mountPoint /bin/chmod 0550 /etc/ufw/before.init 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/before.init"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/before.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/before.rules"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/before6.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/before6.rules"
-    chroot $mountPoint /bin/chmod 0550 /etc/ufw/after.init 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/after.init"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/after.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/after.rules"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/after6.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/after6.rules"
-    chroot $mountPoint /bin/chmod 0640 /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/user.rules"
-    chroot $mountPoint /bin/chmod 0640 /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/user6.rules"
-    chroot $mountPoint /bin/chmod 0640 /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/ufw.conf"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/sysctl.conf"
-    chroot $mountPoint /bin/chmod 0440 /etc/ethertypes 2>/dev/null || log "UNEXPECTED: Could not change ethertypes file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not change nftables.nft file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ufw file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/nftables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/nftables file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/iptables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/iptables file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ip6tables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ip6tables file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ebtables 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d/ebtables file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/jail.conf 2>/dev/null || log "UNEXPECTED: Could not change original jail permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/paths-common.conf 2>/dev/null || log "UNEXPECTED: Could not change common-paths permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/paths-debian.conf 2>/dev/null || log "UNEXPECTED: Could not change debian-paths permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not change logrotate.conf file permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/jail.d/alpine-ssh.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/jail.d/alpine-ssh.conf permissions"
-    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not change local jail permissions to readable"
-    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change fail2ban configuration file permissions to readable"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.auth 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.auth file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.cer 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.cer file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.crt 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.crt file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.esl 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.esl file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.key 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/KEK.key file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.auth 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.auth file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.cer 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.cer file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.crt 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.crt file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.esl 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.esl file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.key 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/PK.key file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.auth 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.auth file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.cer 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.cer file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.crt 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.crt file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.esl 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.esl file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.key 2>/dev/null || log "UNEXPECTED: Could not change uefi-keys/db.key file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/mkinitfs.conf file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/base.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/base.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/bootchart.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/bootchart.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/btrfs.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/btrfs.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cryptkey.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cryptkey.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cryptsetup.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cryptsetup.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dhcp.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/dhcp.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/https.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/https.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/keymap.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/keymap.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm-thin.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/lvm-thin.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/lvm.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/memdisk.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/memdisk.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nbd.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/nbd.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/network.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/network.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/raid.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/raid.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/wireguard.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/wireguard.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xfs.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/xfs.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfs.files 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/zfs.files file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/9p.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/9p.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/aoe.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/aoe.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ata.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ata.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/base.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/base.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/btrfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/btrfs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cdrom.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cdrom.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cramfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cramfs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cryptsetup.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/cryptsetup.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dasd_mod.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/dasd_mod.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dhcp.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/dhcp.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ena.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ena.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext2.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ext2.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext3.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ext3.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext4.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ext4.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/f2fs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/f2fs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/floppy.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/floppy.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/gfs2.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/gfs2.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/jfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/jfs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/kms.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/kms.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/lvm.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/memdisk.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/memdisk.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/mmc.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/mmc.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nbd.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/nbd.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/network.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/network.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nfit.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/nfit.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nvme.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/nvme.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ocfs2.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ocfs2.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/phy.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/phy.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/qeth.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/qeth.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/raid.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/raid.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/reiserfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/reiserfs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/scsi.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/scsi.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/squashfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/squashfs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ubifs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/ubifs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/usb.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/usb.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/virtio.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/virtio.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/wireguard.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/wireguard.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xenpci.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/xenpci.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/xfs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfcp.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/zfcp.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfs.modules 2>/dev/null || log "UNEXPECTED: Could not change mkinitfs/features.d/zfs.modules file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/kernel-hooks.d/README 2>/dev/null || log "UNEXPECTED: Could not change kernel-hooks.d/README file permissions"
-    chroot $mountPoint /bin/chmod 0500 /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not change kernel-hooks.d/secureboot.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/chsh 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d/chsh file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/shadow-utils 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d/shadow-utils file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/sshd 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d/sshd file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/su-l 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d/su-l file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/access.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/access.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/faillock.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/faillock.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/group.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/group.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/limits.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/limits.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/namespace.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/namespace.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/namespace.init 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/namespace.init file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/pam_env.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/pam_env.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/pwhistory.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/pwhistory.conf file permissions"
-    chroot $mountPoint /bin/chmod 0400 /etc/security/time.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/time.conf file permissions"
-    chroot $mountPoint /bin/chmod 00550 /etc/acpi 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi directory permissions"
-    chroot $mountPoint /bin/chmod 00550 /etc/acpi/PWRF 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi/PWRF directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/apk 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/apk/keys 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/keys directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/apk/protected_paths.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/apk/protected_paths.d directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/busybox-paths.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/busybox-paths.d directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/chrony 2>/dev/null || log "UNEXPECTED: Could not change /etc/chrony directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/conf.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/conf.d directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/crontabs 2>/dev/null || log "UNEXPECTED: Could not change /etc/crontabs directory permissions"
-    chroot $mountPoint /bin/chmod 00701 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change /etc/default directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/init.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/init.d directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/keymap 2>/dev/null || log "UNEXPECTED: Could not change /etc/keymap directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/lbu 2>/dev/null || log "UNEXPECTED: Could not change /etc/lbu directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/local.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/local.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/logrotate.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/logrotate.d directory permissions"
-    chroot $mountPoint /bin/chmod 00710 /etc/lvm 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/lvm/archive 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/archive directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/lvm/backup 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/backup directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/lvm/profile 2>/dev/null || log "UNEXPECTED: Could not change /etc/lvm/profile directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/modprobe.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/modprobe.d directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/modules-load.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/modules-load.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/network 2>/dev/null || log "UNEXPECTED: Could not change /etc/network directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/network/if-down.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-down.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/network/if-post-down.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-post-down.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/network/if-post-up.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-post-up.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/network/if-pre-down.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-pre-down.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/network/if-pre-up.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-pre-up.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/network/if-up.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/network/if-up.d directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/opt 2>/dev/null || log "UNEXPECTED: Could not change /etc/opt directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/periodic 2>/dev/null || log "UNEXPECTED: Could not change /etc/periodic directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/periodic/15min 2>/dev/null || log "UNEXPECTED: Could not change /etc/periodic/15min permission"
-    chroot $mountPoint /bin/chmod 00700 /etc/periodic/daily 2>/dev/null || log "UNEXPECTED: Could not change /etc/periodic/daily permission"
-    chroot $mountPoint /bin/chmod 00700 /etc/periodic/hourly 2>/dev/null || log "UNEXPECTED: Could not change /etc/periodic/hourly permission"
-    chroot $mountPoint /bin/chmod 00700 /etc/periodic/monthly 2>/dev/null || log "UNEXPECTED: Could not change /etc/periodic/monthly permission"
-    chroot $mountPoint /bin/chmod 00700 /etc/periodic/weekly 2>/dev/null || log "UNEXPECTED: Could not change /etc/periodic/weekly permission"
-    chroot $mountPoint /bin/chmod 00000 /etc/pkcs11 2>/dev/null || log "UNEXPECTED: Could not change /etc/pkcs11 directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/profile.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/profile.d directory permissions"
-    chroot $mountPoint /bin/chmod 00705 /etc/runlevels 2>/dev/null || log "UNEXPECTED: Could not change /etc/runlevels directory permissions"
-    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/boot 2>/dev/null || log "UNEXPECTED: Could not change /etc/runlevels/boot directory permissions"
-    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/default 2>/dev/null || log "UNEXPECTED: Could not change /etc/runlevels/default directory permissions"
-    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/nonetwork 2>/dev/null || log "UNEXPECTED: Could not change /etc/runlevels/nonetwork directory permissions"
-    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/shutdown 2>/dev/null || log "UNEXPECTED: Could not change /etc/runlevels/shutdown directory permissions"
-    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/sysinit 2>/dev/null || log "UNEXPECTED: Could not change /etc/runlevels/sysinit directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/secfixes.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/secfixes.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssh directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/ssl 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssl directory permissions"
-    chroot $mountPoint /bin/chmod 00700 /etc/ssl1.1 2>/dev/null || log "UNEXPECTED: Could not change /etc/ssl1.1 directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/sysctl.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/sysctl.d directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/a 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/a directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/d 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/d directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/g 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/g directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/k 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/k directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/l 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/l directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/p 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/p directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/r 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/r directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/s 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/s directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/t 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/t directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/v 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/v directory permissions"
-    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/x 2>/dev/null || log "UNEXPECTED: Could not change /etc/terminfo/x directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/udhcpc 2>/dev/null || log "UNEXPECTED: Could not change /etc/udhcpc directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/zoneinfo 2>/dev/null || log "UNEXPECTED: Could not change /etc/zoneinfo directory permissions"
-    chroot $mountPoint /bin/chmod 00510 /etc/doas.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/security 2>/dev/null || log "UNEXPECTED: Could not change /etc/security directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/security/limits.d 2>/dev/null 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/limits.dy directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/security/namespace.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/security/namespace.d directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/pam.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/pam.d directory permissions"
-    chroot $mountPoint /bin/chmod 00640 /etc/at.allow 2>/dev/null || log "UNEXPECTED: Could not change /etc/at.allow directory permissions"
-    chroot $mountPoint /bin/chmod 00550 /etc/acpi/events 2>/dev/null || log "UNEXPECTED: Could not change /etc/acpi/events directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/ssh/ssh_config.d 2>/dev/null || log "UNEXPECTED: Could not change ssh_config.d directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/ssh/sshd_config.d 2>/dev/null || log "UNEXPECTED: Could not change sshd_config.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change ssh directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/ufw/applications.d permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/iptables 2>/dev/null || log "UNEXPECTED: Could not change /etc/iptables directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/nftables.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/nftables.d directory permissions"
-    chroot $mountPoint /bin/chmod 00000 /etc/fail2ban/fail2ban.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/fail2ban.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/fail2ban/action.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/action.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/fail2ban/filter.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/filter.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/fail2ban/jail.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban/jail.d directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /etc/fail2ban directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/uefi-keys 2>/dev/null || log "UNEXPECTED: Could not change /etc/uefi-keys directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/mkinitfs 2>/dev/null || log "UNEXPECTED: Could not change /etc/mkinitfs directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/mkinitfs/features.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/mkinitfs/features.d directory permissions"
-    chroot $mountPoint /bin/chmod 00500 /etc/kernel-hooks.d 2>/dev/null || log "UNEXPECTED: Could not change /etc/kernel-hooks.d directory permissions"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/access.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; access.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/faillock.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; faillock.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/group.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; group.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/limits.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; limits.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/namespace.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; permissions for; namespace.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/namespace.init 2>/dev/null || log "UNEXPECTED: Could not change permissions for; permissions for; namespace.init"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/pam_env.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; permissions for; pam_env.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/pwhistory.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; permissions for; pwhistory.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/time.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; time.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/chsh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chsh"
+    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/shadow-utils 2>/dev/null || log "UNEXPECTED: Could not change permissions for; shadow-utils"
+    chroot $mountPoint /bin/chmod 0440 /etc/doas.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; doas.conf"
+    chroot $mountPoint /bin/chmod 0510 /etc/acpi/handler.sh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; handler.sh"
+    chroot $mountPoint /bin/chmod 0440 /etc/acpi/events/anything 2>/dev/null || log "UNEXPECTED: Could not change permissions for; anything"
+    chroot $mountPoint /bin/chmod 0440 /etc/alpine-release 2>/dev/null || log "UNEXPECTED: Could not change permissions for; alpine-release"
+    chroot $mountPoint /bin/chmod 0400 /etc/e2scrub.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; e2scrub.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fstab"
+    chroot $mountPoint /bin/chmod 0640 /etc/group 2>/dev/null || log "UNEXPECTED: Could not change permissions for; group"
+    chroot $mountPoint /bin/chmod 0640 /etc/group- 2>/dev/null || log "UNEXPECTED: Could not change permissions for; group-"
+    chroot $mountPoint /bin/chmod 0404 /etc/hostname 2>/dev/null || log "UNEXPECTED: Could not change permissions for; hostname"
+    chroot $mountPoint /bin/chmod 0440 /etc/hosts 2>/dev/null || log "UNEXPECTED: Could not change permissions for; hosts"
+    chroot $mountPoint /bin/chmod 0400 /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not change permissions for; inittab"
+    chroot $mountPoint /bin/chmod 0404 /etc/inputrc 2>/dev/null || log "UNEXPECTED: Could not change permissions for; inputrc"
+    chroot $mountPoint /bin/chmod 0440 /etc/issue 2>/dev/null || log "UNEXPECTED: Could not change permissions for; issue"
+    chroot $mountPoint /bin/chmod 0400 /etc/mdev.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mdev.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/mke2fs.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mke2fs.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; modules"
+    chroot $mountPoint /bin/chmod 0404 /etc/motd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; modules"
+    chroot $mountPoint /bin/chmod 0440 /etc/nsswitch.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nsswitch.conf"
+    chroot $mountPoint /bin/chmod 0604 /etc/passwd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; passwd"
+    chroot $mountPoint /bin/chmod 0604 /etc/passwd- 2>/dev/null || log "UNEXPECTED: Could not change permissions for; passwd-"
+    chroot $mountPoint /bin/chmod 0400 /etc/profile 2>/dev/null || log "UNEXPECTED: Could not change permissions for; profile"
+    chroot $mountPoint /bin/chmod 0400 /etc/protocols 2>/dev/null || log "UNEXPECTED: Could not change permissions for; protocols"
+    chroot $mountPoint /bin/chmod 0400 /etc/rc.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; rc.conf"
+    chroot $mountPoint /bin/chmod 0404 /etc/resolv.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; resolv.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/securetty 2>/dev/null || log "UNEXPECTED: Could not change permissions for; securetty"
+    chroot $mountPoint /bin/chmod 0400 /etc/services 2>/dev/null || log "UNEXPECTED: Could not change permissions for; services"
+    chroot $mountPoint /bin/chmod 0640 /etc/shadow 2>/dev/null || log "UNEXPECTED: Could not change permissions for; shadow"
+    chroot $mountPoint /bin/chmod 0640 /etc/shadow- 2>/dev/null || log "UNEXPECTED: Could not change permissions for; shadow-"
+    chroot $mountPoint /bin/chmod 0400 /etc/shells 2>/dev/null || log "UNEXPECTED: Could not change permissions for; shells"
+    chroot $mountPoint /bin/chmod 0400 /etc/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysctl.conf"
+    chroot $mountPoint /bin/chmod 0550 /etc/acpi/PWRF/00000080 2>/dev/null || log "UNEXPECTED: Could not change permissions for; 00000080"
+    chroot $mountPoint /bin/chmod 0600 /etc/apk/arch 2>/dev/null || log "UNEXPECTED: Could not change permissions for; arch"
+    chroot $mountPoint /bin/chmod 0400 /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not change permissions for; repositories"
+    chroot $mountPoint /bin/chmod 0644 /etc/apk/world 2>/dev/null || log "UNEXPECTED: Could not change permissions for; world file permissions to there default"
+    chroot $mountPoint /bin/chmod 0644 /etc/busybox-paths.d/busybox 2>/dev/null || log "UNEXPECTED: Could not change permissions for; busybox"
+    chroot $mountPoint /bin/chmod 0604 /etc/chrony/chrony.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chrony.conf"
+    chroot $mountPoint /bin/chmod 0600 /etc/crontabs/root 2>/dev/null || log "UNEXPECTED: Could not change permissions for; root"
+    chroot $mountPoint /bin/chmod 0600 /etc/keymap/us.bmap.gz 2>/dev/null || log "UNEXPECTED: Could not change permissions for; us.bmap.gz"
+    chroot $mountPoint /bin/chmod 0000 /etc/lvm/lvm.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lvm.conf"
+    chroot $mountPoint /bin/chmod 0600 /etc/lvm/lvmlocal.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lvmlocal.conf"
+    chroot $mountPoint /bin/chmod 0750 /etc/network/if-pre-up.d/bridge 2>/dev/null || log "UNEXPECTED: Could not change permissions for; bridge"
+    chroot $mountPoint /bin/chmod 0750 /etc/network/if-up.d/dad 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dad"
+    chroot $mountPoint /bin/chmod 0600 /etc/secfixes.d/alpine 2>/dev/null || log "UNEXPECTED: Could not change permissions for; alpine"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/acpid 2>/dev/null || log "UNEXPECTED: Could not change permissions for; acpid"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/atd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; atd"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/binfmt 2>/dev/null || log "UNEXPECTED: Could not change permissions for; binfmt"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/bootmisc 2>/dev/null || log "UNEXPECTED: Could not change permissions for; bootmisc"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/cgroups 2>/dev/null || log "UNEXPECTED: Could not change permissions for; cgroups"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/chronyd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chronyd"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/consolefont 2>/dev/null || log "UNEXPECTED: Could not change permissions for; consolefont"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/crond 2>/dev/null || log "UNEXPECTED: Could not change permissions for; crond"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/devfs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; devfs"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/dmesg 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dmesg"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/firstboot 2>/dev/null || log "UNEXPECTED: Could not change permissions for; firstboot"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/fsck 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fsck"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/hostname 2>/dev/null || log "UNEXPECTED: Could not change permissions for; hostname"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/hwclock 2>/dev/null || log "UNEXPECTED: Could not change permissions for; hwclock"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/hwdrivers 2>/dev/null || log "UNEXPECTED: Could not change permissions for; hwdrivers"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/killprocs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; killprocs"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/klogd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; klogd"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/loadkmap 2>/dev/null || log "UNEXPECTED: Could not change permissions for; loadkmap"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/local 2>/dev/null || log "UNEXPECTED: Could not change permissions for; local"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/localmount 2>/dev/null || log "UNEXPECTED: Could not change permissions for; localmount"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/loopback 2>/dev/null || log "UNEXPECTED: Could not change permissions for; loopback"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/lvm 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lvm"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/machine-id 2>/dev/null || log "UNEXPECTED: Could not change permissions for; machine-id"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/mdev 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mdev"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/modloop 2>/dev/null || log "UNEXPECTED: Could not change permissions for; modloop"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/mount-ro 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mount-ro"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/mtab 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mtab"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/net-online 2>/dev/null || log "UNEXPECTED: Could not change permissions for; net-online"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/netmount 2>/dev/null || log "UNEXPECTED: Could not change permissions for; netmount"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/networking 2>/dev/null || log "UNEXPECTED: Could not change permissions for; networking"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ntpd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ntpd"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/numlock 2>/dev/null || log "UNEXPECTED: Could not change permissions for; numlock"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/osclock 2>/dev/null || log "UNEXPECTED: Could not change permissions for; osclock"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/procfs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; procfs"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/rdate 2>/dev/null || log "UNEXPECTED: Could not change permissions for; rdate"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/root 2>/dev/null || log "UNEXPECTED: Could not change permissions for; root"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/runsvdir 2>/dev/null || log "UNEXPECTED: Could not change permissions for; runsvdir"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/s6-svscan 2>/dev/null || log "UNEXPECTED: Could not change permissions for; s6-svscan"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/save-keymaps 2>/dev/null || log "UNEXPECTED: Could not change permissions for; save-keymaps"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/save-termencoding 2>/dev/null || log "UNEXPECTED: Could not change permissions for; save-termencoding"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/savecache 2>/dev/null || log "UNEXPECTED: Could not change permissions for; savecache"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/seedrng 2>/dev/null || log "UNEXPECTED: Could not change permissions for; seedrng"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sshd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/staticroute 2>/dev/null || log "UNEXPECTED: Could not change permissions for; staticroute"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/swap 2>/dev/null || log "UNEXPECTED: Could not change permissions for; swap"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/swclock 2>/dev/null || log "UNEXPECTED: Could not change permissions for; swclock"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sysctl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysctl"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sysfs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysfs"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/sysfsconf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysfsconf"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/syslog 2>/dev/null || log "UNEXPECTED: Could not change permissions for; syslog"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/termencoding 2>/dev/null || log "UNEXPECTED: Could not change permissions for; termencoding"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/user 2>/dev/null || log "UNEXPECTED: Could not change permissions for; user"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/watchdog 2>/dev/null || log "UNEXPECTED: Could not change permissions for; watchdog"
+    chroot $mountPoint /bin/chmod 0440 /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; daemon.conf"
+    chroot $mountPoint /bin/chmod 0440 /etc/doas.d/tempUser.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; tempUser.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd_config"
+    chroot $mountPoint /bin/chmod 0440 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh_config"
+    chroot $mountPoint /bin/chmod 0440 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change permissions for; moduli"
+    chroot $mountPoint /bin/chmod 0440 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw in default"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh ufw profile"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; apk ufw profile"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ntp ufw profile"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dns ufw profile"
+    chroot $mountPoint /bin/chmod 0550 /etc/ufw/before.init 2>/dev/null || log "UNEXPECTED: Could not change permissions for; before.init"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/before.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; before.rules"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/before6.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; before6.rules"
+    chroot $mountPoint /bin/chmod 0550 /etc/ufw/after.init 2>/dev/null || log "UNEXPECTED: Could not change permissions for; after.init"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/after.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; after.rules"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/after6.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; after6.rules"
+    chroot $mountPoint /bin/chmod 0640 /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; user.rules"
+    chroot $mountPoint /bin/chmod 0640 /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; user6.rules"
+    chroot $mountPoint /bin/chmod 0640 /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw.conf"
+    chroot $mountPoint /bin/chmod 0440 /etc/ufw/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysctl.conf"
+    chroot $mountPoint /bin/chmod 0440 /etc/ethertypes 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ethertypes"
+    chroot $mountPoint /bin/chmod 0440 /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nftables.nft"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/nftables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nftables"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/iptables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ip6tables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ip6tables"
+    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ebtables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ebtables"
+    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/jail.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; jail.conf"
+    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/paths-common.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; common-paths"
+    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/paths-debian.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for;"
+    chroot $mountPoint /bin/chmod 0440 /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logrotate.conf"
+    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/jail.d/alpine-ssh.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; alpine-ssh.conf"
+    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/jail.local 2>/dev/null || log "UNEXPECTED: Could not change permissions for; jail.local"
+    chroot $mountPoint /bin/chmod 0440 /etc/fail2ban/fail2ban.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban.conf"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.auth 2>/dev/null || log "UNEXPECTED: Could not change permissions for; KEK.auth"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.cer 2>/dev/null || log "UNEXPECTED: Could not change permissions for; KEK.cer"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.crt 2>/dev/null || log "UNEXPECTED: Could not change permissions for; KEK.crt"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.esl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; KEK.esl"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/KEK.key 2>/dev/null || log "UNEXPECTED: Could not change permissions for; KEK.key"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.auth 2>/dev/null || log "UNEXPECTED: Could not change permissions for; PK.auth"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.cer 2>/dev/null || log "UNEXPECTED: Could not change permissions for; PK.cer"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.crt 2>/dev/null || log "UNEXPECTED: Could not change permissions for; PK.crt"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.esl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; PK.esl"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/PK.key 2>/dev/null || log "UNEXPECTED: Could not change permissions for; PK.key"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.auth 2>/dev/null || log "UNEXPECTED: Could not change permissions for; db.auth"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.cer 2>/dev/null || log "UNEXPECTED: Could not change permissions for; db.cer"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.crt 2>/dev/null || log "UNEXPECTED: Could not change permissions for; db.crt"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.esl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; db.esl"
+    chroot $mountPoint /bin/chmod 0500 /etc/uefi-keys/db.key 2>/dev/null || log "UNEXPECTED: Could not change permissions for; db.key"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mkinitfs.conf"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/base.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; base.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/bootchart.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; bootchart.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/btrfs.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; btrfs.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cryptkey.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; cryptkey.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cryptsetup.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; cryptsetup.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dhcp.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dhcp.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/https.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; https.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/keymap.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; keymap.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm-thin.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lvm-thin.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lvm.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/memdisk.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; memdisk.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nbd.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nbd.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/network.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; network.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/raid.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; raid.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/wireguard.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; wireguard.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xfs.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xfs.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfs.files 2>/dev/null || log "UNEXPECTED: Could not change permissions for; zfs.files"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/9p.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; 9p.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/aoe.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; aoe.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ata.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ata.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/base.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; base.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/btrfs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; btrfs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cdrom.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; cdrom.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cramfs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; cramfs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/cryptsetup.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; cryptsetup.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dasd_mod.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dasd_mod.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/dhcp.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dhcp.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ena.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ena.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext2.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ext2.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext3.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ext3.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ext4.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ext4.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/f2fs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; f2fs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/floppy.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; floppy.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/gfs2.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; gfs2.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/jfs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; jfs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/kms.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; kms.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/lvm.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lvm.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/memdisk.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; memdisk.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/mmc.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mmc.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nbd.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nbd.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/network.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; network.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nfit.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nfit.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/nvme.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nvme.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ocfs2.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ocfs2.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/phy.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; phy.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/qeth.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; qeth.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/raid.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; raid.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/reiserfs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; reiserfs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/scsi.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; scsi.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/squashfs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; squashfs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/ubifs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ubifs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/usb.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; usb.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/virtio.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; virtio.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/wireguard.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; wireguard.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xenpci.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xenpci.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/xfs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xfs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfcp.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; zfcp.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/mkinitfs/features.d/zfs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; zfs.modules"
+    chroot $mountPoint /bin/chmod 0500 /etc/kernel-hooks.d/README 2>/dev/null || log "UNEXPECTED: Could not change permissions for; README"
+    chroot $mountPoint /bin/chmod 0500 /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; secureboot.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/chsh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chsh"
+    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/shadow-utils 2>/dev/null || log "UNEXPECTED: Could not change permissions for; shadow-utils"
+    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/sshd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd"
+    chroot $mountPoint /bin/chmod 0400 /etc/pam.d/su-l 2>/dev/null || log "UNEXPECTED: Could not change permissions for; su-l"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/access.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; access.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/faillock.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; faillock.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/group.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; group.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/limits.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; limits.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/namespace.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; namespace.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/namespace.init 2>/dev/null || log "UNEXPECTED: Could not change permissions for; namespace.init"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/pam_env.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pam_env.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/pwhistory.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pwhistory.conf"
+    chroot $mountPoint /bin/chmod 0400 /etc/security/time.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; time.conf"
+    chroot $mountPoint /bin/chmod 00550 /etc/acpi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; acpi"
+    chroot $mountPoint /bin/chmod 00550 /etc/acpi/PWRF 2>/dev/null || log "UNEXPECTED: Could not change permissions for; PWRF"
+    chroot $mountPoint /bin/chmod 00700 /etc/apk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; apk"
+    chroot $mountPoint /bin/chmod 00700 /etc/apk/keys 2>/dev/null || log "UNEXPECTED: Could not change permissions for; keys"
+    chroot $mountPoint /bin/chmod 00000 /etc/apk/protected_paths.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; protected_paths.d"
+    chroot $mountPoint /bin/chmod 00700 /etc/busybox-paths.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; busybox-paths.d"
+    chroot $mountPoint /bin/chmod 00700 /etc/chrony 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chrony"
+    chroot $mountPoint /bin/chmod 00750 /etc/conf.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; conf.d"
+    chroot $mountPoint /bin/chmod 00700 /etc/crontabs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; crontabs"
+    chroot $mountPoint /bin/chmod 00701 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change permissions for; default"
+    chroot $mountPoint /bin/chmod 00700 /etc/init.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; init.d"
+    chroot $mountPoint /bin/chmod 00700 /etc/keymap 2>/dev/null || log "UNEXPECTED: Could not change permissions for; keymap"
+    chroot $mountPoint /bin/chmod 00000 /etc/lbu 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lbu"
+    chroot $mountPoint /bin/chmod 00700 /etc/local.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; local.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/logrotate.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logrotate.d"
+    chroot $mountPoint /bin/chmod 00710 /etc/lvm 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lvm"
+    chroot $mountPoint /bin/chmod 00750 /etc/lvm/archive 2>/dev/null || log "UNEXPECTED: Could not change permissions for; archive"
+    chroot $mountPoint /bin/chmod 00750 /etc/lvm/backup 2>/dev/null || log "UNEXPECTED: Could not change permissions for; backup"
+    chroot $mountPoint /bin/chmod 00750 /etc/lvm/profile 2>/dev/null || log "UNEXPECTED: Could not change permissions for; profile"
+    chroot $mountPoint /bin/chmod 00700 /etc/modprobe.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; modprobe.d"
+    chroot $mountPoint /bin/chmod 00000 /etc/modules-load.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; modules-load.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/network 2>/dev/null || log "UNEXPECTED: Could not change permissions for; network"
+    chroot $mountPoint /bin/chmod 00750 /etc/network/if-down.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; if-down.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/network/if-post-down.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; if-post-down.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/network/if-post-up.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; if-post-up.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/network/if-pre-down.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; if-pre-down.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/network/if-pre-up.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; if-pre-up.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/network/if-up.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; if-up.d"
+    chroot $mountPoint /bin/chmod 00000 /etc/opt 2>/dev/null || log "UNEXPECTED: Could not change permissions for; opt"
+    chroot $mountPoint /bin/chmod 00700 /etc/periodic 2>/dev/null || log "UNEXPECTED: Could not change permissions for; periodic"
+    chroot $mountPoint /bin/chmod 00700 /etc/periodic/15min 2>/dev/null || log "UNEXPECTED: Could not change permissions for; 15min permission"
+    chroot $mountPoint /bin/chmod 00700 /etc/periodic/daily 2>/dev/null || log "UNEXPECTED: Could not change permissions for; daily permission"
+    chroot $mountPoint /bin/chmod 00700 /etc/periodic/hourly 2>/dev/null || log "UNEXPECTED: Could not change permissions for; hourly permission"
+    chroot $mountPoint /bin/chmod 00700 /etc/periodic/monthly 2>/dev/null || log "UNEXPECTED: Could not change permissions for; monthly permission"
+    chroot $mountPoint /bin/chmod 00700 /etc/periodic/weekly 2>/dev/null || log "UNEXPECTED: Could not change permissions for; weekly permission"
+    chroot $mountPoint /bin/chmod 00000 /etc/pkcs11 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pkcs11"
+    chroot $mountPoint /bin/chmod 00500 /etc/profile.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; profile.d"
+    chroot $mountPoint /bin/chmod 00705 /etc/runlevels 2>/dev/null || log "UNEXPECTED: Could not change permissions for; runlevels"
+    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/boot 2>/dev/null || log "UNEXPECTED: Could not change permissions for; boot"
+    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/default 2>/dev/null || log "UNEXPECTED: Could not change permissions for; default"
+    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/nonetwork 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nonetwork"
+    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/shutdown 2>/dev/null || log "UNEXPECTED: Could not change permissions for; shutdown"
+    chroot $mountPoint /bin/chmod 00705 /etc/runlevels/sysinit 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysinit"
+    chroot $mountPoint /bin/chmod 00700 /etc/secfixes.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; secfixes.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh"
+    chroot $mountPoint /bin/chmod 00700 /etc/ssl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssl"
+    chroot $mountPoint /bin/chmod 00700 /etc/ssl1.1 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssl1.1"
+    chroot $mountPoint /bin/chmod 00500 /etc/sysctl.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysctl.d"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo 2>/dev/null || log "UNEXPECTED: Could not change permissions for; terminfo"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/a 2>/dev/null || log "UNEXPECTED: Could not change permissions for; a"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; d"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/g 2>/dev/null || log "UNEXPECTED: Could not change permissions for; g"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/k 2>/dev/null || log "UNEXPECTED: Could not change permissions for; k"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/l 2>/dev/null || log "UNEXPECTED: Could not change permissions for; l"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/p 2>/dev/null || log "UNEXPECTED: Could not change permissions for; p"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/r 2>/dev/null || log "UNEXPECTED: Could not change permissions for; r"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/s 2>/dev/null || log "UNEXPECTED: Could not change permissions for; s"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/t 2>/dev/null || log "UNEXPECTED: Could not change permissions for; t"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/v 2>/dev/null || log "UNEXPECTED: Could not change permissions for; v"
+    chroot $mountPoint /bin/chmod 00755 /etc/terminfo/x 2>/dev/null || log "UNEXPECTED: Could not change permissions for; x"
+    chroot $mountPoint /bin/chmod 00000 /etc/udhcpc 2>/dev/null || log "UNEXPECTED: Could not change permissions for; udhcpc"
+    chroot $mountPoint /bin/chmod 00500 /etc/zoneinfo 2>/dev/null || log "UNEXPECTED: Could not change permissions for; zoneinfo"
+    chroot $mountPoint /bin/chmod 00510 /etc/doas.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; doas.d"
+    chroot $mountPoint /bin/chmod 00500 /etc/security 2>/dev/null || log "UNEXPECTED: Could not change permissions for; security"
+    chroot $mountPoint /bin/chmod 00000 /etc/security/limits.d 2>/dev/null 2>/dev/null || log "UNEXPECTED: Could not change permissions for; limits.dy"
+    chroot $mountPoint /bin/chmod 00000 /etc/security/namespace.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; namespace.d"
+    chroot $mountPoint /bin/chmod 00500 /etc/pam.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pam.d"
+    chroot $mountPoint /bin/chmod 00640 /etc/at.allow 2>/dev/null || log "UNEXPECTED: Could not change permissions for; at.allow"
+    chroot $mountPoint /bin/chmod 00550 /etc/acpi/events 2>/dev/null || log "UNEXPECTED: Could not change permissions for; events"
+    chroot $mountPoint /bin/chmod 00000 /etc/ssh/ssh_config.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh_config.d"
+    chroot $mountPoint /bin/chmod 00000 /etc/ssh/sshd_config.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd_config.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh"
+    chroot $mountPoint /bin/chmod 00750 /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
+    chroot $mountPoint /bin/chmod 00750 /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; applications.d"
+    chroot $mountPoint /bin/chmod 00000 /etc/iptables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables"
+    chroot $mountPoint /bin/chmod 00000 /etc/nftables.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nftables.d"
+    chroot $mountPoint /bin/chmod 00000 /etc/fail2ban/fail2ban.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/fail2ban/action.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; action.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/fail2ban/filter.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; filter.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/fail2ban/jail.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; jail.d"
+    chroot $mountPoint /bin/chmod 00750 /etc/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban"
+    chroot $mountPoint /bin/chmod 00500 /etc/uefi-keys 2>/dev/null || log "UNEXPECTED: Could not change permissions for; uefi-keys"
+    chroot $mountPoint /bin/chmod 00500 /etc/mkinitfs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mkinitfs"
+    chroot $mountPoint /bin/chmod 00500 /etc/mkinitfs/features.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; features.d"
+    chroot $mountPoint /bin/chmod 00500 /etc/kernel-hooks.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; kernel-hooks.d"
 
     log "INFO: Changing anything else remaining in /usr"
 # /usr/lib/pam.d/base-account
@@ -1980,61 +1966,61 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
 # /usr/lib/security/pam_warn.so
 # /usr/lib/security/pam_wheel.so
 # /usr/lib/security/pam_xauth.so
-    chroot $mountPoint /bin/chmod 0640 /usr/lib/os-release 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/os-release file permissions for /etc/os-release"
-    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init file permissions"
-    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw/ufw-init-functions file permissions"
-    chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sftp-server 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ssh/sftp-server file permissions"
-    chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/ssh-pkcs11-helper 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ssh/ssh-pkcs11-helper file permissions"
-    chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sshd-auth 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ssh/sshd-auth file permissions"
-    chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sshd-session 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ssh/sshd-session file permissions"
-    chroot $mountPoint /bin/chmod 0444 "/usr/share/zoneinfo/$timezone" 2>/dev/null || log "UNEXPECTED: Could not change /usr/share/zoneinfo/$timezone file permissions for /etc/localtime"
-    chroot $mountPoint /bin/chmod 500 /usr/share/kernel-hooks.d/secureboot.hook 2>/dev/null || log "UNEXPECTED: Could not change /usr/share/kernel-hooks.d/secureboot.hook file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
-    chroot $mountPoint /bin/chmod 00750 /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change /usr/lib/ufw folder permissions"
-    chroot $mountPoint /bin/chmod 00500 /usr/share/kernel-hooks.d 2>/dev/null || log "UNEXPECTED: Could not change /usr/share/kernel-hooks.d file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
+    chroot $mountPoint /bin/chmod 0640 /usr/lib/os-release 2>/dev/null || log "UNEXPECTED: Could not change permissions for; os-release file permissions for /etc/os-release"
+    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw-init"
+    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw-init-functions"
+    chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sftp-server 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sftp-server"
+    chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/ssh-pkcs11-helper 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh-pkcs11-helper"
+    chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sshd-auth 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd-auth"
+    chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sshd-session 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd-session"
+    chroot $mountPoint /bin/chmod 0444 "/usr/share/zoneinfo/$timezone" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/share/zoneinfo/$timezone file permissions for /etc/localtime"
+    chroot $mountPoint /bin/chmod 500 /usr/share/kernel-hooks.d/secureboot.hook 2>/dev/null || log "UNEXPECTED: Could not change permissions for; secureboot.hook file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
+    chroot $mountPoint /bin/chmod 00750 /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
+    chroot $mountPoint /bin/chmod 00500 /usr/share/kernel-hooks.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; kernel-hooks.d file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
 
     log "INFO: Changing anything else remaining in /var"
-    chroot $mountPoint /bin/chmod 00750 /var/run/acpid 2>/dev/null || log "UNEXPECTED: Could not change /var/run/acpid directory permissions"
-    chroot $mountPoint /bin/chmod 00750 /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not change /var/run/sshd directory permissions"
-    chroot $mountPoint /bin/chmod 0240 /var/log/sshd.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/sshd.log file permissions"
-    chroot $mountPoint /bin/chmod 0750 /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change /var/run/fail2ban directory permissions"
-    chroot $mountPoint /bin/chmod 0240 /var/log/acpid.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/acpid.log file permissions"
-    chroot $mountPoint /bin/chmod 0240 /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/chronyd.log file permissions"
-    chroot $mountPoint /bin/chmod 240 /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not change /var/log/fail2ban.log file permissions"
-    chroot $mountPoint /bin/chmod 0640 /var/log/messages 2>/dev/null || log "UNEXPECTED: Could not change /var/log/messages file permissions"
-    chroot $mountPoint /bin/chmod 0460 /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change /var/lib/fail2ban/fail2ban.sqlite3 file permissions"
+    chroot $mountPoint /bin/chmod 00750 /var/run/acpid 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/run/acpid directory permissions"
+    chroot $mountPoint /bin/chmod 00750 /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/run/sshd directory permissions"
+    chroot $mountPoint /bin/chmod 0240 /var/log/sshd.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/log/sshd.log file permissions"
+    chroot $mountPoint /bin/chmod 0750 /var/run/fail2ban 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/run/fail2ban directory permissions"
+    chroot $mountPoint /bin/chmod 0240 /var/log/acpid.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/log/acpid.log file permissions"
+    chroot $mountPoint /bin/chmod 0240 /var/log/chronyd.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/log/chronyd.log file permissions"
+    chroot $mountPoint /bin/chmod 240 /var/log/fail2ban.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/log/fail2ban.log file permissions"
+    chroot $mountPoint /bin/chmod 0640 /var/log/messages 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/log/messages file permissions"
+    chroot $mountPoint /bin/chmod 0460 /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /var/lib/fail2ban/fail2ban.sqlite3 file permissions"
 
     log "INFO: Setting home files and directories"
-    chroot $mountPoint /bin/chmod 00500 /root 2>/dev/null || log "UNEXPECTED: Could not change /root directory permissions to read only"
-    chroot $mountPoint /bin/chmod 00550 /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/ directory permissions"
+    chroot $mountPoint /bin/chmod 00500 /root 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /root directory permissions to read only"
+    chroot $mountPoint /bin/chmod 00550 /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/.keys/"
         # Permissions of: SSH authorization directories, SSH authorization file
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
-        chroot $mountPoint /bin/chmod 00550 "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i directory permissions"
-        chroot $mountPoint /bin/chmod 00510 "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev directory permissions"
-#        chroot $mountPoint /bin/chmod 0510 "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev/log file permissions"
-        chroot $mountPoint /bin/chmod 00501 "/home/.keys/$i/" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$i/ directory permissions"
-        chroot $mountPoint /bin/chmod 0404 "/home/.keys/$i/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change /home/.keys/$i/authorized_keys file permission"
+        chroot $mountPoint /bin/chmod 00550 "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i"
+        chroot $mountPoint /bin/chmod 00510 "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/dev"
+#        chroot $mountPoint /bin/chmod 0510 "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/dev/log"
+        chroot $mountPoint /bin/chmod 00501 "/home/.keys/$i/" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/.keys/$i/"
+        chroot $mountPoint /bin/chmod 0404 "/home/.keys/$i/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/.keys/$i/authorized_keys"
     done
 		# SSH private key permissions for each user
     for i in $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
-        chroot $mountPoint /bin/chmod 0400 "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change /home/$extractUsername/$localhostName.$i-key file permissions"
+        chroot $mountPoint /bin/chmod 0400 "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$extractUsername/$localhostName.$i-key"
     done
 		# SSH chroot environment with shell
     for i in $previewUsername $serverCommandUsername; do
-        chroot $mountPoint /bin/chmod 00501 "/home/$i/usr" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr directory permission"
-        chroot $mountPoint /bin/chmod 00501 "/home/$i/usr/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib directory permission"
-        chroot $mountPoint /bin/chmod 00501 "/home/$i/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib directory permission"
-        chroot $mountPoint /bin/chmod 00501 "/home/$i/bin" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin directory permission"
-        chroot $mountPoint /bin/chmod 00000 "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev/pts directory permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/rksh file permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/echo file permission"
-        chroot $mountPoint /bin/chmod 0550 "/home/$i/bin/greeting.ksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/greeting.ksh file permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib/ld-musl-aarch64.so.1 file permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libncursesw.so.6 file permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libcrypto.so.3 file permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libacl.so.1 file permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libattr.so.1 file permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libutmps.so.0.1 file permission"
-        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libskarnet.so.2.14 file permission"
+        chroot $mountPoint /bin/chmod 00501 "/home/$i/usr" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/usr"
+        chroot $mountPoint /bin/chmod 00501 "/home/$i/usr/lib" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/usr/lib"
+        chroot $mountPoint /bin/chmod 00501 "/home/$i/lib" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/lib"
+        chroot $mountPoint /bin/chmod 00501 "/home/$i/bin" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/bin"
+        chroot $mountPoint /bin/chmod 00000 "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/dev/pts"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/bin/rksh"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/bin/echo"
+        chroot $mountPoint /bin/chmod 0550 "/home/$i/bin/greeting.ksh" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/bin/greeting.ksh"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/lib/ld-musl-aarch64.so.1"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/usr/lib/libncursesw.so.6"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/usr/lib/libcrypto.so.3"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/usr/lib/libacl.so.1"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/usr/lib/libattr.so.1"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/usr/lib/libutmps.so.0.1"
+        chroot $mountPoint /bin/chmod 0000 "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i/usr/lib/libskarnet.so.2.14"
     done
 
     log "INFO: Finalalizing directory permissions"
@@ -2043,7 +2029,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 00701 /usr 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr"
     chroot $mountPoint /bin/chmod 00701 /usr/bin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/bin"
     chroot $mountPoint /bin/chmod 00701 /usr/sbin/ 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/sbin"
-    chroot $mountPoint /bin/chmod 00751 /etc 2>/dev/null || log "UNEXPECTED: Could not make it harder to use /etc directory"
+    chroot $mountPoint /bin/chmod 00751 /etc 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /etc directory"
     chroot $mountPoint /bin/chmod 00701 /var 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var"
     chroot $mountPoint /bin/chmod 00501 /home 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home"
     chroot $mountPoint /bin/chmod 00500 /root 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /root"
@@ -2124,33 +2110,33 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chown root:sshpub /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys"
         # Ownership of: SSH authorization directories, SSH authorization file
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
-        chroot $mountPoint /bin/chown "root:$i" "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$i"
-        chroot $mountPoint /bin/chown "$i:$i" "/home/.keys/$i" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$i"
-        chroot $mountPoint /bin/chown "root:$i" "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$i/dev"
-#        chroot $mountPoint /bin/chown "root:$i" "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$i/dev/log"
-        chroot $mountPoint /bin/chown "$i:$i" "/home/.keys/$i/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys/$i/authorized_keys"
+        chroot $mountPoint /bin/chown "root:$i" "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i"
+        chroot $mountPoint /bin/chown "$i:$i" "/home/.keys/$i" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/.keys/$i"
+        chroot $mountPoint /bin/chown "root:$i" "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/dev"
+#        chroot $mountPoint /bin/chown "root:$i" "/home/$i/dev/log" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/dev/log"
+        chroot $mountPoint /bin/chown "$i:$i" "/home/.keys/$i/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/.keys/$i/authorized_keys"
     done
 		# SSH private key ownership for each user
     for i in $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
-        chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/$extractUsername/$localhostName.$i-key"
+        chroot $mountPoint /bin/chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$extractUsername/$localhostName.$i-key"
     done
 		# SSH chroot environment with shell
     for i in $previewUsername $serverCommandUsername; do
-        chroot $mountPoint /bin/chown root:root "/home/$i/usr" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr directory ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib directory ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/lib" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib directory ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/bin" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin directory ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/dev/pts directory ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/rksh file ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/echo file ownership"
-        chroot $mountPoint /bin/chown "root:$i" "/home/$i/bin/greeting.ksh" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/bin/greeting.ksh file ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/lib/ld-musl-aarch64.so.1 file ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libncursesw.so.6 file ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libcrypto.so.3 file ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libacl.so.1 file ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libattr.so.1 file ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libutmps.so.0.1 file ownership"
-        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change /home/$i/usr/lib/libskarnet.so.2.14 file ownership"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib"
+        chroot $mountPoint /bin/chown root:root "/home/$i/lib" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/lib"
+        chroot $mountPoint /bin/chown root:root "/home/$i/bin" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/bin"
+        chroot $mountPoint /bin/chown root:root "/home/$i/dev/pts" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/dev/pts"
+        chroot $mountPoint /bin/chown root:root "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/bin/rksh"
+        chroot $mountPoint /bin/chown root:root "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/bin/echo"
+        chroot $mountPoint /bin/chown "root:$i" "/home/$i/bin/greeting.ksh" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/bin/greeting.ksh"
+        chroot $mountPoint /bin/chown root:root "/home/$i/lib/ld-musl-aarch64.so.1" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/lib/ld-musl-aarch64.so.1"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libncursesw.so.6" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libncursesw.so.6"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libcrypto.so.3" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libcrypto.so.3"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libacl.so.1" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libacl.so.1"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libattr.so.1" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libattr.so.1"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libutmps.so.0.1"
+        chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libskarnet.so.2.14"
     done
 
     log "INFO: Granting root capabilities to certain executables" # Changing file ownership removes prior capabilities, thus is belongs here
@@ -2158,10 +2144,10 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /usr/sbin/setcap "cap_net_admin=pe" /usr/sbin/xtables-nft-multi 2>/dev/null || log "CRITICAL: Could not give xtables-nft-multi executable the capability to modify system firewall configurations"
 
     log "INFO: Recognizing rc service files"
-    chroot $mountPoint /sbin/rc-update add sshd default 2>/dev/null || log "UNEXPECTED: Could not add sshd to boot"
-    chroot $mountPoint /usr/sbin/ufw enable 2>/dev/null || log "UNEXPECTED: ufw could not be enabled"
-    chroot $mountPoint /sbin/rc-update add ufw default 2>/dev/null || log "UNEXPECTED: Could not add ufw to launch automatically"
-    chroot $mountPoint /sbin/rc-update add fail2ban default 2>/dev/null || log "INFO: Fail2ban was already added to boot"
+    chroot $mountPoint /sbin/rc-update add sshd default 2>/dev/null || log "UNEXPECTED: Could not add sshd to default with rc-update"
+    chroot $mountPoint /usr/sbin/ufw enable 2>/dev/null || log "UNEXPECTED: ufw could not be enabled from itself"
+    chroot $mountPoint /sbin/rc-update add ufw default 2>/dev/null || log "UNEXPECTED: Could not add ufw to default with rc-update"
+    chroot $mountPoint /sbin/rc-update add fail2ban default 2>/dev/null || log "INFO: Could not add fail2ban to default with rc-update"
 
     log "INFO: Restarting services and mounts"
     chroot $mountPoint /bin/mount -a 2>/dev/null || log "UNEXPECTED: Could not properly ensure everything has been mounted accordingly"
@@ -2680,7 +2666,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "^KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KexAlgorithms!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^MACs hmac-sha2-512-etm@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; MACs!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; PubkeyAcceptedKeyTypes!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^AllowUsers $previewUsername@$localNetwork/$localNetmask $backupUsername@$localNetwork/$localNetmask $serverCommandUsername@$localNetwork/$localNetmask $monitorUsername@$localNetwork/$localNetmask" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured; AllowUsers!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^AllowUsers $previewUsername@$localGateway/$localNetmask $backupUsername@$localGateway/$localNetmask $serverCommandUsername@$localGateway/$localNetmask $monitorUsername@$localGateway/$localNetmask" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured; AllowUsers!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^Port $sshPort" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; Port number!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^HostKey \/etc\/ssh\/ssh_host_ed25519_key" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; HostKey!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedKeysFile!"; fi
@@ -3565,8 +3551,8 @@ main() {
     interpretArgs $@
     if [ $(whoami) != "root" ]; then echo "SYSTEM TEST MISMATCH: Required root priviledges"; log "SYSTEM TEST MISMATCH: Insufficient permission to execute alpineVerify.sh"; exit; fi
     
-    # Show user current settings
-    printVariables
+    # Most important variables printed to log
+    log "Script configuration: Mode; Pre-installation: $pre | Post-installation: $post | Verify-installation: $verify | Delete-installation: $rmAlpine. Mount point behavior: Verbosity: $verbose | Local installation: $gLocal | Unmodified kernel: $gKernelUnmodified | Mount point: $mountPoint. Formatting: Fresh alpine installation: $gPartition | Fresh kernel installation: $gKernelPartition, Device paths (if used & empty, will ask): Boot: $bootPartition | LVM: $lvmPartition | Kernel: $kernelPartition"
 
     # Pre-installation (effective on live iso)
     if $pre; then setupAlpine; fi

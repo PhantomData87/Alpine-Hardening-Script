@@ -1,11 +1,9 @@
 #TODO: 
-- sed betterment
-- Check current log messages
 - linux kernal smarter compile
 - fstab auto-regen
 - test UEFI & bios potential; System may be only UEFI recognizable! And not bios recognizable!!!!!!!! Must test.
 - Test if removing dracut specific paramters affect booting; https://man.archlinux.org/man/dracut.cmdline.7.en.txt, https://www.man7.org/linux/man-pages/man7/bootparam.7.html
-
+- Remove root password?
     
 
 
@@ -16,11 +14,3 @@
 
 
 chroot $mountPoint /bin/sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
-
-
-
-
-
-
-
-
