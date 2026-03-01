@@ -777,8 +777,89 @@ defineMount() {
 		setup-disk "$mountPoint" 2>/dev/null || log "CRITICAL: Did not install setup to $mountPoint"
 	fi
 	
+	
+	
+	
+	
+	
+		# Kernel secondary disk installation
+	if ! $gKernelUnmodified && $gKernelPartition; then
+		# Kernel
+    	local partKernelNumber="$(echo $kernelPartition | grep -Eo [0123456789]*$)"
+    	local deviceKernel="$(echo $kernelPartition | sed "s/p\?$partKernelNumber//g")"
+    	if ! $kernelExist; then
+# !!! parted create?
+			parted -a optimal "$deviceKernel" "mkpart primary xfs $kernelPartitionSector 100%" 2>/dev/null || log "CRITICAL: Could not declare kernel block device partition"
+    		parted -a optimal "$deviceKernel" "align-check optimal $partKernelNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of kernel block partition"
+    		mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service to recognize new disks"
+			log "INFO: Location: $deviceKernel, Number: $partKernelNumber"
+    	fi
+    	log "INFO: Passed kernel partitioning stage"
+
+    	# Format drives
+		mkfs.xfs -f "$kernelPartition" 2>/dev/null || log "CRITICAL: Could not format kernel block device"
+    	log "INFO: Passed kernel formatting stage"
+	fi
+	
+# Modify kernel manually with ncurses-dev; chroot /mnt/alpine /usr/bin/make menuconfig -C /home/$buildUsername/aports/main/linux-lts/src/linux-6.12
+# Features; update linuxConfig.config, customize linuxConfig.config, install kernel, update github, repair filesystem, and auto-select latest kernel with specific features
+	if ! $gKernelUnmodified; then
+		# Installing required packages
+		chroot $mountPoint /sbin/apk add git alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "CRITICAL: Could not install required packages for kernel"
+ 	
+    	# Setup kernel user
+		chroot $mountPoint /bin/mkdir -p /home/$buildUsername 2>/dev/null || log "UNEXPECTED: Could not create home directory to mount towards on /home/$buildUsername"
+    	if [ -z "$(chroot $mountPoint /bin/grep $buildUsername /etc/passwd)" ]; then
+        	chroot $mountPoint /usr/sbin/adduser -h /home/$buildUsername -S -D -s /sbin/nologin $buildUsername 2>/dev/null || log "CRITICAL: Could not create an account for building the kernel"
+        	chroot $mountPoint /usr/sbin/addgroup $buildUsername abuild 2>/dev/null || log "CRITICAL: Could not include $buildUsername into abuild group"
+        	chroot $mountPoint /usr/sbin/addgroup $buildUsername wheel 2>/dev/null || log "UNEXPECTED: Could not include $buildUsername into admin group"
+        	log "INFO: Finished adding in $buildUsername as limited user to handle kernel installation, updating, and etc"
+    	fi
+    	
+		if [ -z "$(mount | grep "$kernelPartition on $mountPoint/home/$buildUsername " 2>/dev/null)" ]; then mount -t xfs "$kernelPartition" "$mountPoint"/home/$buildUsername 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount on $mountPoint/home/$buildUsername"; fi
+		log "INFO: Mounted kernel device onto $mountPoint/home/$buildUsername"
+	fi
+    
+    if ! $gKernelUnmodified && $gKernelPartition; then
+    	# Set up aports github repo on kernel storage device
+        chroot $mountPoint /bin/chmod 760 /home/$buildUsername 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername directory"
+        chroot $mountPoint /bin/chown "$buildUsername:root" /home/$buildUsername 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
+        chroot $mountPoint /usr/bin/git -C /home/$buildUsername clone git://git.alpinelinux.org/aports.git 2>/dev/null || log "CRITICAL: Could not obtain github repo to install kernel"
+        	# Making aports directory accesible to $buildUsername
+        chroot $mountPoint /bin/chmod 760 /home/$buildUsername/aports 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername/aports directory"
+	    chroot $mountPoint /bin/chmod 760 /home/$buildUsername/aports/main 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername/aports/main directory"
+    	chroot $mountPoint /bin/chmod -R 760 /home/$buildUsername/aports/main/linux-lts 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername/aports/main/linux-lts directory"
+        chroot $mountPoint /bin/chown "$buildUsername:root" /home/$buildUsername/aports 2>/dev/null || log "UNEXPECTED: Could not set ownership on /home/$buildUsername/aports directory"
+	    chroot $mountPoint /bin/chown "$buildUsername:root" /home/$buildUsername/aports/main 2>/dev/null || log "UNEXPECTED: Could not set ownership on /home/$buildUsername/aports/main directory"
+    	chroot $mountPoint /bin/chown -R "$buildUsername:root" /home/$buildUsername/aports/main/linux-lts 2>/dev/null || log "UNEXPECTED: Could not set ownership on /home/$buildUsername/aports/main/linux-lts directory"
+        log "INFO: Finished placing github repo to install kernel"
+	fi
+	
+	# !!! linuxConfig.config obtain corner
+#	if [ ! -f "$mountPoint/home/$buildUsername/linuxConfig.config" ]; then log "BAD FORMAT: There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/$buildUsername/"; echo "There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/$buildUsername/"; return 0; fi
+
+	# !!! Check if github is recent
+	if ! $gKernelUnmodified; then
+		log "INFO: Checking if kernel is latest version or higher from secondary disk"
+		
+	fi
+	
+# !!!	log "INFO: Installing Kernel on secondary disk"
+		
+# !!!	log "INFO: Finish preparing block devices"
+	
+	
+	echo "End reached!"
+	exit
+	
+	
+	
+	
+	
+	
+	
 	# Preparing multiple files for guranteed modification
-	if $pre || $post || $rmAlpine; then
+	if $pre || $post || $rmAlpine || $gKernelUnmodified; then
 		log "INFO: Creating unified kernel image (uki), and generating UEFI keys to sign kernel"
     	chroot $mountPoint /bin/chmod u+w /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not set owner write permission on /etc/fstab"
     	chroot $mountPoint /bin/chmod u+w /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not set owner write permission on /etc/kernel-hooks.d/secureboot.conf"
@@ -809,45 +890,6 @@ defineMount() {
     	chroot $mountPoint /bin/chmod u-w /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not remove owner write permission on /etc/mkinitfs/mkinitfs.conf"
 	fi
 
-	# Kernel secondary disk installation
-	if ! $gKernelUnmodified && $gKernelPartition; then
-		# Kernel
-    	local partKernelNumber="$(echo $kernelPartition | grep -Eo [0123456789]*$)"
-    	local deviceKernel="$(echo $kernelPartition | sed "s/p\?$partKernelNumber//g")"
-    	if ! $kernelExist; then
-# !!! parted create?
-			parted -a optimal "$deviceKernel" "mkpart primary xfs $kernelPartitionSector 100%" 2>/dev/null || log "CRITICAL: Could not declare kernel block device partition"
-    		parted -a optimal "$deviceKernel" "align-check optimal $partKernelNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of kernel block partition"
-    		mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service to recognize new disks"
-			log "INFO: Location: $deviceKernel, Number: $partKernelNumber"
-    	fi
-    	log "INFO: Passed kernel partitioning stage"
-
-    	# Format drives
-		mkfs.xfs -f "$kernelPartition" 2>/dev/null || log "CRITICAL: Could not format kernel block device"
-    	log "INFO: Passed kernel formatting stage"
-
-		# umount the root and var partition
-#	    umount "$mountPoint"/home 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/home"
-#		umount "$mountPoint" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint"
-
-    	log "INFO: Formatting kernel disk complete"
-	fi
-
-	if ! $gKernelUnmodified; then
-		chroot $mountPoint /bin/mkdir -p /home/maintain 2>/dev/null || log "UNEXPECTED: Could not create home directory to mount towards"
-		chroot $mountPoint /bin/mount -t xfs "$kernelPartition" /home/maintain 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount kernel partition to $mountPoint/home/maintain"
-	fi
-	
-	if ! $gKernelUnmodified; then
-    	log "INFO: Eventually checking kernel environment"
-	fi
-	
-# !!!	log "INFO: Checking if kernel is latest version or higher from secondary disk"
-	
-# !!!	log "INFO: Installing Kernel on secondary disk"
-		
-# !!!	log "INFO: Finish preparing block devices"
 }
 
 # Primarely derived from setup-alpine script
@@ -867,15 +909,15 @@ setupAlpine() {
     openrc boot 2>/dev/null || log "UNEXPECTED: Could not interact with boot runlevel"
     openrc default 2>/dev/null || log "UNEXPECTED: Could not interact with default runlevel"
     	# Adding writing permission
+    if [ ! -f "/etc/apk/repositories" ]; then echo "# APK Repositories configured by automated tool:" > /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not ensure /etc/apk/repositories exists"; fi
     chmod u+w /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add writing permission for /etc/apk/repositories"
     chmod u+w /etc/hosts 2>/dev/null || log "UNEXPECTED: Could not add writing permission for /etc/hosts"
     sed -i "/#\{0,2\}127.0.0.1  $localhostName.$localhostName $localhostName\(.*\)/{h;s//127.0.0.1  $localhostName.$localhostName $localhostName/};\${x;/^\$/{s//127.0.0.1  $localhostName.$localhostName $localhostName/;H};x}" /etc/hosts 2>/dev/null || log "UNEXPECTED: Could not declare local resolved names to /etc/hosts"
-    sed -i "/#\{0,2\}# APK Repositories configured by automated tool:\(.*\)/{h;s//# APK Repositories configured by automated tool:\n/};\${x;/^\$/{s//# APK Repositories configured by automated tool:\n/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not indicate on /etc/apk/repositories has been tampered with"
-    if [ -f "/etc/apk/repositories" ]; then rm /etc/apk/repositories; fi
     for i in $apkRepoList; do
-        sed -i "/#\{0,2\}$i/main\(.*\)/{h;s//$i/main/};\${x;/^\$/{s//$i/main/;H};x}" /etc/apk/repositories 2>/dev/null || log "CRITICAL: Could not add a main repository for apk: $i/main"
-        sed -i "/#\{0,2\}@additional $i/community\(.*\)/{h;s//@additional $i/community/};\${x;/^\$/{s//@additional $i/community/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a community repository for apk: $i/community"
-        sed -i "/#\{0,2\}@se $i/testing\(.*\)/{h;s//@se $i/testing/};\${x;/^\$/{s//@se $i/testing/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a testing repository for apk: $i/testing"
+		i="$(echo $i | sed "s/\//\\\\\\//g")" # Ensuring the user doesn't have to concern with escaping the '/' symbol in urls
+        sed -i "/#\{0,2\}$i\/main\(.*\)/{h;s//$i\/main/};\${x;/^\$/{s//$i\/main/;H};x}" /etc/apk/repositories 2>/dev/null || log "CRITICAL: Could not add a main repository for apk: $i/main"
+        sed -i "/#\{0,2\}@additional $i\/community\(.*\)/{h;s//@additional $i\/community/};\${x;/^\$/{s//@additional $i\/community/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a community repository for apk: $i/community"
+        sed -i "/#\{0,2\}@se $i\/testing\(.*\)/{h;s//@se $i\/testing/};\${x;/^\$/{s//@se $i\/testing/;H};x}" /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not add a testing repository for apk: $i/testing"
     done
     	# Removing writing permission
     chmod u-w /etc/apk/repositories 2>/dev/null || log "UNEXPECTED: Could not remove writing permission for /etc/apk/repositories"
@@ -887,9 +929,9 @@ setupAlpine() {
     setup-sshd openssh 2>/dev/null || log "CRITICAL: Did not setup an sshd service"
     setup-keymap "$keyboardLayout" "$keyboardLayout" 2>/dev/null || log "UNEXPECTED: Could not setup device's keyboard keymap"
     rc-update --quiet del loadkmap boot 2>/dev/null || log "UNEXPECTED: Could not remove unncessary service that fails on boot"
+    apk add parted lvm2 e2fsprogs xfsprogs dosfstools tzdata systemd-efistub secureboot-hook sbctl@additional || log "UNEXPECTED: Could not install all required software"
     echo "root:$tempRootPass" | chpasswd || log "UNEXPECTED: Did not change root password"
 	rc-update --quiet add lvm 2>/dev/null || log "UNEXPECTED: Did not add lvm services with rc-update"
-    apk add parted lvm2 e2fsprogs xfsprogs dosfstools tzdata systemd-efistub secureboot-hook sbctl || log "UNEXPECTED: Could not install all required software"
     log "INFO: Finished pre-setup for default alpine installation!"
 }
 
@@ -2166,109 +2208,6 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
 # !!!
 configRemoteCapabilities() {
     log "INFO: One day"
-}
-
-# Modify kernel manually with ncurses-dev; chroot /mnt/alpine /usr/bin/make menuconfig -C /home/maintain/aports/main/linux-lts/src/linux-6.12
-configKernel() {
-    if [ "$choiceAports" = 'skip' ]; then log "BAD FORMAT: Skipping kernel configuration due to lacking a kernel storage device"; return 0; fi
-    if [ ! -f "$mountPoint/home/maintain/linuxConfig.config" ]; then log "BAD FORMAT: There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/maintain/"; echo "There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/maintain/"; return 0; fi
-
-    log "INFO: Installing required tools for this section"
-    chroot $mountPoint /sbin/apk add alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "CRITICAL: Could not install required packages for kernel"
-
-    if [ -z "$(chroot $mountPoint /bin/grep $buildUsername /etc/passwd)" ]; then
-        log "INFO: Setting up $buildUsername user"
-        chroot $mountPoint /bin/mkdir -p /home/maintain 2>/dev/null || log "UNEXPECTED: Could not make a new directory"
-        chroot $mountPoint /usr/sbin/adduser -h /home/maintain -S -D -s /sbin/nologin $buildUsername 2>/dev/null || log "CRITICAL: Could not create an account for building the kernel"
-        chroot $mountPoint /usr/sbin/addgroup $buildUsername abuild 2>/dev/null || log "CRITICAL: Could not include $buildUsername into abuild group"
-        chroot $mountPoint /usr/sbin/addgroup $buildUsername wheel 2>/dev/null || log "UNEXPECTED: Could not include $buildUsername into admin group"
-    fi
-
-    if [ ! -d "$mountPoint/home/maintain/aports/.git" ]; then
-        log "INFO: Obtaining github repo to install kernel"
-        chroot $mountPoint /bin/chown "$buildUsername:root" /home/maintain 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
-        chroot $mountPoint /usr/bin/git -C /home/maintain clone git://git.alpinelinux.org/aports.git || log "CRITICAL: Could not obtain github repo to install kernel"
-    fi
-
-    log "INFO: Restricting directories"
-    chroot $mountPoint /bin/chmod 760 /home/maintain 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain directory"
-    chroot $mountPoint /bin/chmod 760 /home/maintain/aports 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports directory"
-    chroot $mountPoint /bin/chmod 760 /home/maintain/aports/main 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports/main directory"
-    chroot $mountPoint /bin/chmod 760 /home/maintain/aports/main/linux-lts 2>/dev/null || log "UNEXPECTED: Could not enable /home/maintain/aports/main/linux-lts directory"
-
-    log "INFO: Synchronizing github repo"
-    if [ -f "$mountPoint/home/maintain/aports/.git/index.lock" ]; then chroot $mountPoint /bin/rm /home/maintain/aports/.git/index.lock 2>/dev/null || log "INFO: Unable to remove git lock"; fi
-    if [ -d "$mountPoint/home/maintain/aports/main/linux-lts/src" ]; then chroot $mountPoint /bin/rm -R /home/maintain/aports/main/linux-lts/src 2>/dev/null || log "INFO: Unable to remove old kenrel source files"; log "INFO: Finished removing old src directory in aports/main/linux-lts"; fi
-    if [ -d "$mountPoint/home/maintain/aports/main/linux-lts/pkg" ]; then chroot $mountPoint /bin/rm -R /home/maintain/aports/main/linux-lts/pkg 2>/dev/null || log "INFO: Unable to remove old kenrel built files"; log "INFO: Finished removing old pkg directory in aports/main/linux-lts"; fi
-    chroot $mountPoint /usr/bin/git config --global --add safe.directory /home/maintain/aports || log "UNEXPECTED: Could not guanratee that git thinks /home/maintain/aports is safe directory"
-    chroot $mountPoint /usr/bin/git -C /home/maintain/aports reset --hard "$gitPackageCommitHash" || log "UNEXPECTED: Could not set branch to expected kernel version $kernelVersion"
-    chroot $mountPoint /bin/chown "$buildUsername:root" -R /home/maintain 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
-    chroot $mountPoint /bin/chmod +x /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "CRITICAL: Could not enable execution to APKBUILD"
-    local archType="$(uname -m)"
-
-    log "INFO: Enabling Doas configuration for $buildUsername to execute some commands with doas"
-    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild-keygen args -a -i -n" > $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuilld-keygen permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/echo "permit nopass :wheel cmd mkdir" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide mkdir permissions to members apart of wheel group"
-    chroot $mountPoint /bin/echo "permit nopass :wheel cmd cp" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide cp permissions to members apart of wheel group"
-    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/maintain/aports/main/linux-lts checksum" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild checksum permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/maintain/aports/main/linux-lts -crK" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild build permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/chmod 0400 /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/kernelBuild.conf file permissions"
-
-
-    if [ ! -f "$mountPoint/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" ] || [ ! -f "$mountPoint/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" ]; then
-        log "INFO: Obtaining kernel patches based on linux hardening alpine guide"
-        chroot $mountPoint /usr/bin/wget -O "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" "$hardeningPatchUrl.patch" || log "UNEXPECTED: Could not download patch into kernel"
-        chroot $mountPoint /usr/bin/wget -O "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" "$hardeningPatchUrl.patch.sig" || log "UNEXPECTED: Couldd not download patch signature key into kernel"
-        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel patch file is owned by $buildUsername"
-        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel patch signature file is owned by $buildUsername"
-    fi
-
-    if [ -z "$(chroot $mountPoint /bin/ls /etc/apk/keys | grep -v alpine-devel)" ]; then
-        log "INFO: Generating signing key"
-        chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild-keygen -a -i -n || log "UNEXPECTED: Could not generate keys for $buildUsername"
-        chroot $mountPoint /bin/chmod a+r /etc/apk/keys/* 2>/dev/null || log "UNEXPECTED: Could not enable keys stored in /etc/apk/keys to be read by $buildUsername"
-    fi
-
-    log "INFO: Configurating APKBUILD file to include only relevant files"
-    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/lts.aarch64.config\n\tlts.armv7.config\n\tlts.loongarch64.config\n\tlts.ppc64le.config\n\tlts.riscv64.config\n\tlts.s390x.config\n\tlts.x86.config\n\tlts.x86_64.config/REPLACEME.patch1\n\tREPLACEME.patch2\n\tlts.REPLACEME.config/g' /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source first configuration"
-    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/virt.aarch64.config\n\tvirt.armv7.config\n\tvirt.ppc64le.config\n\tvirt.x86.config\n\tvirt.x86_64.config/virt.REPLACEME.config/g' /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source second configuration"
-    chroot $mountPoint /bin/sed -i "s/lts.REPLACEME.config/lts.$archType.config/1" /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source second configuration"
-    chroot $mountPoint /bin/sed -i "s/virt.REPLACEME.config/virt.$archType.config/1" /home/maintain/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source third configuration"
-    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch1/0098-linux-hardened-v$kernelVersion.patch/1" /home/maintain/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optinal hardening patch file"
-    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch2/0099-linux-hardened-v$kernelVersion.patch.sig/1" /home/maintain/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optional hardening patch signature file"
-
-    # Ensure we have the right kernel configuration file
-    if [ "$(chroot $mountPoint /usr/bin/md5sum /home/maintain/linuxConfig.config)" != "$(chroot $mountPoint /usr/bin/md5sum /home/maintain/aports/main/linux-lts/lts.$archType.config)" ]; then
-        # Move the new file
-        log "INFO: Moving file linuxConfig.config into lts.$archType.config with the following md5sum: $(chroot $mountPoint /usr/bin/md5sum /home/maintain/linuxConfig.config) = $(chroot $mountPoint /usr/bin/md5sum /home/maintain/aports/main/linux-lts/lts.$archType.config)"
-        chroot $mountPoint /bin/cp /home/maintain/linuxConfig.config "/home/maintain/aports/main/linux-lts/lts.$archType.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"
-        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/maintain/aports/main/linux-lts/lts.$archType.config" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel config file is owned by $buildUsername"
-    fi
-
-    log "INFO: Performing checksum on everything"
-    chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C /home/maintain/aports/main/linux-lts checksum || log "UNEXPECTED: Could not compile checksum of everything modified so far"
-
-    if [ -z "$(chroot $mountPoint /sbin/apk list | grep linux-lts | grep $kernelVersion | grep installed)" ]; then
-        if [ ! -d "$mountPoint/home/maintain/packages/main/$archType" ]; then
-    	    if [ -z "$(chroot $mountPoint /bin/ls /home/maintain/packages/main/"$archType" | grep -v linux-lts)" ]; then
-    		log "INFO: Compiling kernel at; $(date)"
-    		time -o /tmp/compileTime chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C /home/maintain/aports/main/linux-lts -crK 2>&1 | tee /tmp/kernelLog || log "CRITICAL: Could not finish compiling kernel"
-    		
-                log "INFO: The kernel took to compile: $(cat /tmp/compileTime)"
-    		rm /tmp/compileTime || log "UNEXPECTED: Could not remove temporary file to keep track the length of time it took the kernel to compile"
-    	    fi
-        fi
- 	log "INFO: Installing kernel at; $(date)"
-    	chroot $mountPoint /sbin/apk del linux-lts || log "CRITICAL: Could not remove existing kernel for new installation"
-    	chroot $mountPoint /sbin/apk update --repository "/home/maintain/packages/main/" || log "CRITICAL: Could not update repository for new installation"
-    	chroot $mountPoint /sbin/apk add --repository "/home/maintain/packages/main/" linux-lts="$kernelVersion-r0" || log "CRITICAL: Could not install kernel $kernelVersion to local system"
-    fi
-
-    log "INFO: Cleaning up kernel files and modifications"
-    chroot $mountPoint /bin/rm /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Permission doas file has not been deleted to enforce principle of least priviledge"
-    chroot $mountPoint /sbin/apk del alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "UNEXPECTED: Could not remove development build packages"
-
-    log "INFO: Kernel modifications have been succesfully configured!"
 }
 
 verifyInstallSetup() {
@@ -3565,7 +3504,6 @@ main() {
 	    log "INFO: Started post-setup!"
 	    configLocalInstallation
 	    configRemoteCapabilities
-	    if ! $gKernelUnmodified; then configKernel; fi
         log "INFO: Finished post-setup!"
     fi
 
