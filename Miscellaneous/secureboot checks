@@ -96,11 +96,11 @@ Later: https://krython.com/post/hardening-alpine-linux-system-security
     		rm /tmp/compileTime || log "UNEXPECTED: Could not remove temporary file to keep track the length of time it took the kernel to compile"
     	    fi
         fi
- 	log "INFO: Installing kernel at; $(date)"
+ 	log "INFO: Finished compiling kernel at; $(date)"
     	chroot $mountPoint /sbin/apk del linux-lts || log "CRITICAL: Could not remove existing kernel for new installation"
     	chroot $mountPoint /sbin/apk update --repository "/home/maintain/packages/main/" || log "CRITICAL: Could not update repository for new installation"
     	chroot $mountPoint /sbin/apk add --repository "/home/maintain/packages/main/" linux-lts="$kernelVersion-r0" || log "CRITICAL: Could not install kernel $kernelVersion to local system"
-    fi
+
 
     log "INFO: Cleaning up kernel files and modifications"
     chroot $mountPoint /bin/rm /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Permission doas file has not been deleted to enforce principle of least priviledge"

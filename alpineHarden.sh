@@ -93,7 +93,6 @@ export dnsList="REPLACEME"
 export apkRepoList="REPLACEME"
 export devDevice="REPLACEME"
 export tempRootPass="REPLACEME"
-export kernelVersion="REPLACEME" # Could not have this reliable
 export gitPackageCommitHash="REPLACEME" # Scroll through original aports git repo to set the desired hash
 export localGateway="192.168.0.0"
 export localNetmask="REPLACEME"
@@ -101,7 +100,6 @@ export umask="077"
 export systemArch="$(uname -m)" # Leave this as "$(uname -m)" to automatically find system architecture. If building on a different system, then change this into one of the many values: x86_64, x86, arm*, aarch64, riscv64, loongarch64
 
 # Usernames to be created. This does not include chrony and sshd, since they are already created
-export buildUsername="REPLACEME" # Username that can build the linux kernel, and install it
 export powerUsername="REPLACEME"	# Username that can execute the acpid daemon
 export loggerUsername="REPLACEME"	# Username that runs syslogd
 export backgroundUsername="REPLACEME"	# Username that runs crond
@@ -161,10 +159,9 @@ System last log sent: 00:00 00/00/0000 UTC" # Ran with figlet command, reference
 	# Automatically setting $mountPoint to equal "/" for local changes
 gLocal=false # mountPoint at "/"? Otherwise in /mnt
 	# Include kernel section?
-gKernelUnmodified=true # Skip kernel mounting & replacement? Otherwise in $mountPoint/home/$buildUsername
+gKernelUnmodified=true # Skip kernel mounting & replacement? Otherwise in $mountPoint/mnt/kernelInstall
 	# Formatting/hard reset of storage device
 gPartition=false # Intention to reset or create new partitions of Alpine disk
-gKernelPartition=false # Intention to reset or create new partitions of Kernel disk storage
 	# Devices (Automatically found, but can be set before hand)
 bootPartition=""
 lvmPartition=""
@@ -175,7 +172,6 @@ mountPoint=""
 # Format behaviors
 	# Initial sector offset (Must include units: "B", "kB", "MB", "KiB", "MiB", "GB", "GiB", "TB", "TiB", "PB", "PiB", "EB", "EiB", or Sectors: "s")
 partitionSector="6144" # Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
-kernelPartitionSector="2048" # USED IF IT IS A NEW DISK. Leave this as 2048, as it determines which sector on the device to use. Leave it alone, unless you know what you are doing
 	# Boot partition size (outside of LVM)
 bootSize="1G"
 	# LVM Partition physical behavior
@@ -243,7 +239,6 @@ Actions: User must specify atleast one action
 Configuration: If not specified, then assume user wants everything below enabled
 	--formatSystem	Setup the custom expected partitions for this system
 	--stayLocal		Configure services and security on local machine
-	--formatKernel	Setup the custom expected partitions for a seperate kernel installation
 	--kernelModify	Configure to install a locally sourced kernel from external device"
     if $verbose; then echo ""; else return 0; fi
 echo "Expensive operations, controlled via variable:
@@ -269,7 +264,6 @@ tempRootPass:		Declare the temporary default root pass
 tempSshPass:		Declare the temporary ssh password for all ssh keys generated
 mountPoint:		Declare the directory to make a new mount point for a later chroot environment
 mountDevice:		Declare the block device to install alpine system to
-kernelVersion:		Declare which kernel edition we will be using
 gitPackageCommitHash:	Declare where in the git repository we will interact with based on prior history
 localGateway:		Declare the local LAN network this machine is connect to by providing a base IPv4 address
 localNetmask:		Declare the local LAN network's netmask that will be appeneded to localGateway
@@ -306,7 +300,6 @@ interpretArgs() {
         -h|--help) wantHelp=true;;
         -v|--verbose) verbose=true;;
         --formatSystem) gPartition=true;;
-        --formatKernel) gKernelPartition=true;;
         --stayLocal) gLocal=true;;
         --kernelModify) gKernelUnmodified=false;;
         --uninstall) rmAlpine=true;;
@@ -333,7 +326,6 @@ interpretArgs() {
 
     # Null check
     if [ -z "$version" ]; then echo "BAD FORMAT: Provide any number to indicate the version of this script! Fill in \$version"; exit; fi
-    if [ -z "$kernelVersion" ]; then echo "BAD FORMAT: Must indicate the version of the linux kernel that is planned to be used! Fill in \$kernelVersion"; exit; fi
     if [ -z "$logFile" ]; then echo "BAD FORMAT: Will default to /tmp/hardeningAlpine.log due to \$logFile being empty!"; fi
     if [ -z "$logIP" ]; then echo "BAD FORMAT: No ip to indicate a remote logging server in var $\logIP!"; exit; fi
     if [ -z "$systemArch" ]; then echo "BAD FORMAT: Must declare system architecture for var \$systemArch, leave it as default \"\$(uname -m)\""; exit; fi
@@ -369,10 +361,8 @@ interpretArgs() {
     if [ -z "$gLocal" ]; then echo "BAD FORMAT: Empty value for \$gLocal implies default value of false; indicating this is NOT a local installation"; gLocal=false; fi
     if [ -z "$gKernelUnmodified" ]; then echo "BAD FORMAT: Empty value for \$gKernelUnmodified implies default value of true; indicating this installation is meant to use the existing kernel"; gKernelUnmodified=true; fi
     if [ -z "$gPartition" ]; then echo "BAD FORMAT: Empty value for \$gPartition implies we are not formatting any devices for installing Alpine"; gPartition=false; fi
-    if [ -z "$gKernelPartition" ]; then echo "BAD FORMAT: Empty value for \$gKernelPartition implies we are not formatting any devices for installing a seperate compiled kernel"; gKernelPartition=false; fi
     if [ -z "$lvmFull" ]; then echo "BAD FORMAT: Empty value for $lvmFull implies lvm partition will take up the remainder of the disk"; lvmFull=true; fi
     if [ -z "$partitionSector" ]; then echo "BAD FORMAT: Must indicate the starting sector offset for formatting the first partition. Change \$partitionSector"; exit; fi
-    if [ -z "$kernelPartitionSector" ]; then echo "BAD FORMAT: Must indicate the starting kernel sector offset for formating the kernel partition. Change \$kernelPartitionSector"; exit; fi
     if [ -z "$gitPackageCommitHash" ]; then echo "BAD FORMAT: Must indicate the git branch hash that is expected to be used. Change \$gitPackageCommitHash!"; exit; fi
     if [ -z "$localGateway" ]; then echo "BAD FORMAT: Must provide a IPv4 base address for the local network for variable \$localGateway"; exit; fi
     if [ -z "$localNetmask" ]; then echo "BAD FORMAT: Must provide a IPv4 local network netmask for variable \$localNetmask!"; exit; fi
@@ -482,10 +472,9 @@ defineMount() {
 		# User acknowledgement if partition requires formatting
 	local bootExist=true
 	local lvmExist=true
-	local kernelExist=true
     	# Check with global flags
     if $gLocal; then gPartition=false; bootSectorChosen=true; lvmSectorChosen=true; bootExist=false; lvmExist=false; bootPartition="[self]"; lvmPartition="[self]"; mountPoint="/"; fi # Local installation prohibits: drive partitioning & alpine setup-disk installation
-    if $gKernelUnmodified; then gKernelPartition=false; kernelSectorChosen=true; kernelExist=false; kernelPartition="[nowhere]"; fi # If not considering kernel; then skip all kernel functions, formatting, and mounting
+    if $gKernelUnmodified; then kernelSectorChosen=true; kernelPartition="[nowhere]"; fi # If not considering kernel; then skip all kernel functions, formatting, and mounting
 	
 	# Display list of devices, and consider each of the three important mount & format locations: boot, lvm, and kernel.
 	local devBlockSize=1024 # /proc/partitions shows size in 1024-byte blocks; https://unix.stackexchange.com/questions/512945/what-units-are-the-values-in-proc-partitions-and-sys-dev-block-block-size
@@ -557,7 +546,6 @@ defineMount() {
                 *)
                 	# Temporarely pretend the user choose valid options
                 	kernelSectorChosen=true
-                	kernelExist=true
                 	;;
             esac
         done
@@ -573,29 +561,28 @@ defineMount() {
         	# Emptyness check
         if ! $gLocal && [ -z "$bootPartition" ]; then showAgain=true; bootSectorChosen=false; bootExist=false; echo "Empty value for bootPartition"; fi
         if ! $gLocal && [ -z "$lvmPartition" ]; then showAgain=true; lvmSectorChosen=false; lvmExist=false; echo "Empty value for lvmPartition"; fi
-        if ! $gKernelUnmodified && [ -z "$kernelPartition" ]; then showAgain=true; kernelSectorChosen=false; kernelExist=false; echo "Empty value for kernelPartition"; fi
+        if ! $gKernelUnmodified && [ -z "$kernelPartition" ]; then showAgain=true; kernelSectorChosen=false; echo "Empty value for kernelPartition"; fi
         if $showAgain; then continue; fi
         
         # Partition tests:
 	        # Duplicate entry
-		if ! $gLocal && [ "$lvmPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry bewteen $lvmPartition and $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-		if ! $gLocal && [ "$kernelPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$kernelPartition" ]; then echo "Duplicate conflicting entry between $kernelPartition and $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
-		if ! $gKernelUnmodified && [ "$lvmPartition" = "$kernelPartition" ] && [ ! -z "$kernelPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with between $lvmPartition and $kernelPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; kernelExist=false; fi
+		if ! $gLocal && [ "$lvmPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry bewteen $lvmPartition and $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; fi
+		if ! $gLocal && [ "$kernelPartition" = "$bootPartition" ] && [ ! -z "$bootPartition" ] && [ ! -z "$kernelPartition" ]; then echo "Duplicate conflicting entry between $kernelPartition and $bootPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; fi
+		if ! $gKernelUnmodified && [ "$lvmPartition" = "$kernelPartition" ] && [ ! -z "$kernelPartition" ] && [ ! -z "$lvmPartition" ]; then echo "Duplicate conflicting entry with between $lvmPartition and $kernelPartition. Resetting all options!"; bootSectorChosen=false; lvmSectorChosen=false; kernelSectorChosen=false; bootPartition=""; lvmPartition=""; kernelPartition=""; bootExist=false; lvmExist=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	    	# Valid partition scheme
 	    if ! $gLocal && [ -z "$(echo $bootPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $bootPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; bootSectorChosen=false; bootPartition=""; bootExist=false; fi
 	    if ! $gLocal && [ -z "$(echo $lvmPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $lvmPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; lvmSectorChosen=false; lvmPartition=""; lvmExist=false; fi
-	    if ! $gKernelUnmodified && [ -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $kernelPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; kernelSectorChosen=false; kernelPartition=""; kernelExist=false; fi
+	    if ! $gKernelUnmodified && [ -z "$(echo $kernelPartition | grep -E -o [^1234567890][^p][1234567890]+$\|p[1234567890]+$)" ]; then echo "Partition formatting for $kernelPartition is invalid. Please specify a number correctly [either # or p#] at tail end"; kernelSectorChosen=false; kernelPartition=""; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	    	# Formatting acknowledgment, and valid block device check
     	if ! $gLocal && [ ! -b "$bootPartition" ] && $gPartition; then echo "vfat bootPartition at $bootPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; bootExist=false; fi
     	if ! $gLocal && [ ! -b "$lvmPartition" ] && $gPartition; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; lvmExist=false; fi
-    	if ! $gKernelUnmodified && [ ! -b "$kernelPartition" ] && $gKernelPartition; then echo "kernelPartition at $gKernelPartition partition currently does not exist, but will format due to gKernelPartition being specified as $gKernelPartition"; kernelExist=false; fi
 		if [ ! -b "$bootPartition" ] && $bootExist; then echo "vfat bootPartition at $bootPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
 		if [ ! -b "$lvmPartition" ] && $lvmExist; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
-		if [ ! -b "$kernelPartition" ] && $kernelExist; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+		if [ ! -b "$kernelPartition" ]; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; kernelPartition=""; kernelSectorChosen=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	        # Are we mounting non-existant devices without formatting?
@@ -611,13 +598,13 @@ defineMount() {
     	local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
         if ! $gLocal && [ -z "$(fdisk -l $deviceBoot | grep $bootPartition | grep -o ef 2>/dev/null)" ] && ! $gPartition; then echo "Partition at $bootPartition does not have efi/esp partition identifier! Enable formatting or pick a different partition"; blockList="\?"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
 		if ! $gLocal && [ -z "$(fdisk -l $deviceLvm | grep $lvmPartition | grep -o 8e 2>/dev/null)" ] && ! $gPartition; then echo "Partition at $lvmPartition does not have lvm partition identifier! Enable formatting or pick a different partition"; blockList="\?"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
-        if ! $gKernelUnmodified && [ "$(blkid $kernelPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "xfs" ] && ! $gKernelPartition; then echo "Partition at $kernelPartition is not xfs! Enable formatting or pick a different partition"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+        if ! $gKernelUnmodified && [ "$(blkid $kernelPartition | awk -F 'TYPE' 'NF>1{sub(/="/,"",$NF);sub(/".*/,"",$NF);print $NF}')" != "xfs" ]; then echo "Partition at $kernelPartition is not xfs! Enable formatting or pick a different partition"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
         
         	# Is kernel partition in the same device where alpine is installed?
         if ! $gLocal && ! $gKernelUnmodified; then
 			# Boot partition and lvm partition must not reside in the same device!
-    		if [ ! -z "$(echo $kernelPartition | grep $deviceBoot)" ] || [ ! -z "$(echo $kernelPartition | grep $deviceLvm)" ]; then echo "Kernel device should be in a seperate disk to promote re-usage of the kernel. Kernel device parameters reset"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; kernelExist=false; fi
+    		if [ ! -z "$(echo $kernelPartition | grep $deviceBoot)" ] || [ ! -z "$(echo $kernelPartition | grep $deviceLvm)" ]; then echo "Kernel device should be in a seperate disk to promote re-usage of the kernel. Kernel device parameters reset"; blockList="\?"; kernelPartition=""; kernelSectorChosen=false; fi
         fi
         
         # Break loop if everything is satisfied
@@ -625,7 +612,7 @@ defineMount() {
 	done
 	log "INFO: vfat boot partition at $bootPartition; does it currently exist? $bootExist, erasure enabled? $gPartition, initial sector offset; $partitionSector, boot size; $bootSize"
 	log "INFO: LVM2_member lvm partition at $lvmPartition; does it currently exist? $lvmExist, erasure enabled? $gPartition, use entire disk? $lvmFull, if not then size? $lvmSize"
-	if ! $gKernelUnmodified; then log "INFO: xfs kernel partition at $kernelPartition; does it currently exist? $kernelExist, formatting enabled? $gKernelPartition, initial sector offset; $kernelPartitionSector"; fi
+	if ! $gKernelUnmodified; then log "INFO: xfs kernel partition at $kernelPartition"; fi
 
 	# Ensure $mountPoint is defined in a directory of /mnt
 	if ! $gLocal; then
@@ -655,7 +642,6 @@ defineMount() {
 		echo -e "\n\tExists?\tErasure\tFull disk?\tSize if not\tSector offset (if applicable)"
 		echo -e "Boot:\t$bootExist\t$gPartition\tn/a\t\t$bootSize\t\t$partitionSector"
 		echo -e "LVM:\t$lvmExist\t$gPartition\t$lvmFull\t\t$lvmSize\t\tn/a"
-		if ! $gKernelUnmodified; then echo -e "Kernel:\t$kernelExist\t$gKernelPartition\ttrue\t\tn/a\t\t$kernelPartitionSector"; fi
 		echo -e "\nMounting alpine location: $mountPoint"
 		while ! $userAction; do
 			read -p "Confirm procedure? [y/n]: " userChoice
@@ -777,89 +763,30 @@ defineMount() {
 		setup-disk "$mountPoint" 2>/dev/null || log "CRITICAL: Did not install setup to $mountPoint"
 	fi
 	
-	
-	
-	
-	
-	
-		# Kernel secondary disk installation
-	if ! $gKernelUnmodified && $gKernelPartition; then
-		# Kernel
-    	local partKernelNumber="$(echo $kernelPartition | grep -Eo [0123456789]*$)"
-    	local deviceKernel="$(echo $kernelPartition | sed "s/p\?$partKernelNumber//g")"
-    	if ! $kernelExist; then
-# !!! parted create?
-			parted -a optimal "$deviceKernel" "mkpart primary xfs $kernelPartitionSector 100%" 2>/dev/null || log "CRITICAL: Could not declare kernel block device partition"
-    		parted -a optimal "$deviceKernel" "align-check optimal $partKernelNumber" 2>/dev/null || log "UNEXPECTED: Could not optimize placement of kernel block partition"
-    		mdev -s 2>/dev/null || log "CRITICAL: Could not restart mdev service to recognize new disks"
-			log "INFO: Location: $deviceKernel, Number: $partKernelNumber"
-    	fi
-    	log "INFO: Passed kernel partitioning stage"
-
-    	# Format drives
-		mkfs.xfs -f "$kernelPartition" 2>/dev/null || log "CRITICAL: Could not format kernel block device"
-    	log "INFO: Passed kernel formatting stage"
-	fi
-	
-# Modify kernel manually with ncurses-dev; chroot /mnt/alpine /usr/bin/make menuconfig -C /home/$buildUsername/aports/main/linux-lts/src/linux-6.12
-# Features; update linuxConfig.config, customize linuxConfig.config, install kernel, update github, repair filesystem, and auto-select latest kernel with specific features
+	# Features; install kernel, and repair filesystem
 	if ! $gKernelUnmodified; then
-		# Installing required packages
-		chroot $mountPoint /sbin/apk add git alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "CRITICAL: Could not install required packages for kernel"
- 	
-    	# Setup kernel user
-		chroot $mountPoint /bin/mkdir -p /home/$buildUsername 2>/dev/null || log "UNEXPECTED: Could not create home directory to mount towards on /home/$buildUsername"
-    	if [ -z "$(chroot $mountPoint /bin/grep $buildUsername /etc/passwd)" ]; then
-        	chroot $mountPoint /usr/sbin/adduser -h /home/$buildUsername -S -D -s /sbin/nologin $buildUsername 2>/dev/null || log "CRITICAL: Could not create an account for building the kernel"
-        	chroot $mountPoint /usr/sbin/addgroup $buildUsername abuild 2>/dev/null || log "CRITICAL: Could not include $buildUsername into abuild group"
-        	chroot $mountPoint /usr/sbin/addgroup $buildUsername wheel 2>/dev/null || log "UNEXPECTED: Could not include $buildUsername into admin group"
-        	log "INFO: Finished adding in $buildUsername as limited user to handle kernel installation, updating, and etc"
-    	fi
-    	
-		if [ -z "$(mount | grep "$kernelPartition on $mountPoint/home/$buildUsername " 2>/dev/null)" ]; then mount -t xfs "$kernelPartition" "$mountPoint"/home/$buildUsername 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount on $mountPoint/home/$buildUsername"; fi
-		log "INFO: Mounted kernel device onto $mountPoint/home/$buildUsername"
-	fi
-    
-    if ! $gKernelUnmodified && $gKernelPartition; then
-    	# Set up aports github repo on kernel storage device
-        chroot $mountPoint /bin/chmod 760 /home/$buildUsername 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername directory"
-        chroot $mountPoint /bin/chown "$buildUsername:root" /home/$buildUsername 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
-        chroot $mountPoint /usr/bin/git -C /home/$buildUsername clone git://git.alpinelinux.org/aports.git 2>/dev/null || log "CRITICAL: Could not obtain github repo to install kernel"
-        	# Making aports directory accesible to $buildUsername
-        chroot $mountPoint /bin/chmod 760 /home/$buildUsername/aports 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername/aports directory"
-	    chroot $mountPoint /bin/chmod 760 /home/$buildUsername/aports/main 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername/aports/main directory"
-    	chroot $mountPoint /bin/chmod -R 760 /home/$buildUsername/aports/main/linux-lts 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername/aports/main/linux-lts directory"
-        chroot $mountPoint /bin/chown "$buildUsername:root" /home/$buildUsername/aports 2>/dev/null || log "UNEXPECTED: Could not set ownership on /home/$buildUsername/aports directory"
-	    chroot $mountPoint /bin/chown "$buildUsername:root" /home/$buildUsername/aports/main 2>/dev/null || log "UNEXPECTED: Could not set ownership on /home/$buildUsername/aports/main directory"
-    	chroot $mountPoint /bin/chown -R "$buildUsername:root" /home/$buildUsername/aports/main/linux-lts 2>/dev/null || log "UNEXPECTED: Could not set ownership on /home/$buildUsername/aports/main/linux-lts directory"
-        log "INFO: Finished placing github repo to install kernel"
-	fi
-	
-	# !!! linuxConfig.config obtain corner
-#	if [ ! -f "$mountPoint/home/$buildUsername/linuxConfig.config" ]; then log "BAD FORMAT: There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/$buildUsername/"; echo "There is no linux configuration file present as linuxConfig.config. Please place one in $mountPoint/home/$buildUsername/"; return 0; fi
+		log "INFO: Checking if xfs file system is healthy for where the kernel is installed"
+		xfs_repair "$kernelPartition" || log "UNEXPECTED: Xfs filesystem that stores the kernel could not guarantee it was repaired correctly"
 
-	# !!! Check if github is recent
-	if ! $gKernelUnmodified; then
-		log "INFO: Checking if kernel is latest version or higher from secondary disk"
+		log "INFO: Mounting kernel device onto $mountPoint/mnt/kernelInstall AFTER it was potentially repaired"
+	    chroot $mountPoint /bin/mkdir -p "/mnt/kernelInstall" 2>/dev/null || log "UNEXPECTED: Lacked capabilities to create mountpoint directory on $mountPoint/mnt/kernelInstall"
+		mount -t xfs "$kernelPartition" "$mountPoint"/mnt/kernelInstall 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount on $mountPoint/mnt/kernelInstall"; fi
 		
+		log "INFO: Re-installing kernel regardless if it's the same existing one"
+		chroot $mountPoint /sbin/apk del linux-lts || log "CRITICAL: Could not remove existing kernel for new installation"
+    	chroot $mountPoint /sbin/apk update --repository "/mnt/kernelInstall/packages/main/" || log "CRITICAL: Could not update repository for new installation"
+    	chroot $mountPoint /sbin/apk add --repository "/mnt/kernelInstall/packages/main/" linux-lts="$kernelVersion-r0" || log "CRITICAL: Could not (re-)install kernel $kernelVersion to local system"
+    	chroot $mountPoint /sbin/apk update || log "CRITICAL: Could not update repository to forget prior installation location"
+		
+		log "INFO: Unmounting kernel storage directory & mount point"
+	    umount "$mountPoint/mnt/kernelInstall" 2>/dev/null|| log "UNEXPECTED: Could not umount on: $mountPoint/mnt/kernelInstall"
+	    chroot $mountPoint /bin/rmdir "/mnt/kernelInstall" 2>/dev/null || log "UNEXPECTED: Lacked capabilities to remove mountpoint directoryon $mountPoint/mnt/kernelInstall"
+	    
+	    log "INFO: Kernel stage has finished! It's unnecessary to run this again unless the kernel has been modified"
 	fi
-	
-# !!!	log "INFO: Installing Kernel on secondary disk"
-		
-# !!!	log "INFO: Finish preparing block devices"
-	
-	
-	echo "End reached!"
-	exit
-	
-	
-	
-	
-	
-	
 	
 	# Preparing multiple files for guranteed modification
-	if $pre || $post || $rmAlpine || $gKernelUnmodified; then
+	if ! $rmAlpine; then
 		log "INFO: Creating unified kernel image (uki), and generating UEFI keys to sign kernel"
     	chroot $mountPoint /bin/chmod u+w /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not set owner write permission on /etc/fstab"
     	chroot $mountPoint /bin/chmod u+w /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not set owner write permission on /etc/kernel-hooks.d/secureboot.conf"
@@ -889,7 +816,6 @@ defineMount() {
     	chroot $mountPoint /bin/chmod u-w /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not remove owner write permission on /etc/kernel-hooks.d/secureboot.conf"
     	chroot $mountPoint /bin/chmod u-w /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not remove owner write permission on /etc/mkinitfs/mkinitfs.conf"
 	fi
-
 }
 
 # Primarely derived from setup-alpine script
@@ -3491,7 +3417,7 @@ main() {
     if [ $(whoami) != "root" ]; then echo "SYSTEM TEST MISMATCH: Required root priviledges"; log "SYSTEM TEST MISMATCH: Insufficient permission to execute alpineVerify.sh"; exit; fi
     
     # Most important variables printed to log
-    log "Script configuration: Mode; Pre-installation: $pre | Post-installation: $post | Verify-installation: $verify | Delete-installation: $rmAlpine. Mount point behavior: Verbosity: $verbose | Local installation: $gLocal | Unmodified kernel: $gKernelUnmodified | Mount point: $mountPoint. Formatting: Fresh alpine installation: $gPartition | Fresh kernel installation: $gKernelPartition, Device paths (if used & empty, will ask): Boot: $bootPartition | LVM: $lvmPartition | Kernel: $kernelPartition"
+    log "Script configuration: Mode; Pre-installation: $pre | Post-installation: $post | Verify-installation: $verify | Delete-installation: $rmAlpine. Mount point behavior: Verbosity: $verbose | Local installation: $gLocal | Unmodified kernel: $gKernelUnmodified | Mount point: $mountPoint. Formatting: Fresh alpine installation: $gPartition | Device paths (if used & empty, will ask): Boot: $bootPartition | LVM: $lvmPartition | Kernel: $kernelPartition"
 
     # Pre-installation (effective on live iso)
     if $pre; then setupAlpine; fi
