@@ -49,7 +49,6 @@
 # Immutable files? /var/log, configurations, /dev/log in sftp,
 # Better way to log ssh users? Multi-factor without PAM?
 # mlocate to keep track of files?
-# Unified kernel image?
 # TCP wrapper? /etc/hosts.allow /etc/hosts.deny
 # Port Knocking; https://github.com/mrash/fwknop
 # Redirect sftp output to sshd.log file or similar via rsyslog or similar in /dev/log
@@ -93,17 +92,17 @@ export dnsList="REPLACEME"
 export apkRepoList="REPLACEME"
 export devDevice="REPLACEME"
 export tempRootPass="REPLACEME"
-export gitPackageCommitHash="REPLACEME" # Scroll through original aports git repo to set the desired hash
 export localGateway="192.168.0.0"
 export localNetmask="REPLACEME"
 export umask="077"
 export systemArch="$(uname -m)" # Leave this as "$(uname -m)" to automatically find system architecture. If building on a different system, then change this into one of the many values: x86_64, x86, arm*, aarch64, riscv64, loongarch64
+export kernelVersion="$(uname -r | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}')" # Ensure this remains in the correct format of x.x.x, otherwise leave this alone as "$(uname -r | grep )"
 
 # Usernames to be created. This does not include chrony and sshd, since they are already created
 export powerUsername="REPLACEME"	# Username that can execute the acpid daemon
 export loggerUsername="REPLACEME"	# Username that runs syslogd
 export backgroundUsername="REPLACEME"	# Username that runs crond
-export monitorUsername="REPLACEME" # Username that can read and send logs across the network. !!! Highest privledge !!!
+export monitorUsername="REPLACEME" # Username that can read and send logs across the network
 export collectorUsername="REPLACEME" # Username that can inspect nearly the entire system for logs.
 export previewUsername="REPLACEME" # Username that only receives a simple output, and leaves
 export serverCommandUsername="REPLACEME" # Username with restricted commands to execute
@@ -158,7 +157,7 @@ System last log sent: 00:00 00/00/0000 UTC" # Ran with figlet command, reference
 # Modifying behavior of $mountPoint, and actions required to ensure the $mountPoint will work as intended
 	# Automatically setting $mountPoint to equal "/" for local changes
 gLocal=false # mountPoint at "/"? Otherwise in /mnt
-	# Include kernel section?
+	# Include kernel section
 gKernelUnmodified=true # Skip kernel mounting & replacement? Otherwise in $mountPoint/mnt/kernelInstall
 	# Formatting/hard reset of storage device
 gPartition=false # Intention to reset or create new partitions of Alpine disk
@@ -191,9 +190,6 @@ pre=false
 post=false
 verify=false
 rmAlpine=false
-
-# Variables meant to increase readability
-hardeningPatchUrl="https://github.com/anthraxx/linux-hardened/releases/download/v$kernelVersion-hardened1/linux-hardened-v$kernelVersion-hardened1"
 
 # Additional logging variables
 export ufwLogging="full" # "low"="on", "medium", "high", "full" : https://thelinuxcode.com/check-my-ufw-log/ : /var/log/ufw.log
@@ -238,7 +234,7 @@ Actions: User must specify atleast one action
 
 Configuration: If not specified, then assume user wants everything below enabled
 	--formatSystem	Setup the custom expected partitions for this system
-	--stayLocal		Configure services and security on local machine
+	--stayLocal	Configure services and security on local machine
 	--kernelModify	Configure to install a locally sourced kernel from external device"
     if $verbose; then echo ""; else return 0; fi
 echo "Expensive operations, controlled via variable:
@@ -264,7 +260,6 @@ tempRootPass:		Declare the temporary default root pass
 tempSshPass:		Declare the temporary ssh password for all ssh keys generated
 mountPoint:		Declare the directory to make a new mount point for a later chroot environment
 mountDevice:		Declare the block device to install alpine system to
-gitPackageCommitHash:	Declare where in the git repository we will interact with based on prior history
 localGateway:		Declare the local LAN network this machine is connect to by providing a base IPv4 address
 localNetmask:		Declare the local LAN network's netmask that will be appeneded to localGateway
 sshPort:		Declare the default port for ssh servers. Will not tolerate port 22, and must be a system port (0-1023).
@@ -272,6 +267,7 @@ umaks:			Declare the standard umask when creating a new file. Determines the def
 bannerIssue:		Declare the message displayed to most unauthenticated users
 bannerMotd:		Decalre the message displayed to most authenticated users
 systemArch		Declare the architecture of the system to determine kernel compiling behavior, and fallback bootloader name
+kernelVersion:	Declare the linux kernel version that one wishes to use from alpine when installing from a kernel device
 Note: $logFile will be set if the variable is empty upon execution.
 
 Internal variables for created usernames
@@ -287,7 +283,6 @@ collectorUsername:      A system user that is permitted to explore the rest of t
 firewallUsername:	A system user that is meant to run firewall related applications
 fail2banUsername:	A system user meant to handle applications like fail2ban
 updateUsername:		A system user that is meant to occasionally update the system
-buildUsername:		A system user meant to build a linux kernel
 extractUsername:	A user that will be deleted in 4 hours, but has sensitive information about several users"
     exit;
 }
@@ -329,7 +324,6 @@ interpretArgs() {
     if [ -z "$logFile" ]; then echo "BAD FORMAT: Will default to /tmp/hardeningAlpine.log due to \$logFile being empty!"; fi
     if [ -z "$logIP" ]; then echo "BAD FORMAT: No ip to indicate a remote logging server in var $\logIP!"; exit; fi
     if [ -z "$systemArch" ]; then echo "BAD FORMAT: Must declare system architecture for var \$systemArch, leave it as default \"\$(uname -m)\""; exit; fi
-    if [ -z "$buildUsername" ]; then echo "BAD FORMAT: Declare username that will be used to build linux kernel! Edit: \$buildUsername and include a name!"; exit; fi
     if [ -z "$monitorUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$monitorUsername and include a name!"; exit; fi
     if [ -z "$powerUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$powerUsername and include a name!"; exit; fi
     if [ -z "$loggerUsername" ]; then echo "BAD FORMAT: Declare username that will be seperated from certain root permissions! Edit: \$loggerUsername and include a name!"; exit; fi
@@ -363,7 +357,6 @@ interpretArgs() {
     if [ -z "$gPartition" ]; then echo "BAD FORMAT: Empty value for \$gPartition implies we are not formatting any devices for installing Alpine"; gPartition=false; fi
     if [ -z "$lvmFull" ]; then echo "BAD FORMAT: Empty value for $lvmFull implies lvm partition will take up the remainder of the disk"; lvmFull=true; fi
     if [ -z "$partitionSector" ]; then echo "BAD FORMAT: Must indicate the starting sector offset for formatting the first partition. Change \$partitionSector"; exit; fi
-    if [ -z "$gitPackageCommitHash" ]; then echo "BAD FORMAT: Must indicate the git branch hash that is expected to be used. Change \$gitPackageCommitHash!"; exit; fi
     if [ -z "$localGateway" ]; then echo "BAD FORMAT: Must provide a IPv4 base address for the local network for variable \$localGateway"; exit; fi
     if [ -z "$localNetmask" ]; then echo "BAD FORMAT: Must provide a IPv4 local network netmask for variable \$localNetmask!"; exit; fi
     if [ -z "$sshPort" ]; then echo "BAD FORMAT: Empty value for \$sshPort. Provide a valid port number that is in range of 1-1023, and is not 22!"; exit; fi
@@ -392,6 +385,7 @@ interpretArgs() {
     if (! echo $sshPort | grep -Eq ^[0-9]) && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number for \$sshPort that is in range of 1-1023, and is not 22!"; exit; fi
     if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format in var \$umask; like 022 or 077!"; exit; fi
     if (echo $systemArch | grep -v -e ^x86_64$ -e ^x86$ -e ^arm.*$ -e ^aarch64$ -e ^riscv64$ -e ^loongarch64$); then echo "BAD FORMAT: Invalid system architecture found in var \$systemArch! Please default to \"\$(uname -m)\" or provide the right accepted architecture value for \$systemArch"; exit; fi
+    if (echo $kernelVersion | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}'); then echo "BAD FORMAT: Invalid linux kernel version defined. Leave it as \"\$(uname -r | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}')\", or insert a valid kernel version"; exit; fi
     
     log "INFO: Finished reading all variables: $*"
 }
@@ -766,11 +760,15 @@ defineMount() {
 	# Features; install kernel, and repair filesystem
 	if ! $gKernelUnmodified; then
 		log "INFO: Checking if xfs file system is healthy for where the kernel is installed"
+		mount | grep "$kernelPartition" | awk '{print($3)}' | while read -r kerPartition; do
+			log "INFO: Found existing partition that contains kernel device mounted! Removing mounting point at: $kerPartition"
+			umount kerPartition || log "CRITICAL: Could not ensure safety of kernel device before xfs_repair is executed!"
+        done
 		xfs_repair "$kernelPartition" || log "UNEXPECTED: Xfs filesystem that stores the kernel could not guarantee it was repaired correctly"
 
 		log "INFO: Mounting kernel device onto $mountPoint/mnt/kernelInstall AFTER it was potentially repaired"
 	    chroot $mountPoint /bin/mkdir -p "/mnt/kernelInstall" 2>/dev/null || log "UNEXPECTED: Lacked capabilities to create mountpoint directory on $mountPoint/mnt/kernelInstall"
-		mount -t xfs "$kernelPartition" "$mountPoint"/mnt/kernelInstall 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount on $mountPoint/mnt/kernelInstall"; fi
+		mount -t xfs "$kernelPartition" "$mountPoint"/mnt/kernelInstall 2>/dev/null || log "UNEXPECTED: Lacked capabilities to mount on $mountPoint/mnt/kernelInstall"
 		
 		log "INFO: Re-installing kernel regardless if it's the same existing one"
 		chroot $mountPoint /sbin/apk del linux-lts || log "CRITICAL: Could not remove existing kernel for new installation"
@@ -3458,3 +3456,4 @@ main "$@"
 # https://github.com/captainzero93/security_harden_linux/blob/main/improved_harden_linux.sh
 # https://github.com/peass-ng/PEASS-ng
 # https://cisofy.com/lynis
+# https://krython.com/post/hardening-alpine-linux-system-security
