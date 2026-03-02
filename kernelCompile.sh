@@ -285,8 +285,8 @@ prepareMountEnvironment() {
 #    chroot $mountPoint /usr/bin/git -C home/$buildUsername/aports reset --hard "$gitPackageCommitHash" || log "UNEXPECTED: Could not set branch to expected kernel version $kernelVersion"
 #    chroot $mountPoint /bin/chown "$buildUsername:root" -R home/$buildUsername 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
 #    chroot $mountPoint /bin/chmod +x home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "CRITICAL: Could not enable execution to APKBUILD"   
-    	# Obtain github for the first time
-#   	log "INFO: Downloading aports Alpine linux github repo for various packages"
+	# Obtain github for the first time
+#    log "INFO: Downloading aports Alpine linux github repo for various packages"
 #    chroot $mountPoint /usr/bin/git -C /home/$buildUsername clone git://git.alpinelinux.org/aports.git 2>/dev/null || log "CRITICAL: Could not obtain github repo to install kernel"
     	
     # Setup default directories
