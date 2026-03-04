@@ -2,11 +2,9 @@
 
 # Setting up kernel configuration on an already mounted kernel storage device
 
-
-# Modify kernel manually with ncurses-dev; chroot /mnt/alpine /usr/bin/make menuconfig -C /home/$buildUsername/aports/main/linux-lts/src/linux-6.12
 # Features; update linuxConfig.config, customize linuxConfig.config, install kernel, update github, repair filesystem, and auto-select latest kernel with specific features
 
-	
+# !!! TODO	install kernel, update github, and auto-select latest kernel
 	
 	
 # Variables expected to be configured	
@@ -25,6 +23,7 @@ export hardeningPatchUrl="https://github.com/anthraxx/linux-hardened/releases/do
 export kernelVersion="$(uname -r | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}')" # Ensure this remains in the correct format of x.x.x, otherwise leave this alone as "$(uname -r | grep )"	
 export systemArch="$(uname -m)" # Leave this as "$(uname -m)" to automatically find system architecture. If building on a different system, then change this into one of the many values: x86_64, x86, arm*, aarch64, riscv64, loongarch64
 systemArchFallbackName=""
+linuxRevision="$(echo $kernelVersion | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}')" # Just shortens the name of $kernelVersion. Do not edit
 	# Fallback bootloader name for boot*.efi file in $bootPartition/EFI/boot/
 #case $systemArch in
 #  	x86_64 ) systemArchFallbackName="x64";;
@@ -42,6 +41,7 @@ export gKernelPartition=false # Intention to reset or create new partitions of K
 export gNewConfig=false
 export gUpdate=false
 export gPackageGone=false
+export gCompile=false
 
 # Log function
 log() {
@@ -64,7 +64,8 @@ Actions: User must specify atleast one action
 	--kernelFormat		Configure to install a locally sourced kernel from external device
 	--newConfig		Create a brand new linux kernel config
 	--updateConfig		Run an interactive process (with ncurses) to adjust & update configuration file for the linux kernel
-	--removePackages	Remove linux kernel packages after compiling the kernel"
+	--removePackages	Remove linux kernel packages after compiling the kernel
+	--compile		Compiles the linux kernel based on the configuration file provided"
     if $verbose; then echo ""; else return 0; fi
 echo "Internal variables to configure script:
 version:			Version of the script
@@ -93,6 +94,7 @@ interpretArgs() {
         --newConfig) gNewConfig=true;;
         --updateConfig) gUpdate=true;;
         --removePackages) gPackageGone=true;;
+        --compile) gCompile=true;;
         *)
           echo "BAD FORMAT: Unknown option: $i"
           wantHelp=true
@@ -141,7 +143,7 @@ interpretArgs() {
     if (! echo $sshPort | grep -Eq ^[0-9]) && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number for \$sshPort that is in range of 1-1023, and is not 22!"; exit; fi
     if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format in var \$umask; like 022 or 077!"; exit; fi
     if (echo $systemArch | grep -v -e ^x86_64$ -e ^x86$ -e ^arm.*$ -e ^aarch64$ -e ^riscv64$ -e ^loongarch64$); then echo "BAD FORMAT: Invalid system architecture found in var \$systemArch! Please default to \"\$(uname -m)\" or provide the right accepted architecture value for \$systemArch"; exit; fi
-    if (echo $kernelVersion | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}'); then echo "BAD FORMAT: Invalid linux kernel version defined. Leave it as \"\$(uname -r | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}')\", or insert a valid kernel version"; exit; fi
+    if (! echo $kernelVersion | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}'); then echo "BAD FORMAT: Invalid linux kernel version defined. Leave it as \"\$(uname -r | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}')\", or insert a valid kernel version"; exit; fi
     
     log "INFO: Finished reading all variables: $*"
 }
@@ -237,12 +239,15 @@ prepareMountEnvironment() {
 	if [ -z "$(chroot $mountPoint /bin/grep $buildUsername /etc/passwd)" ]; then
     	chroot $mountPoint /usr/sbin/adduser -h /home/$buildUsername -S -D -s /sbin/nologin $buildUsername 2>/dev/null || log "CRITICAL: Could not create an account for building the kernel"
     	chroot $mountPoint /usr/sbin/addgroup $buildUsername abuild 2>/dev/null || log "CRITICAL: Could not include $buildUsername into abuild group"
+    	chroot $mountPoint /usr/sbin/addgroup $buildUsername coreutils 2>/dev/null || log "CRITICAL: Could not include $buildUsername into coreutils group"
+    	chroot $mountPoint /usr/sbin/addgroup $buildUsername busybox 2>/dev/null || log "CRITICAL: Could not include $buildUsername into busybox group"
+    	chroot $mountPoint /usr/sbin/addgroup $buildUsername apk 2>/dev/null || log "UNEXPECTED: Could not include $buildUsername into apk group"
     	chroot $mountPoint /usr/sbin/addgroup $buildUsername wheel 2>/dev/null || log "UNEXPECTED: Could not include $buildUsername into admin group"
     	log "INFO: Finished adding in $buildUsername as limited user to handle kernel installation, updating, and etc"
     fi
 	
-	log "INFO: Ensuring required packages are being installed"
-	chroot $mountPoint /sbin/apk add git alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "CRITICAL: Could not install required packages for kernel"
+	log "INFO: Ensuring required packages are being installed" #kernel-hardening-checker@additional
+	chroot $mountPoint /sbin/apk add git alpine-sdk ncurses-dev flex bison 2>/dev/null || log "CRITICAL: Could not install required packages for kernel"
 	
 	if $gKernelPartition; then
 		# Kernel formatting
@@ -302,9 +307,17 @@ prepareMountEnvironment() {
     chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild-keygen args -a -i -n" > $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuilld-keygen permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass :wheel cmd mkdir" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide mkdir permissions to members apart of wheel group"
     chroot $mountPoint /bin/echo "permit nopass :wheel cmd cp" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide cp permissions to members apart of wheel group"
-    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts checksum" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild checksum permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/echo "permit nopass :wheel as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts -crK" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild build permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts checksum" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild checksum permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts -crK" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild build permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts unpack" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild unpack permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/make menuconfig -C /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide make menuconfig permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/make oldconfig -C /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide make oldconfig permissions to be run as $buildUsername"
     chroot $mountPoint /bin/chmod 0400 /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/kernelBuild.conf file permissions"
+    
+    # Temporary permission changes
+    chroot $mountPoint /bin/chmod 501 /usr/bin/ld 2>/dev/null || log "UNEXPECTED: Could not add execute permission on /usr/bin/ld"
+    chroot $mountPoint /bin/chmod 501 /usr/bin/as 2>/dev/null || log "UNEXPECTED: Could not add execute permission on /usr/bin/as"
+    chroot $mountPoint /bin/chmod 501 /usr/bin/sha512sum 2>/dev/null || log "UNEXPECTED: Could not add execute permission on /usr/bin/sha512sum"
     
     log "INFO: Checking if abuild can use $buildUsername keys that should be stored in /etc/apk/keys"
     if [ -z "$(chroot $mountPoint /bin/ls /etc/apk/keys | grep -v alpine-devel)" ]; then
@@ -313,34 +326,8 @@ prepareMountEnvironment() {
         chroot $mountPoint /bin/chmod a+r /etc/apk/keys/* 2>/dev/null || log "UNEXPECTED: Could not enable keys stored in /etc/apk/keys to be read by $buildUsername"
     fi
     
-    log "INFO: Does linux kernel configuration exist in the correct spot?"
-    if [ ! -f "$mountPoint/home/$buildUsername/linuxConfig.config" ]; then chroot $mountPoint /bin/touch "/home/$buildUsername/linuxConfig.config" || log "UNEXPECTED: Could not place linuxConfig.config file in /home/$buildUsername"; fi
-    if [ "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config)" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config)" ]; then
-        # Move the new file
-        log "INFO: Moving file linuxConfig.config into lts.$systemArch.config with the following md5sum: $(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config) = $(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config)"
-        chroot $mountPoint /bin/cp /home/$buildUsername/linuxConfig.config "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"
-        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "UNEXPECTED: Could not ensure kernel config file is owned by $buildUsername"
-    fi
-    
-    log "INFO: The system is ready to compile the linux kernel in a Alpine environment"
-}
-
-# Prepare envirnment for ncurses interactive screen; permits manually configurating and updating linux kernel configurations
-ncurseSetup() {
-	log "INFO: Finished preparing ncurse environemnt for creating or updating linux kernel configuration"
-}
-
-# !!!
-interactKernelConfig() {
-	log "INFO: Finished creating linux configuration script! Lets hope it was configured correctly"
-}
-
-# !!!
-updateKernelConfig() {
-	log "INFO: Finished creating linux configuration script! Lets hope it was updated correctly"
-}
-
-compileKernel() {
+    log "INFO: Attempting to install hardening patches from KSSP"
+    # !!! TODO: Have method to check if patch is available for specific version, and allow user to skip it if it's not available!
 	if [ ! -f "$mountPointhome/$buildUsername/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" ] || [ ! -f "$mountPointhome/$buildUsername/aports/main/linux-lts/0099-linux-hardened-v$kernelVersion.patch.sig" ]; then
         log "INFO: Obtaining kernel patches based on linux hardening alpine guide"
         chroot $mountPoint /usr/bin/wget -O "home/$buildUsername/aports/main/linux-lts/0098-linux-hardened-v$kernelVersion.patch" "$hardeningPatchUrl.patch" || log "UNEXPECTED: Could not download patch into kernel"
@@ -350,14 +337,71 @@ compileKernel() {
     fi
     
     # !!! TODO; make sed more modern and less reliant on gibberish
-    log "INFO: Configurating APKBUILD file to include only relevant files"
-    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/lts.aarch64.config\n\tlts.armv7.config\n\tlts.loongarch64.config\n\tlts.ppc64le.config\n\tlts.riscv64.config\n\tlts.s390x.config\n\tlts.x86.config\n\tlts.x86_64.config/REPLACEME.patch1\n\tREPLACEME.patch2\n\tlts.REPLACEME.config/g' home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source first configuration"
-    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/virt.aarch64.config\n\tvirt.armv7.config\n\tvirt.ppc64le.config\n\tvirt.x86.config\n\tvirt.x86_64.config/virt.REPLACEME.config/g' home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source second configuration"
-    chroot $mountPoint /bin/sed -i "s/lts.REPLACEME.config/lts.$systemArch.config/1" home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source second configuration"
-    chroot $mountPoint /bin/sed -i "s/virt.REPLACEME.config/virt.$systemArch.config/1" home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source third configuration"
-    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch1/0098-linux-hardened-v$kernelVersion.patch/1" home/$buildUsername/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optinal hardening patch file"
-    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch2/0099-linux-hardened-v$kernelVersion.patch.sig/1" home/$buildUsername/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optional hardening patch signature file"
+    log "INFO: Configurating APKBUILD file to include only relevant files and patches"
+    chroot $mountPoint /bin/chmod u+w /home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not change /home/$buildUsername/aports/main/linux-lts/APKBUILD file permissions to enable writing"
+    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/lts.aarch64.config\n\tlts.armv7.config\n\tlts.loongarch64.config\n\tlts.ppc64le.config\n\tlts.riscv64.config\n\tlts.s390x.config\n\tlts.x86.config\n\tlts.x86_64.config/REPLACEME.patch1\n\tREPLACEME.patch2\n\tlts.REPLACEME.config/g' /home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source first configuration"
+    chroot $mountPoint /bin/sed -i ':a;N;$!ba;s/virt.aarch64.config\n\tvirt.armv7.config\n\tvirt.ppc64le.config\n\tvirt.x86.config\n\tvirt.x86_64.config/virt.REPLACEME.config/g' /home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not prepare APKBUILD's source second configuration"
+    chroot $mountPoint /bin/sed -i "s/lts.REPLACEME.config/lts.$systemArch.config/1" /home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source second configuration"
+    chroot $mountPoint /bin/sed -i "s/virt.REPLACEME.config/virt.$systemArch.config/1" /home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not finish APKBUILD's source third configuration"
+    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch1/0098-linux-hardened-v$kernelVersion.patch/1" /home/$buildUsername/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optinal hardening patch file"
+    chroot $mountPoint /bin/sed -i "s/REPLACEME.patch2/0099-linux-hardened-v$kernelVersion.patch.sig/1" /home/$buildUsername/aports/main/linux-lts/APKBUILD || log "UNEXPECTED: Could not finish APKBUILD's source first configuration" || log "UNEXPECTED: Could not finish APKBUILD's source optional hardening patch signature file"
+    chroot $mountPoint /bin/chmod 0550 /home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not change /home/$buildUsername/aports/main/linux-lts/APKBUILD file permissions to only execute"
+    chroot $mountPoint /bin/chown "$buildUsername:root" /home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not set ownership on /home/$buildUsername/aports/main/linux-lts/APKBUILD file"
     
+    log "INFO: Preparing ncurse's setup by unpacking kernel package"
+    if [ ! -d "$mountPoint/home/$buildUsername/aports/main/linux-lts/src" ]; then chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C home/$buildUsername/aports/main/linux-lts unpack 2>/dev/null || log "UNEXPECTED: Could not prepare ncurses environment for an interactice kernel configuration"; fi
+    
+    log "INFO: Does linux kernel configuration exist in the correct spot?"
+    if [ ! -f "$mountPoint/home/$buildUsername/linuxConfig.config" ]; then chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" "/home/$buildUsername/linuxConfig.config" || log "UNEXPECTED: Could not place linuxConfig.config file in /home/$buildUsername"; fi
+    if [ "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config)" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config)" ]; then
+        # Move the new file
+        log "INFO: Moving file linuxConfig.config into lts.$systemArch.config with the following md5sum: $(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config) != $(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config)"
+        chroot $mountPoint /bin/cp "/home/$buildUsername/linuxConfig.config" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"
+        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "UNEXPECTED: Could not ensure build kernel config file is owned by $buildUsername"
+    fi
+    if [ ! -f "$mountPoint/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" ] || [ "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config)" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config)" ]; then
+        # Move the new file
+        log "INFO: Making lts.$systemArch.config as the default .config file in kernel src menuconfig directory with md5sum: $(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config) != $(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config)"
+        chroot $mountPoint /bin/cp "/home/$buildUsername/linuxConfig.config" "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"
+        chroot $mountPoint /bin/chown "$buildUsername:root" "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" 2>/dev/null || log "UNEXPECTED: Could not ensure src kernel config file is owned by $buildUsername"
+    fi
+    
+    log "INFO: The system is ready to compile the linux kernel in a Alpine environment"
+}
+
+interactKernelConfig() {
+	log "INFO: Started interacting with file in /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config with ncurses menu to modify!"
+	local localChecksum="$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config)"
+	chroot /mnt/alpine /usr/bin/doas -u "$buildUsername" /usr/bin/make menuconfig -C /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision
+	
+	if [ "$localChecksum" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config)"]; then
+		log "INFO: User exited from make oldconfig with changes! Affecting /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config and /home/$buildUsername/linuxConfig.config"
+		chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/linuxConfig.config!"
+		chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config!"
+	else
+		log "INFO: User exited from make oldconfig without making any changes! Affecting nothing"
+	fi
+	
+	log "INFO: Finished considering .config! Lets hope it was configured correctly"
+}
+
+updateKernelConfig() {
+	log "INFO: Started interacting with file in /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config with ncurses menu to update!"
+	local localChecksum="$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config)"
+	chroot /mnt/alpine /usr/bin/doas -u "$buildUsername" /usr/bin/make oldconfig -C /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision
+	
+	if [ "$localChecksum" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config)"]; then
+		log "INFO: User exited from make oldconfig with changes! Affecting /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config and /home/$buildUsername/linuxConfig.config"
+		chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/linuxConfig.config!"
+		chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config!"
+	else
+		log "INFO: User exited from make oldconfig without making any changes! Affecting nothing"
+	fi
+
+	log "INFO: Finished updating .config! Lets hope it was configured correctly"
+}
+
+compileKernel() {    
     log "INFO: Performing checksum on everything"
     chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C home/$buildUsername/aports/main/linux-lts checksum || log "UNEXPECTED: Could not compile checksum of everything modified so far"
     
@@ -381,12 +425,17 @@ main() {
     
     if $gNewConfig; then interactKernelConfig; fi
     if $gUpdate; then updateKernelConfig; fi
-    compileKernel
+    if $gCompile; then compileKernel; fi
     
     log "INFO: Cleaning up"
+    	# File clean up
     if [ -f "$mountPoint/etc/doas.d/kernelBuild.conf" ]; then chroot $mountPoint /bin/rm /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Permission doas file has not been deleted to enforce principle of least priviledge"; fi
-	if $gPackageGone; then chroot $mountPoint /sbin/apk del alpine-sdk kernel-hardening-checker@additional 2>/dev/null || log "UNEXPECTED: Could not remove development build packages"; fi
+	if $gPackageGone; then chroot $mountPoint /sbin/apk del alpine-sdk ncurses-dev 2>/dev/null || log "UNEXPECTED: Could not remove development build packages"; fi
     log "INFO: Finished executing script!"
+    	# Permission clean up
+    chroot $mountPoint /bin/chmod 500 /usr/bin/ld 2>/dev/null || log "UNEXPECTED: Could not remove execute permission on /usr/bin/ld"
+    chroot $mountPoint /bin/chmod 500 /usr/bin/as 2>/dev/null || log "UNEXPECTED: Could not remove execute permission on /usr/bin/as"
+    chroot $mountPoint /bin/chmod 500 /usr/bin/sha512sum 2>/dev/null || log "UNEXPECTED: Could not remove execute permission on /usr/bin/sha512sum"
 }
 
 main "$@"

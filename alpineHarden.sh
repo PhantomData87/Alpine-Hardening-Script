@@ -66,6 +66,7 @@
 # Other packages and commands of interest: agetty (agetty), lsof & lsfd (util-linux-misc)
 # Make $bootPartition $lvmPartition work independetly from each other when installing & formatting
 # Purge root account from having to set password?
+# Enhance security of building kernel
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -385,7 +386,7 @@ interpretArgs() {
     if (! echo $sshPort | grep -Eq ^[0-9]) && [ $sshPort -le 1023 ] && [ $sshPort -ge 0 ] && [ $sshPort != 22 ]; then echo "BAD FORMAT: Must provide a valid port number for \$sshPort that is in range of 1-1023, and is not 22!"; exit; fi
     if (! echo $umask | grep -Eq ^[0-9][0-9][0-9]); then echo "BAD FORMAT: Must provide a valid umask in 3 digit format in var \$umask; like 022 or 077!"; exit; fi
     if (echo $systemArch | grep -v -e ^x86_64$ -e ^x86$ -e ^arm.*$ -e ^aarch64$ -e ^riscv64$ -e ^loongarch64$); then echo "BAD FORMAT: Invalid system architecture found in var \$systemArch! Please default to \"\$(uname -m)\" or provide the right accepted architecture value for \$systemArch"; exit; fi
-    if (echo $kernelVersion | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}'); then echo "BAD FORMAT: Invalid linux kernel version defined. Leave it as \"\$(uname -r | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}')\", or insert a valid kernel version"; exit; fi
+    if (! echo $kernelVersion | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}'); then echo "BAD FORMAT: Invalid linux kernel version defined. Leave it as \"\$(uname -r | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}')\", or insert a valid kernel version"; exit; fi
     
     log "INFO: Finished reading all variables: $*"
 }
@@ -576,7 +577,7 @@ defineMount() {
     	if ! $gLocal && [ ! -b "$lvmPartition" ] && $gPartition; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, but will format due to gPartion being specified as $gPartition"; lvmExist=false; fi
 		if [ ! -b "$bootPartition" ] && $bootExist; then echo "vfat bootPartition at $bootPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; bootPartition=""; bootSectorChosen=false; bootExist=false; fi
 		if [ ! -b "$lvmPartition" ] && $lvmExist; then echo "LVM2_member lvmPartition at $lvmPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; lvmPartition=""; lvmSectorChosen=false; lvmExist=false; fi
-		if [ ! -b "$kernelPartition" ]; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; kernelPartition=""; kernelSectorChosen=false; fi
+		if ! $gKernelUnmodified && [ ! -b "$kernelPartition" ]; then echo "xfs kernelPartition at $kernelPartition partition currently does not exist, and formatting is currently disabled. Specify a valid existing disk, or enable formatting"; kernelPartition=""; kernelSectorChosen=false; fi
 		if ! $bootSectorChosen || ! $lvmSectorChosen || ! $kernelSectorChosen; then continue; fi # Reset
 		
 	        # Are we mounting non-existant devices without formatting?
@@ -1400,7 +1401,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /sbin/mke2fs 2>/dev/null || log "UNEXPECTED: Could not change permissions for; mke2fs"
     chroot $mountPoint /bin/chmod 0500 /sbin/e2fsck 2>/dev/null || log "UNEXPECTED: Could not change permissions for; e2fsck"
     chroot $mountPoint /bin/chmod 0500 /sbin/ldconfig 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ldconfig"
-    chroot $mountPoint /bin/chmod 0500 /sbin/apk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; apk"
+    chroot $mountPoint /bin/chmod 0510 /sbin/apk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; apk"
     chroot $mountPoint /bin/chmod 0500 /sbin/supervise-daemon 2>/dev/null || log "UNEXPECTED: Could not change permissions for; supervise-daemon"
     chroot $mountPoint /bin/chmod 0500 /sbin/start-stop-daemon 2>/dev/null || log "UNEXPECTED: Could not change permissions for; start-stop-daemon"
     chroot $mountPoint /bin/chmod 0500 /sbin/rc-update 2>/dev/null || log "UNEXPECTED: Could not change permissions for; rc-update"
@@ -1447,7 +1448,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0500 /usr/bin/getent 2>/dev/null || log "UNEXPECTED: Could not change permissions for; getent"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/getconf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; getconf"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/scanelf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; scanelf"
-    chroot $mountPoint /bin/chmod 0500 /usr/bin/ssl_client 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssl_client"
+    chroot $mountPoint /bin/chmod 0510 /usr/bin/ssl_client 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssl_client"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/uniso 2>/dev/null || log "UNEXPECTED: Could not change permissions for; uniso"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/logger 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logger"
     chroot $mountPoint /bin/chmod 0500 /usr/bin/lddtree 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lddtree"
@@ -1842,8 +1843,8 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 00705 /etc/runlevels/sysinit 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysinit"
     chroot $mountPoint /bin/chmod 00700 /etc/secfixes.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; secfixes.d"
     chroot $mountPoint /bin/chmod 00750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh"
-    chroot $mountPoint /bin/chmod 00700 /etc/ssl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssl"
-    chroot $mountPoint /bin/chmod 00700 /etc/ssl1.1 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssl1.1"
+    chroot $mountPoint /bin/chmod 00701 /etc/ssl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssl"
+    chroot $mountPoint /bin/chmod 00701 /etc/ssl1.1 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssl1.1"
     chroot $mountPoint /bin/chmod 00500 /etc/sysctl.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysctl.d"
     chroot $mountPoint /bin/chmod 00755 /etc/terminfo 2>/dev/null || log "UNEXPECTED: Could not change permissions for; terminfo"
     chroot $mountPoint /bin/chmod 00755 /etc/terminfo/a 2>/dev/null || log "UNEXPECTED: Could not change permissions for; a"
@@ -2070,6 +2071,8 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chown root:rshell /bin/ksh 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /bin/ksh"
     chroot $mountPoint /bin/chown root:busybox /bin/busybox 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /bin/busybox"
     chroot $mountPoint /bin/chown root:coreutils /bin/coreutils 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /bin/coreutils"
+    chroot $mountPoint /bin/chown root:apk /sbin/apk 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /bin/apk"
+    chroot $mountPoint /bin/chown root:apk /usr/bin/ssl_client 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/ssl_client"
     chroot $mountPoint /bin/chown root:iptables /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/xtables-nft-multi"
     chroot $mountPoint /bin/chown root:logrotate /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/logrotate"
     chroot $mountPoint /bin/chown root:readGroup /etc/group 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/group"
@@ -2648,7 +2651,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/mke2fs -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/mke2fs"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/e2fsck -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/e2fsck"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/ldconfig -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/ldconfig"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/apk -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/apk"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/apk -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/apk"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/supervise-daemon -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/supervise-daemon"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/start-stop-daemon -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/start-stop-daemon"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/rc-update -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /sbin/rc-update"; fi
@@ -2695,7 +2698,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/getent -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/getent"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/getconf -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/getconf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/scanelf -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/scanelf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ssl_client -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/ssl_client"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ssl_client -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/ssl_client"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/uniso -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/uniso"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/logger -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/logger"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/lddtree -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/lddtree"; fi
@@ -3015,8 +3018,8 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/runlevels/shutdown -perm 705 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/runlevels/shutdown"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/runlevels/sysinit -perm 705 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/runlevels/sysinit"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/secfixes.d -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/secfixes.d"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssl -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssl"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssl1.1 -perm 700 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssl1.1"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssl -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssl"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssl1.1 -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssl1.1"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/sysctl.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/sysctl.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/terminfo -perm 755 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/terminfo"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/terminfo/a -perm 755 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/terminfo/a"; fi
@@ -3205,9 +3208,11 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/ksh -user root -and -group rshell 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/ksh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/busybox -user root -and -group busybox 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/busybox"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /bin/coreutils -user root -and -group coreutils 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/coreutils"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/apk -user root -and -group apk 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /bin/apk"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/messages -user root -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/messages"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/env -user root -and -group python 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/env"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/python3.12 -user root -and -group python 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/python3.12"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/ssl_client -user root -and -group apk 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/ssl_client"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/xtables-nft-multi -user root -and -group iptables 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/xtables-nft-multi"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/logrotate -user root -and -group logrotate 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/logrotate"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/group -user root -and -group readGroup 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/group"; fi
