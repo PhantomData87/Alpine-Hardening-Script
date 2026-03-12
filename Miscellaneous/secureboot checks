@@ -6,6 +6,7 @@
 - Remove root password?
 - unmount before formatting?    
 
+
 chroot $mountPoint /bin/sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
 
 
