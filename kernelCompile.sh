@@ -32,7 +32,7 @@ export gPackageGone=false
 export gCompile=false
 
 # Variables that help keep track of prior file permissions
-export executablePaths=""
+export executablePaths="/usr/bin/abuild /usr/bin/abuild-keygen /usr/bin/ld /usr/bin/as /usr/bin/sha512sum /usr/bin/openssl /usr/bin/doas /bin/busybox /bin/coreutils /sbin/apk /usr/bin/openssl /bin/tar /usr/bin/unxz"
 export permList=""
 
 # Log function
@@ -252,7 +252,6 @@ prepareMountEnvironment() {
     chroot $mountPoint /bin/chown "$buildUsername:root" /home/$buildUsername 2>/dev/null || log "UNEXPECTED: Could not ensure home directory of $buildUsername is owner"
     
     log "INFO: Obtaining permissions of certain executables; to restore them later"
-    executablePaths="/usr/bin/abuild /usr/bin/abuild-keygen /usr/bin/ld /usr/bin/as /usr/bin/sha512sum /usr/bin/openssl /usr/bin/doas /bin/busybox /bin/coreutils"
     permList=""
     local perm=""
     for uFile in $executablePaths; do
@@ -280,9 +279,9 @@ prepareMountEnvironment() {
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts checksum" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild checksum permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts -crK" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild build permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts unpack" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild unpack permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts clean" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide make clean permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/make args -C /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision menuconfig" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide make menuconfig permissions to be run as $buildUsername"
-    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/make args -C /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision oldconfig" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide make oldconfig permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/abuild args -C /home/$buildUsername/aports/main/linux-lts clean" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide abuild clean permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/make args -C /home/$buildUsername/linux-build/linux-$linuxRevision menuconfig" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide make menuconfig permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/make args -C /home/$buildUsername/linux-build/linux-$linuxRevision oldconfig" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide make oldconfig permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/git args config --global --add safe.directory /home/$buildUsername/aports" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide git config safe.directory permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/git args -C /home/$buildUsername/aports config core.sparsecheckout true" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide git config core.sparsecheckout permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/git args -C /home/$buildUsername clone git://git.alpinelinux.org/aports.git" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide git clone permissions to be run as $buildUsername"
@@ -293,6 +292,7 @@ prepareMountEnvironment() {
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/git args -C /home/$buildUsername/aports restore main/linux-lts/lts.$systemArch.config" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide git restore main/linux-lts/lts.$systemArch.config permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/git args -C /home/$buildUsername/aports rev-parse HEAD" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide git rev-parse permissions to be run as $buildUsername"
     chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /usr/bin/git args -C /home/$buildUsername/aports --no-pager log --grep=\"^main/linux-lts: upgrade to $kernelVersion$\" --pretty=format:\"%H\" -n1" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide git log permissions to be run as $buildUsername"
+    chroot $mountPoint /bin/echo "permit nopass root as $buildUsername cmd /bin/mv args /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision /home/$buildUsername/linux-build/linux-$linuxRevision" >> $mountPoint/etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not provide mv permissions to be run as $buildUsername"
     chroot $mountPoint /bin/chmod 0400 /etc/doas.d/kernelBuild.conf 2>/dev/null || log "UNEXPECTED: Could not change /etc/doas.d/kernelBuild.conf file permissions"
 
 	# Reducing massively fetch and object download time by filtering inclusively directories; https://stackoverflow.com/questions/2416815/how-to-git-pull-all-but-one-folder/17075665#17075665
@@ -324,13 +324,12 @@ prepareMountEnvironment() {
 		fi
 		log "INFO: Git repo does not match with expected kernel version, thus transitioning git repo to older commits to match kernel version"
 		chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/git -C "/home/$buildUsername/aports" reset --hard "$gitCommitHash" || log "UNEXPECTED: Could not set branch to expected kernel version $kernelVersion"
-		# Are prior linux kernel files present? If so, clean since they must have been built on a different version
-		if [ ! -d "$mountPoint/home/$buildUsername/aports/main/linux-lts/src" ]; then
-			log "INFO: Clearing prior kernel build"
-			chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C "/home/$buildUsername/aports/main/linux-lts" clean 2>/dev/null || log "CRITICAL: Could not reset src directory to use new $kernelVersion kernel src directory"
-		fi
+
 		log "INFO: Finished modifying git repo in preparation for kernel version $kernelVersion"
 	fi
+	
+	log "INFO: Ensuring linux-lts directory is clean from prior linux build"		
+	chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C "/home/$buildUsername/aports/main/linux-lts" clean 2>/dev/null || log "CRITICAL: Could not reset src directory to use new $kernelVersion kernel src directory"
 
 	log "INFO: Re-Setting up default directories ownership and permissions to permit access for $buildUsername user"
 	chroot $mountPoint /bin/chmod 760 /home/$buildUsername/aports 2>/dev/null || log "UNEXPECTED: Could not set permissions on /home/$buildUsername/aports directory"
@@ -380,12 +379,7 @@ prepareMountEnvironment() {
     	# Run checksum to affect APKBUILD
     chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C "home/$buildUsername/aports/main/linux-lts" checksum || log "UNEXPECTED: Could not compile checksum of everything modified so far"
     
-    log "INFO: Preparing ncurse's setup by unpacking kernel package"
-    if [ ! -d "$mountPoint/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision" ]; then log "INFO: It was found to be necessary to unpack kernel tar. !!! This may take a longer time !!!"; chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C "/home/$buildUsername/aports/main/linux-lts" unpack || log "UNEXPECTED: Could not prepare ncurses environment for an interactive kernel configuration"; fi
-    
     log "INFO: Do the linux kernel configuration match each other?"
-    	# File existance check
-    if [ ! -f "$mountPoint/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" ]; then chroot $mountPoint /bin/cp "/home/$buildUsername/linuxConfig.config" "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"; fi
     # Hash check
     if [ "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config | awk '{print($1)}' 2>/dev/null)" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config | awk '{print($1)}' 2>/dev/null)" ]; then
        	# Move the new file
@@ -393,18 +387,23 @@ prepareMountEnvironment() {
        	chroot $mountPoint /bin/rm "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "UNEXPECTED: Could not remove outdated kernel configuration file!"
        	chroot $mountPoint /bin/cp "/home/$buildUsername/linuxConfig.config" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"
     fi
-    if [ "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config | awk '{print($1)}' 2>/dev/null)" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)" ]; then
-        # Move the new file
-        log "INFO: Making lts.$systemArch.config as the default .config file in kernel src menuconfig directory with md5sum: $(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linuxConfig.config | awk '{print($1)}' 2>/dev/null) != $(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)"
-        chroot $mountPoint /bin/rm "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" 2>/dev/null || log "UNEXPECTED: Could not remove outdated kernel configuration file!"
-        chroot $mountPoint /bin/cp "/home/$buildUsername/linuxConfig.config" "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is set!"
-    fi
     	# Setting file permissions
 	chroot $mountPoint /bin/chown "$buildUsername:root" "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "UNEXPECTED: Could not ensure user provided build kernel config file is owned by $buildUsername"
 	chroot $mountPoint /bin/chown "$buildUsername:root" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "UNEXPECTED: Could not ensure build kernel config file is owned by $buildUsername"
-    chroot $mountPoint /bin/chown "$buildUsername:root" "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" 2>/dev/null || log "UNEXPECTED: Could not ensure src kernel config file is owned by $buildUsername"
     
-    log "INFO: Final APKBUILD file checksum"
+    # Prepare ncurses library location
+    if [ ! -d "$mountPoint/home/$buildUsername/linux-build/linux-$linuxRevision" ]; then 
+    	log "INFO: It was found to be necessary to unpack kernel tar. !!! This may take a longer time !!!";
+	    chroot $mountPoint /bin/mkdir -p "/home/$buildUsername/linux-build" 2>/dev/null || log "UNEXPECTED: Lacked capabilities to create mountpoint directory on $mountPoint/home/$buildUsername"
+	    chroot $mountPoint /bin/chown "$buildUsername:root" "/home/$buildUsername/linux-build" 2>/dev/null || log "UNEXPECTED: Could not ensure build kernel src directory is owned by $buildUsername"
+    	chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C "/home/$buildUsername/aports/main/linux-lts" unpack || log "UNEXPECTED: Could not obtain linux kernel zip for an interactive kernel configuration"
+    	chroot $mountPoint /usr/bin/doas -u "$buildUsername" /bin/mv "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision" "/home/$buildUsername/linux-build/linux-$linuxRevision" || log "Could not move current src/linux-$linuxRevision directory into /home/$buildUsername/linux-build/linux-$linuxRevision"
+    	chroot $mountPoint /bin/cp "/home/$buildUsername/linuxConfig.config" "/home/$buildUsername/linux-build/linux-$linuxRevision/.config" 2>/dev/null || log "CRITICAL: Could not backup current /home/$buildUsername/linuxConfig.config as its own seperate file!"
+    	chroot $mountPoint /bin/rm -R "/home/$buildUsername/aports/main/linux-lts/src" 2>/dev/null || log "Could not remove prior src files"
+    fi
+    
+    log "INFO: Final APKBUILD file checksum and cleaning"
+	chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C "/home/$buildUsername/aports/main/linux-lts" clean || log "CRITICAL: Could not remove any downloaded or previous files"
     chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/abuild -C "home/$buildUsername/aports/main/linux-lts" checksum || log "UNEXPECTED: Could not compile checksum of everything modified so far"
     chroot $mountPoint /bin/chmod 0550 /home/$buildUsername/aports/main/linux-lts/APKBUILD 2>/dev/null || log "UNEXPECTED: Could not change /home/$buildUsername/aports/main/linux-lts/APKBUILD file permissions to only execute"
     
@@ -412,17 +411,17 @@ prepareMountEnvironment() {
 }
 
 interactKernelConfig() {
-	log "INFO: Started interacting with file in /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config with ncurses menu to modify!"
-	local localChecksum="$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)"
-	chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/make -C "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision" menuconfig || log "UNEXPECTED: Could not start ncurses menuconfig!"
+	log "INFO: Started interacting with file in /home/$buildUsername/linux-build/linux-$linuxRevision/.config with ncurses menu to modify!"
+	local localChecksum="$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linux-build/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)"
+	chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/make -C "/home/$buildUsername/linux-build/linux-$linuxRevision" menuconfig || log "UNEXPECTED: Could not start ncurses menuconfig!"
 	
-	if [ "$localChecksum" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)" ]; then
+	if [ "$localChecksum" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linux-build/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)" ]; then
 		log "INFO: User exited from make oldconfig with changes! Affecting /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config and /home/$buildUsername/linuxConfig.config"		
 		chroot $mountPoint /bin/cp "/home/$buildUsername/linuxConfig.config" "/home/$buildUsername/linuxConfig.config.$(date +%s).bak" 2>/dev/null || log "CRITICAL: Could not backup current /home/$buildUsername/linuxConfig.config as its own seperate file!"
 		chroot $mountPoint /bin/rm "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "UNEXPECTED: Could not remove outdated kernel configuration file!"
        	chroot $mountPoint /bin/rm "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "UNEXPECTED: Could not remove outdated current kernel configuration file!"
-        chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/linuxConfig.config!"
-		chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config!"
+        chroot $mountPoint /bin/cp "/home/$buildUsername/linux-build/linux-$linuxRevision/.config" "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/linuxConfig.config!"
+		chroot $mountPoint /bin/cp "/home/$buildUsername/linux-build/linux-$linuxRevision/.config" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config!"
 	else
 		log "INFO: User exited from make oldconfig without making any changes! Affecting nothing"
 	fi
@@ -431,17 +430,17 @@ interactKernelConfig() {
 }
 
 updateKernelConfig() {
-	log "INFO: Started interacting with file in /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config with ncurses menu to update!"
-	local localChecksum="$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)"
-	chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/make -C "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision" oldconfig || log "UNEXPECTED: Could not start ncurses menuconfig!"
+	log "INFO: Started interacting with file in /home/$buildUsername/linux-build/linux-$linuxRevision/.config with ncurses menu to update!"
+	local localChecksum="$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linux-build/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)"
+	chroot $mountPoint /usr/bin/doas -u "$buildUsername" /usr/bin/make -C "/home/$buildUsername/linux-build/linux-$linuxRevision" oldconfig || log "UNEXPECTED: Could not start ncurses menuconfig!"
 	
-	if [ "$localChecksum" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)" ]; then
+	if [ "$localChecksum" != "$(chroot $mountPoint /usr/bin/md5sum /home/$buildUsername/linux-build/linux-$linuxRevision/.config | awk '{print($1)}' 2>/dev/null)" ]; then
 		log "INFO: User exited from make oldconfig with changes! Affecting /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config and /home/$buildUsername/linuxConfig.config"
 		chroot $mountPoint /bin/cp "/home/$buildUsername/linuxConfig.config" "/home/$buildUsername/linuxConfig.config.$(date +%s).bak" 2>/dev/null || log "CRITICAL: Could not backup current /home/$buildUsername/linuxConfig.config as its own seperate file!"
 		chroot $mountPoint /bin/rm "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "UNEXPECTED: Could not remove outdated kernel configuration file!"
        	chroot $mountPoint /bin/rm "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "UNEXPECTED: Could not remove outdated current kernel configuration file!"
-		chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/linuxConfig.config!"
-		chroot $mountPoint /bin/cp "/home/$buildUsername/aports/main/linux-lts/src/linux-$linuxRevision/.config" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config!"
+		chroot $mountPoint /bin/cp "/home/$buildUsername/linux-build/linux-$linuxRevision/.config" "/home/$buildUsername/linuxConfig.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/linuxConfig.config!"
+		chroot $mountPoint /bin/cp "/home/$buildUsername/linux-build/linux-$linuxRevision/.config" "/home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config" 2>/dev/null || log "CRITICAL: Wrong kernel configuration file is not saved for /home/$buildUsername/aports/main/linux-lts/lts.$systemArch.config!"
 	else
 		log "INFO: User exited from make oldconfig without making any changes! Affecting nothing"
 	fi
