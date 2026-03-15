@@ -2,7 +2,7 @@
 
 # Setting up kernel compilation on an external storage device
 
-# Features; update linuxConfig.config, customize linuxConfig.config, obtain defualt linuxConfig.config from source, install and compile kernel, update git repo to correct kernel version, filter git repo, restore default executable permissions that were affected, and finally repair filesystem
+# Features; update linuxConfig.config, customize linuxConfig.config, obtain defualt linuxConfig.config from source, install and compile kernel, update git repo to correct kernel version, filter git repo, restore default executable permissions that were affected, seperate profile configuration directory, and finally repair filesystem
 
 #kernel-hardening-checker@additional
 	
