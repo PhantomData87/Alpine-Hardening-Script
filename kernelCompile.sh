@@ -4,7 +4,11 @@
 
 # Features; update linuxConfig.config, customize linuxConfig.config, obtain defualt linuxConfig.config from source, install and compile kernel, update git repo to correct kernel version, filter git repo, restore default executable permissions that were affected, seperate profile configuration directory, and finally repair filesystem
 
-#kernel-hardening-checker@additional
+# !!! Todo
+# kernel-hardening-checker@additional
+# what is CONFIG_DEBUG_WRITABLE_FUNCTION_POINTERS_VERBOSE ???
+# cross compile?
+# can compile without errors?
 	
 # Variables expected to be configured	
 export version="1.0.0"
@@ -32,7 +36,7 @@ export gPackageGone=false
 export gCompile=false
 
 # Variables that help keep track of prior file permissions
-export executablePaths="/etc/apk /etc/apk/keys /usr/bin/scanelf /bin/bbsuid /bin/kmod /usr/bin/strip /usr/bin/find /usr/bin/xargs /usr/bin/nm /usr/bin/objdump /usr/bin/objcopy /usr/bin/readelf /usr/bin/abuild /usr/bin/abuild-keygen /usr/bin/ld /usr/bin/as /usr/bin/sha512sum /usr/bin/openssl /usr/bin/doas /bin/busybox /bin/coreutils /sbin/apk /bin/tar /usr/bin/unxz /usr/bin/c++filt /usr/sbin/getcap /usr/bin/ar /usr/bin/python3 /usr/bin/env"
+export executablePaths="/etc/apk /etc/apk/keys /var/apk/cache /usr/bin/scanelf /bin/bbsuid /bin/kmod /usr/bin/strip /usr/bin/find /usr/bin/xargs /usr/bin/nm /usr/bin/objdump /usr/bin/objcopy /usr/bin/readelf /usr/bin/abuild /usr/bin/abuild-keygen /usr/bin/ld /usr/bin/as /usr/bin/sha512sum /usr/bin/openssl /usr/bin/doas /bin/busybox /bin/coreutils /sbin/apk /bin/tar /usr/bin/unxz /usr/bin/c++filt /usr/sbin/getcap /usr/bin/ar /usr/bin/python3 /usr/bin/env"
 export permList=""
 
 # Log function

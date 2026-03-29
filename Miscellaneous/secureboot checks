@@ -3,16 +3,11 @@
 - fstab auto-regen
 - test UEFI & bios potential; System may be only UEFI recognizable! And not bios recognizable!!!!!!!! Must test.
 - Test if removing dracut specific paramters affect booting; https://man.archlinux.org/man/dracut.cmdline.7.en.txt, https://www.man7.org/linux/man-pages/man7/bootparam.7.html
-- Remove root password?
-- unmount before formatting?    
+- Remove root password?  
+- Update kernel configuration: https://linuxvox.com/blog/config-linux-kernel/#using-make-oldconfig
+- Live patch: https://wiki.alpinelinux.org/wiki/Kernel_live_patching
 
 
 chroot $mountPoint /bin/sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
-
-
-Update kernel configuration: https://linuxvox.com/blog/config-linux-kernel/#using-make-oldconfig
-Live patch: https://wiki.alpinelinux.org/wiki/Kernel_live_patching
-
-
 sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
 i="$(echo $i | sed "s/\//\\\\\\//g")" # Ensuring the user doesn't have to concern with escaping th '/' symbol in urls
