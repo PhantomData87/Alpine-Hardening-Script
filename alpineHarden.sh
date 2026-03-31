@@ -1027,6 +1027,7 @@ configLocalInstallation() {
     
     # Remove any bindings that exist in home directory temporarely: To see 0000 permission on mounting points
     log "INFO: Temporarely removing previous bindings in chroot environment"
+    if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$monitorUsername/logs " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$monitorUsername/logs" 2>/dev/null || log "UNEXPECTED: Could not umount logs for $monitorUsername user"; fi
     for i in $previewUsername $serverCommandUsername; do
    	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/rksh " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/rksh" 2>/dev/null || log "UNEXPECTED: Could not umount rksh for $i user"; fi
     	if [ ! -z "$(chroot $mountPoint /bin/mount | grep "/home/$i/bin/echo " 2>/dev/null)" ]; then chroot $mountPoint /bin/umount "/home/$i/bin/echo" 2>/dev/null || log "UNEXPECTED: Could not umount echo for $i user"; fi
@@ -1049,6 +1050,7 @@ configLocalInstallation() {
     chroot $mountPoint /bin/mkdir -p "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd key storage"
     chroot $mountPoint /bin/mkdir -p /etc/rsyslog.d/sshdSocket/pts 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd dev mount"
     chroot $mountPoint /bin/mkdir -p /etc/rsyslog.d/sftpSocket/pts 2>/dev/null || log "UNEXPECTED: Could not create directory for sftp dev mount"
+    chroot $mountPoint /bin/mkdir -p /home/$monitorUsername/logs 2>/dev/null || log "UNEXPECTED: Could not create directory for mounting logs to $monitorUsername"
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
         chroot $mountPoint /bin/mkdir -p "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not make a new directory for $i"
         chroot $mountPoint /bin/mkdir -p "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not create syslog hook directory for mounted dev file"
@@ -1138,6 +1140,8 @@ configLocalInstallation() {
     	# Rsyslog binds to /etc/rsyslog.d
     chroot $mountPoint /bin/sed -i "/^#\{0,2\}\/dev\/pts\t\/etc\/rsyslog.d\/sshdSocket\/pts\t\(.*\)/{h;s//\/dev\/pts\t\/etc\/rsyslog.d\/sshdSocket\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0/};\${x;/^\$/{s//\/dev\/pts\t\/etc\/rsyslog.d\/sshdSocket\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /dev/pts to /home/$serverCommandUsername/dev/pts"
     chroot $mountPoint /bin/sed -i "/^#\{0,2\}\/dev\/pts\t\/etc\/rsyslog.d\/sftpSocket\/pts\t\(.*\)/{h;s//\/dev\/pts\t\/etc\/rsyslog.d\/sftpSocket\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0/};\${x;/^\$/{s//\/dev\/pts\t\/etc\/rsyslog.d\/sftpSocket\/pts\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /dev/pts to /home/$previewUsername/dev/pts"
+    	# Making /var/log exposed to $monitorUsername
+    chroot $mountPoint /bin/sed -i "/^#\{0,2\}\/var\/log\t\/home\/$monitorUsername\/logs\(.*\)/{h;s//\/var\/log\t\/home\/$monitorUsername\/logs\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0/};\${x;/^\$/{s//\/var\/log\t\/home\/$monitorUsername\/logs\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0/;H};x}" /etc/fstab || log "UNEXPECTED: Could not include /var/log to /home/$monitorUsername/logs"
 
 # !!! ? RKSH CONFIG FILE
 # Resource: https://www.ibm.com/docs/en/aix/7.2.0?topic=shell-restricted-korn
@@ -2100,6 +2104,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 0240 /var/log/kernSystem.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/kernSystem.log file permissions"
     chroot $mountPoint /bin/chmod 0240 /var/log/emergencySystem.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/emergencySystem.log file permissions"
     chroot $mountPoint /bin/chmod 0240 /var/log/unsorted.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/unsorted.log file permissions"
+    chroot $mountPoint /bin/chmod 00501 /var/log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log directory permissions"
     	# /var/run
     chroot $mountPoint /bin/chmod 00750 /var/run/acpid 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/run/acpid directory permissions"
     chroot $mountPoint /bin/chmod 00750 /var/run/sshd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/run/sshd directory permissions"
@@ -2107,13 +2112,14 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chmod 00750 /var/run/rsyslog 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/run/rsyslog directory permissions"
     	# /var/lib
     chroot $mountPoint /bin/chmod 0460 /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/lib/fail2ban/fail2ban.sqlite3 file permissions"
-    chroot $mountPoint /bin/chmod 0100 /var/apk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/apk directory permissions"
+    chroot $mountPoint /bin/chmod 00100 /var/apk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/apk directory permissions"
     	# /var/apk
     chroot $mountPoint /bin/chmod 0600 /var/apk/cache 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/apk/cache directory permissions"
 
     log "INFO: Setting home files and directories"
     chroot $mountPoint /bin/chmod 00500 /root 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /root directory permissions to read only"
     chroot $mountPoint /bin/chmod 00550 /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/.keys/"
+    chroot $mountPoint /bin/chmod 00501 "/home/$monitorUsername/logs" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$monitorUsername/logs"
         # Permissions of: SSH authorization directories, SSH authorization file
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
         chroot $mountPoint /bin/chmod 00550 "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$i"
@@ -2255,6 +2261,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     chroot $mountPoint /bin/chown root:readGroup /etc/group 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/group"
     chroot $mountPoint /bin/chown root:sshpub /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change ownership of /home/.keys"
     chroot $mountPoint /bin/chown root:writeDev /dev 2>/dev/null || log "UNEXPECTED: Could not change ownership of /dev"
+    chroot $mountPoint /bin/chown root:root /var/log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log"
         # Ownership of: SSH authorization directories, SSH authorization file
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
         chroot $mountPoint /bin/chown "root:$i" "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i"
@@ -2284,6 +2291,7 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
         chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libutmps.so.0.1"
         chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libskarnet.so.2.14"
     done
+    chroot $mountPoint /bin/chown root:root "/home/$monitorUsername/logs" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$monitorUsername/logs"
 
     log "INFO: Granting root capabilities to certain executables" # Changing file ownership removes prior capabilities, thus is belongs here
     chroot $mountPoint /usr/sbin/setcap "cap_sys_time=pe" /usr/sbin/chronyd 2>/dev/null || log "CRITICAL: Could not give chronyd executable the capability to set system time"
@@ -2303,12 +2311,12 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     log "INFO: Restarting services and mounts"
     chroot $mountPoint /sbin/mdev -s || "UNEXPECTED: Could not properely ensure mdev.conf has been executed"
     chroot $mountPoint /bin/mount -a 2>/dev/null || log "UNEXPECTED: Could not properly ensure everything has been mounted accordingly"
+    chroot $mountPoint /sbin/rc-service rsyslog restart 2>/dev/null || log "UNEXPECTED: Could not restart rsyslog daemon"
     chroot $mountPoint /sbin/rc-service acpid restart || log "UNEXPECTED: Could not restart acpid daemon"
     chroot $mountPoint /sbin/rc-service chronyd restart || log "UNEXPECTED: Could not restart chronyd daemon"
     chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
     chroot $mountPoint /sbin/rc-service ufw restart 2>/dev/null || log "UNEXPECTED: Could not restart ufw daemon"
     chroot $mountPoint /sbin/rc-service fail2ban restart 2>/dev/null || log "UNEXPECTED: Could not restart fail2ban daemon"
-    chroot $mountPoint /sbin/rc-service rsyslog restart 2>/dev/null || log "UNEXPECTED: Could not restart rsyslog daemon"
 
     log "INFO: Successfully reached end of configurating users!"
 
@@ -2363,9 +2371,9 @@ verifyInstallSetup() {
     local deviceBoot="$(echo $bootPartition | sed "s/p\?$partBootNumber//g")"
     local partLvmNumber="$(echo $lvmPartition | grep -Eo [0123456789]*$)"
     local deviceLvm="$(echo $lvmPartition | sed "s/p\?$partLvmNumber//g")"
-    if ! $gLocal; then if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceBoot | grep $bootPartition | grep -o \* 2>/dev/null)" ] && ! $gLocal; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $bootPartition doesn't have boot flag set!"; fi; fi
-    if ! $gLocal; then if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceBoot | grep $bootPartition | grep -o ef 2>/dev/null)" ] && ! $gLocal; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $bootPartition partition isn't recognized with identifier 0xef!"; fi; fi
-    if ! $gLocal; then if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceLvm | grep $lvmPartition | grep -o 8e 2>/dev/null)" ] && ! $gLocal; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $lvmPartition partition isn't recognized with identifier 0x8e!"; fi; fi
+    if ! $gLocal; then if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceBoot | grep $bootPartition | grep -o \* 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $bootPartition doesn't have boot flag set!"; fi; fi
+    if ! $gLocal; then if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceBoot | grep $bootPartition | grep -o ef 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $bootPartition partition isn't recognized with identifier 0xef!"; fi; fi
+    if ! $gLocal; then if [ -z "$(chroot $mountPoint /sbin/fdisk -l $deviceLvm | grep $lvmPartition | grep -o 8e 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $lvmPartition partition isn't recognized with identifier 0x8e!"; fi; fi
     
     # Verify setupDisks() disk partition scheme
     if [ -z "$(chroot $mountPoint /sbin/lvdisplay /dev/"$lvmName"/"$localhostName".home 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not find home partition"; fi
@@ -2618,6 +2626,7 @@ verifyLocalInstallation() {
     if [ ! -d "$mountPoint/home/$serverCommandUsername/usr" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$serverCommandUsername/usr/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$serverCommandUsername/bin" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$monitorUsername/logs" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$monitorUsername/logs directory should exist!"; fi
     if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/rksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/rksh file should exist!"; fi
     if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/echo" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/echo file should exist!"; fi
     if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/greeting.ksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin/greeting.ksh file should exist!"; fi
@@ -2665,6 +2674,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "^\/etc\/rsyslog.d\/sshdSocket\t\/home\/$serverCommandUsername\/dev\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /etc/rsyslog.d/sshdSocket to /home/$serverCommandUsername/dev"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/etc\/rsyslog.d\/sftpSocket\t\/home\/$monitorUsername\/dev\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /etc/rsyslog.d/sftpSocket to /home/$monitorUsername/dev"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^\/etc\/rsyslog.d\/sftpSocket\t\/home\/$backupUsername\/dev\tnone\tauto,noexec,nosuid,relatime,rw,nouser,nofail,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /etc/rsyslog.d/sftpSocket to /home/$backupUsername/dev"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\/var\/log\t\/home\/$monitorUsername\/logs\tnone\tauto,nodev,noexec,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /var/log to /home/$monitorUsername/logs"; fi
     
     # Rksh greeter script
     if [ ! -f "$mountPoint/home/$previewUsername/bin/greeting.ksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: No sshd login for $previewUsername available due to missing greeter script!"; fi
@@ -3454,6 +3464,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/lib/fail2ban/fail2ban.sqlite3 -perm 0460 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/lib/fail2ban/fail2ban.sqlite3"; fi
 
     # /var/log
+    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/unsorted.log -perm 0240 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/unsorted.log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/localDevices.log -perm 0240 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/localDevices.log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/authSystem.log -perm 0240 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/authSystem.log"; fi
@@ -3507,6 +3518,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/lib -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/bin"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin/greeting.ksh -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/bin/greeting.ksh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/logs -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$monitorUsername/logs"; fi
 
     # Common directories near root permission check
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc -perm 751 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc"; fi
@@ -3533,6 +3545,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/logrotate -user root -and -group logrotate 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/logrotate"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/group -user root -and -group readGroup 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/group"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /dev -user root -and -group writeDev 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /dev"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log"; fi
 
 		# Acpid
     if [ -z "$(chroot $mountPoint /usr/bin/find /sbin/acpid -user root -and -group $powerUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /sbin/acpid"; fi
@@ -3596,6 +3609,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin/greeting.ksh -user root -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin/greeting.ksh"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/logs -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername/logs"; fi
 
         # Firewall
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw"; fi
@@ -3708,6 +3722,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$monitorUsername/dev " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /etc/rsyslog.d/sftpSocket to /home/$monitorUsername/dev"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/etc/rsyslog.d/sshdSocket/pts " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /dev/pts to /etc/rsyslog.d/sshdSocket/pts"; fi
     if [ -z "$(chroot $mountPoint /bin/mount | grep "/etc/rsyslog.d/sftpSocket/pts " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /dev/pts to /etc/rsyslog.d/sftpSocket/pts"; fi
+    if [ -z "$(chroot $mountPoint /bin/mount | grep "/home/$monitorUsername/logs " 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing bind from /var/log to /home/$monitorUsername/logs"; fi
 
     # Report total missed test, if above 0
     if [ "$missing" != '0' ]; then echo "INFO: Missed tests for local installation: $missing"; else echo "INFO: Not a single missed test for local installation!"; fi
