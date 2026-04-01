@@ -210,6 +210,14 @@ export sshFacility="DAEMON" # "DAEMON", "USER", "AUTH", "LOCAL0", "LOCAL1", "LOC
 export sftpFacility="USER" # "DAEMON", "USER", "AUTH", "LOCAL0", "LOCAL1", "LOCAL2", "LOCAL3", "LOCAL4", "LOCAL5", "LOCAL6", "LOCAL7"
 export mdevFacility="local0" # "LOCAL0", "LOCAL1", "LOCAL2", "LOCAL3", "LOCAL4", "LOCAL5", "LOCAL6", "LOCAL7"
 export cronFacility="local1" # "LOCAL0", "LOCAL1", "LOCAL2", "LOCAL3", "LOCAL4", "LOCAL5", "LOCAL6", "LOCAL7"
+	# Rsyslog format
+# %timereported%; trust application reported correctly time, and display unixtimestamp@hour+minute+second+millisecond on year+month+day
+# A(ction); Program name and optional msgid to represent intent of an action
+# O(rigin); Represents where in the network the log message was received from
+# S(ources); The localhost name of the machine, Which socket had received it, and PID of process that caused the log message on local machine
+# %pri-text%; generic facility.severity alongside calculated pri
+# %rawmsg-after-pri%; message of the application
+# Usage of ":" to primarely seperate categories
 
 # Bootloader fallback name	
 systemArchFallbackName=""
@@ -935,6 +943,9 @@ setupAlpine() {
 # mdev and /dev/* understanding: https://ruvi-d.medium.com/understanding-linux-device-nodes-deaca8cb8069
 # mdev simple config examples to monitor devices added: https://sunplus.atlassian.net/wiki/spaces/doc/pages/462422071/How+to+setup+to+mount+unmount+USB+drives+automatically+on+SP7021
 # mdev manpage archive https://web.archive.org/web/20260225001146/https://git.busybox.net/busybox/plain/docs/mdev.txt
+# another hardening guide to compare against: https://amiscreant.github.io/tutorials/Linux/HardeningScripts/scripts
+# Precise millisecond format for rsyslog: https://askubuntu.com/questions/783113/how-to-include-millisecond-in-syslogs
+# String message properites: https://docs.rsyslog.com/doc/configuration/properties.html
 configLocalInstallation() {
     log "INFO: Installing packages"
     chroot $mountPoint /sbin/apk add coreutils findutils dmesg logger setpriv doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional acpid ufw@additional nftables fail2ban openssh-server-pam util-linux-login rsyslog || log "UNEXPECTED: Could not install service packages" # libqrencode for qr code?
@@ -1422,10 +1433,13 @@ ports=53" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to
     log "INFO: Configurating rsyslogd!"
     	# rsyslog.conf
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tumask\(.*\)/\tumask=\"0$umask\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log creation permissions"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tname\(.*\)/\tname=\"$localhostName.format\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default string template name"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tstring\(.*\)/\tstring=\"%timereported:::date-unixtimestamp% @ %timereported:12:26:date-utc,date-rfc3339% on %timereported:1:10:date-utc,date-rfc3339%:A[%programname%,%msgid%]:O[%fromhost-ip%:%fromhost-port%,%fromhost%]:S[%hostname%,%inputname%,%procid%]:%pri-text%[%pri%]:%msg%\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log string template"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tfileOwner\(.*\)/\tfileOwner=\"$loggerUsername\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log ownership"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tfileGroup\(.*\)/\tfileGroup=\"$loggerUsername\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log group id"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tfileCreateMode\(.*\)/\tfileCreateMode=\"0400\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log creation permissions"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tdirCreateMode\(.*\)/\tdirCreateMode=\"0500\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log creation permissions"
+    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tTemplate\(.*\)/\tTemplate=\"$localhostName.format\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default template used for log messages"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}include(file=\"\/etc\/rsyslog.d\/\*.conf\" mode=\"optional\")/include(file=\"\/etc\/rsyslog.d\/40-core.conf\" mode=\"abort-if-missing\")\ninclude(file=\"\/etc\/rsyslog.d\/50-services.conf\" mode=\"abort-if-missing\")\ninclude(file=\"\/etc\/rsyslog.d\/10-sshd.conf\" mode=\"abort-if-missing\")\nstop # Replaced inclusive include/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change include and stop execution of /etc/rsyslog.conf afterwards"
     	# 10-sshd.conf
     	chroot $mountPoint /bin/sed -i "/#\{0,2\}input(type=\"imuxsock\"\(.*\) # sshdSocket/{h;s//input(type=\"imuxsock\" Socket=\"\/etc\/rsyslog.d\/sshdSocket\/log\") # sshdSocket/};\${x;/^\$/{s//input(type=\"imuxsock\" Socket=\"\/etc\/rsyslog.d\/sshdSocket\/log\") # sshdSocket/;H};x}" /etc/rsyslog.d/10-sshd.conf 2>/dev/null || log "UNEXPECTED: Could not spawn socket file on /etc/rsyslog.d/sshdSocket"
@@ -2870,10 +2884,13 @@ verifyLocalInstallation() {
 	# RSYSLOG (Logging)
 		# rsyslog.conf
     if [ -z "$(chroot $mountPoint /bin/grep "\tumask=\"0$umask\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: umask is misconfigured for rsyslog.conf"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "\tname=\"$localhostName.format\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: name is misconfigured for rsyslog.conf"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "\tstring=\"%timereported:::date-unixtimestamp% @ %timereported:12:26:date-utc,date-rfc3339% on %timereported:1:10:date-utc,date-rfc3339%:A\[%programname%,%msgid%\]:O\[%fromhost-ip%:%fromhost-port%,%fromhost%\]:S\[%hostname%,%inputname%,%procid%\]:%pri-text%\[%pri%\]:%msg%\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: string is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tfileOwner=\"$loggerUsername\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fileOwner is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tfileGroup=\"$loggerUsername\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fileGroup is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tfileCreateMode=\"0400\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fileCreateMode is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tdirCreateMode=\"0500\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: dirCreateMode is misconfigured for rsyslog.conf"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "\tTemplate=\"$localhostName.format\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Template is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "include(file=\"\/etc\/rsyslog.d\/40-core.conf\" mode=\"abort-if-missing\")" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: include is misconfigured for adding 40-core.conf to be read by rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "include(file=\"\/etc\/rsyslog.d\/50-services.conf\" mode=\"abort-if-missing\")" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: include is misconfigured for adding 50-services.conf to be read by rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "include(file=\"\/etc\/rsyslog.d\/10-sshd.conf\" mode=\"abort-if-missing\")" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: include is misconfigured for adding 10-sshd.conf to be read by rsyslog.conf"; fi
