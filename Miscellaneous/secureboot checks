@@ -7,7 +7,4 @@
 - Update kernel configuration: https://linuxvox.com/blog/config-linux-kernel/#using-make-oldconfig
 - Live patch: https://wiki.alpinelinux.org/wiki/Kernel_live_patching
 
-
-chroot $mountPoint /bin/sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
-sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
-i="$(echo $i | sed "s/\//\\\\\\//g")" # Ensuring the user doesn't have to concern with escaping th '/' symbol in urls
+networking: caught SIGINIT, aborting????
