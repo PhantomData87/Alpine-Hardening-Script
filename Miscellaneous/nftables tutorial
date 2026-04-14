@@ -1,0 +1,367 @@
+# Layered approach for dealing DDoS with XDP: https://dev.to/arzenlabscom/building-a-high-performance-ddos-mitigation-pipeline-with-nftables-and-xdp-2e0j
+# Tutorial source: https://www.youtube.com/watch?v=K8JPwbcNy_0&list=PLUF494I4KUvqwDjhOoP3IFUpgEhE1OVDO
+flush ruleset # Indicate to remove all prior rules (usually included at the top)
+
+# Version 1
+table ip filter {
+	chain input {
+		type filter hook input priority filter; policy accept;
+		ct state established,related counter accept
+		ct state invalid counter drop
+		iff lo counter accept
+		ct state new tcp dport 22 counter accept
+		ct state new tcp dport 8080 counter accept
+		counter drop
+	}
+}
+
+# Version 2
+table ip filter {
+	counter cnt_ssh{
+	}
+	
+	chain input {
+		type filter hook input priority filter; policy accept;
+		ct state established,related counter accept
+		ct state invalid counter drop
+		iff lo counter accept
+		ct state new ip saddr {192.168.0.1, 192.168.0.2} tcp dport { 22, 8080 } counter name cnt_ssh accept
+		counter drop
+	}
+}
+
+# Version 3
+table ip filter {
+	counter cnt_ssh{
+	}
+	
+	set allowed_ips {
+		typeof ip saddr
+		elements = {192.168.0.1, 192.168.0.2}
+	}
+
+	chain input {
+		type filter hook input priority filter; policy accept;
+		ct state established,related counter accept
+		ct state invalid counter drop
+		iff lo counter accept
+		ct state new ip saddr @allowed_ips tcp dport { 22, 8080 } counter name cnt_ssh accept
+		counter drop
+	}
+}
+
+# Version 3
+table ip filter {
+	counter cnt_ssh{
+	}
+	
+	set allowed_ips {
+		typeof ip saddr . tcp dport
+		elements = {192.168.0.1 . 22, 192.168.0.1 . 8080, 192.168.0.2 . 22, 192.168.0.2 . 8080}
+	}
+
+	chain input {
+		type filter hook input priority filter; policy accept;
+		ct state established,related counter accept
+		ct state invalid counter drop
+		iff lo counter accept
+		ct state new ip saddr . tcp dport @allowed_ips counter name cnt_ssh accept
+		counter drop
+	}
+}
+
+Hooks:
+INGRESS -> Pre-routing -> (Kernel decision) -> Input -> Local process (App layer) -> (kernel decision) -> Output -> Post Routing
+											-> Forward 				  -> 							 -> Post Routing
+				
+counter [accept, property, or none for all]							
+. # Concatenation					
+flags interval # Enables the elements item to interpret ip ranges: 192.168.0.0/24
+flags constant # Will not allow easy modification with cli
+auto-merge # Will optimize the set to be more readable and more set like
+nft tables interpets ip ranges: 192.168.0.1- 192.168.0.5, and will automatically convert ip's to CIDR notation
+policy # Default action when entering or using the hook
+
+# Capturing metrics dynamically
+table ip filter {
+	set outgoing_tcp_connections {
+		typeof meta skuid . ip daddr . tcp dport;
+		counter;
+	}
+	chain output {
+		type filter hook output priority filter; policy accept;
+		ct state new ip protocol tcp add @outgoing_tcp_connections { meta skuid . ip daddr . tcp dport }
+	}
+}
+
+# Timeout
+table ip filter {
+	set stage1 {
+		typeof ip saddr
+		size 65535
+		flags dynamic, timeout
+	}
+	
+	set stage2 {
+		typeof ip saddr
+		size 65535
+		flags dynamic, timeout
+	}
+	
+	set stage3 {
+		typeof ip saddr
+		size 65535
+		flags dynamic, timeout
+	}
+	
+	chain input {
+		type filter hook input priority filter; policy accept;
+		ct state established,related accept
+		ct state new ip saddr @stage2 tcp dport 22 add @stage3 { ip saddr timeout 1d}
+		ct state new ip saddr @stage1 tcp dport 22 add @stage2 { ip saddr timeout 1m}
+		ct state new tcp dport 22 add @stage1 { ip saddr timeout 1m}
+		ct state new ip saddr @stage3 tcp dport 22 drop
+	}
+}
+
+size?
+flags timeout # Will keep track of connections and countdown slowly
+flags dynamic?
+
+# Chain logic & jumps
+table ip filter{
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		tcp dport 80 counter jump CHAIN1
+		tcp dport 80 counter jump CHAIN2
+		tcp dport 80 counter goto CHAIN3
+		tcp dport 80 counter goto CHAIN4
+	}
+	chain CHAIN1 {
+		counter return
+		counter # not seen
+	}
+	chain CHAIN2 {
+		counter drop
+		counter # not seen, due to evaluating drop
+	}
+	chain CHAIN3 {
+		counter
+	}
+	chain CHAIN4 {
+		counter # Ignoring chain2, this is never seen since we 'goto' chain3
+	}
+}
+
+Chains are processed via lifo buffer
+
+# Idea of chains without vertex map
+table ip filter{
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		ip protocol tcp jump CHAIN_TCP
+		ip protocol udp jump CHAIN_UDP
+		ip protocol icmp jump CHAIN_ICMP
+	}
+	chain CHAIN_TCP {
+		counter
+	}
+	chain CHAIN_UDP {
+		counter
+	}
+	chain CHAIN_ICMP {
+		counter
+	}
+}
+
+# Idea of chains with a vertex map
+table ip filter{
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		ip protocol vmap {
+			tcp : jump CHAIN_TCP
+			udp : jump CHAIN_UDP
+			icmp: jump CHAIN_ICMP
+		}
+	}
+	chain CHAIN_TCP {
+		counter
+	}
+	chain CHAIN_UDP {
+		counter
+	}
+	chain CHAIN_ICMP {
+		counter
+	}
+}
+
+# Idea of chains with a vertex map concatenated
+table ip filter{
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		iifname . ip protocol vmap {
+			eth0 . tcp : jump CHAIN_TCP
+			eth0 . udp : jump CHAIN_UDP
+			eth0 . icmp: jump CHAIN_ICMP
+		}
+	}
+	chain CHAIN_TCP {
+		counter
+	}
+	chain CHAIN_UDP {
+		counter
+	}
+	chain CHAIN_ICMP {
+		counter
+	}
+}
+
+# Idea of chains with a vertex map simplification
+table ip filter{
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		ct state vmap { establish : accept, related : accept, invalid : drop}
+	}
+}
+
+# Skipped snat (source network address translation) (All Client share outoging IP)
+
+# redirection
+table ip nat {
+	chain PREROUTING {
+		type nat hook prerouting priority dstnat; policy accept;dw
+		tcp dport 80 redirect to 8080
+	}
+}
+# dnat (Destination network address translation)
+table ip nat {
+	chain PREROUTING {
+		type nat hook prerouting priority dstnat; policy accept;
+		tcp dport 80 dnat to 192.168.0.1:8080  # Outbound server http port -> Local listening:8080 interface (not recommended for localhost)
+	}
+}
+
+# dnat mangle (Destination network address translation)
+table ip nat {
+	chain PREROUTING {
+		type nat hook output priority mangle; policy accept;
+		tcp dport 80 dnat to 192.168.0.1:8080  # Outbound client http port -> Local listening:8080 interface instead of output server port
+	}
+}
+
+# Global Rate limit
+table ip mytab {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		ip protocol icmp icmp type echo-request limit rate 1/second accept
+		ip protocol icmp icmp type echo-request counter drop
+	}
+}
+
+# Individual Rate limit (meter)
+table ip mytab {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		ip protocol icmp icmp type echo-request meter meter_name_icmp { ip saddr limit rate 1/second } accept
+		ip protocol icmp icmp type echo-request counter drop
+	}
+}
+over # Instead of limit rate 1/second, we have limit rate over 1/second for wanting connections above 1 second
+limit # can also rate limit the entire subnet
+
+# Syn flood protection (burst)
+table ip mytab {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		tcp flags syn / fin,syn,rst,ack jump SYN_FLOOD
+	}
+	chain SYN_FLOOD {
+		limit rate 25/second burst 50 packets counter return
+		counter drop
+	}
+}
+
+
+tcp flags syn # Enable a focus on syn flags
+/ # Difference? Include / Exclude
+
+# Rate limit
+table ip mytab {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		tcp dport 5201 meter meter_name_speed { ip saddr limit rate 1 mbytes/second } accept
+		tcp dport 5201 counter drop
+	}
+}
+
+# Rate limit individual
+table ip mytab {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		tcp dport 5201 meter meter_name_speed { ip saddr . tcp sport limit rate 1 mbytes/second } accept
+		tcp dport 5201 counter drop
+	}
+}
+
+# Connection limit
+table ip mytab {
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		tcp dport 22 meter meter_name_ssh_limit { ip saddr ct count 2 } accept
+		tcp dport 22 counter drop
+	}
+}
+
+# Blacklist ip's based on limits ? (Fail2ban automatically?)
+table ip mytab {
+	set block_ipv4 {
+		typeof ip saddr
+		flags dynamic,timeout
+	}
+	chain INPUT {
+		type filter hook input priority filter; policy accept;
+		ip saddr @block_ipv4 counter drop
+		ct state new tcp dport 80 meter meter_name_flood_ipv4 { ip saddr limit rate over 1/second } add @block_ipv4 { ip saddr timeout 60s }
+	}
+} 
+flags timeout # Indicating the table should be cleared incase of timeout occurs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

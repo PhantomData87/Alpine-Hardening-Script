@@ -4,9 +4,9 @@
 # Dev accepted risk notes in QA format:
 # Q: What is my threat model?
 # A: A malicious outside or inside user having the capability to access a user's permissions to find more vulnerabilities in the existing system. Thus daemons and services must be severely restricted and controlled. This means I expected a compromised user through a exploit to these services. The only service I could not make this work was form SSHD. Additionally, since am using deliberate obfuscation; I expect the attacker to generate a lot of noise to figure out the bare minimum of the system it's attacking. This should additionally mean I should be capable of capturing those misinputs while the attacker realizes. Finally, this should have a substantial affect to automated attacks, since a missing file or missing permissions could cause a cascade of noise.
-# Q: Why provide a SUID script to assist logrotate. Instead of enabling $loggerUsername to have busybox & coreutil group permissions to permit $loggerUsername to execute shell commands post log rotation via logrotate's in-built features?
-# A: The user responsible for rsyslog and logrotate is called $loggerUsername, and it already has a wide access of capabilities. Permitting to have "busybox" and "coreutils" group permissions would let the possibility of performing persistant attacks that lay beyond /bin/sh calling and access to problematic binary functions: nc, kill, chmod, etc. $loggerUsername must be very annoying to use to force an attacker to cause noise on the machine that is detectable. The reason why a SUID script even exist in the first place is due to logrotate's weird group behavior assumption. It assumes a non-privledge user that wishes to "CREATE perm user group" will have the "user" be equal to "group" despite group being reference as something else (logread or utmp which $loggerUsername was apart of). It prevents one to simply trust in logrotate's ability to permit other non-user groups to be present after log rotation. 
-# A: Additionally, logrotate needs the ability to perform kill -HUP on the local rsyslog daemon to re-open existing log files to continue functionality. This would mean giving $loggerUsername the ability to spawn shells (busybox:/bin/sh to execute), run internal network connections (busybox:/usr/bin/nc), and sending signals to processes (coreutils:/bin/kill). Therefore, to permit $backgroundUsername to interact with $loggerUsername via doas; a simple root SUID /bin/sh script file is provided. Hopefully, due to its simplicity it will not be used for anything malicious, nor have greater access than setting a file's ownership to $loggerUsername:logread or $loggerUsername:utmp. We are trusting pgrep in performing its expected function. The file that is being reference is located @ "/etc/supercronic/helper/logPerm" that doesn't use any user input.
+# Q: Why provide a doas root script to assist logrotate. Instead of enabling $loggerUsername to have busybox & coreutil group permissions to permit $loggerUsername to execute shell commands post log rotation via logrotate's in-built features?
+# A: The user responsible for rsyslog and logrotate is called $loggerUsername, and it already has a wide access of capabilities. Permitting to have "busybox" and "coreutils" group permissions would let the possibility of performing persistant attacks that lay beyond /bin/sh calling and access to problematic binary functions: nc, kill, chmod, etc. $loggerUsername must be very annoying to use to force an attacker to cause noise on the machine that is detectable. The reason why a doas root script even exist in the first place is due to logrotate's weird group behavior assumption. It assumes a non-privledge user that wishes to "CREATE perm user group" will have the "user" be equal to "group" despite group being reference as something else (logread or utmp which $loggerUsername was apart of). It prevents one to simply trust in logrotate's ability to permit other non-user groups to be present after log rotation. 
+# A: Additionally, logrotate needs the ability to perform kill -HUP on the local rsyslog daemon to re-open existing log files to continue functionality. This would mean giving $loggerUsername the ability to spawn shells (busybox:/bin/sh to execute), run internal network connections (busybox:/usr/bin/nc), and sending signals to processes (coreutils:/bin/kill). Therefore, to permit $backgroundUsername to interact with $loggerUsername via doas; a simple doas root /bin/sh script file is provided. Hopefully, due to its simplicity it will not be used for anything malicious, nor have greater access than setting a file's ownership to $loggerUsername:logread or $loggerUsername:utmp. We are trusting pgrep in performing its expected function. The file that is being reference is located @ "/etc/supercronic/helper/logPerm" that doesn't use any user input.
 
 # Helpful patterns
 # sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
@@ -38,7 +38,6 @@
 # Find a way to permit pings from LAN, but not WAN. Finally, let these pings contain (nearly) no data.
 # Think about ARP packets, filtering DHCP packets away, minimal DNS packets, and further restrictions on NTP packets.
 # Using linux `tc` to limit bandwidth and througput of specific packets
-# Switch over to nftables by ditching UFW at some point
 # Awall? Shorewall?
 # Central or decentralized identity user account management
 # Restrict dns queires in /etc/resolv?
@@ -207,7 +206,6 @@ export isLocalIso=false
 
 # Additional logging variables
 	# Log level
-export ufwLogging="full" # "low"="on", "medium", "high", "full" : https://thelinuxcode.com/check-my-ufw-log/
 export fail2banLogging="INFO" # "CRITICAL", "ERROR", "WARNING", "NOTICE", "INFO", "DEBUG"
 export sshLogging="VERBOSE" # "QUIET", "FATAL", "ERROR", "INFO", "VERBOSE", "DEBUG", "DEBUG1", "DEBUG2", "DEBUG3"
 export sftpLogging="VERBOSE" # "QUIET", "FATAL", "ERROR", "INFO", "VERBOSE", "DEBUG", "DEBUG1", "DEBUG2", "DEBUG3"
@@ -925,10 +923,8 @@ setupAlpine() {
 # Choosing which low-level internal sftp functions from internal-sftp: https://unix.stackexchange.com/questions/523253/how-to-debug-trace-incoming-sftp-conversations
 # Problem: https://www.spinics.net/lists/openssh-unix-dev/msg06335.html
 # Fstab bind: https://serverfault.com/questions/613179/how-do-i-do-mount-bind-in-etc-fstab, https://unix.stackexchange.com/questions/4897/providing-bin-and-lib-inside-a-chroot-jail, https://serverfault.com/questions/440426/sftp-file-symlinks-in-a-jailed-chrooted-directory
-# https://codelucky.com/ufw-advanced-linux-firewall/
 # https://wiki.alpinelinux.org/wiki/Nftables
 # https://wiki.alpinelinux.org/wiki/Category:Firewall
-# https://dev.to/caffinecoder54/creating-a-lightweight-linux-firewall-with-ufw-and-fail2ban-35po
 # https://www.linode.com/community/questions/11143/top-tip-firewalld-and-ipset-country-blacklist
 # https://wiki.nftables.org/wiki-nftables/index.php/Matching_packet_headers & https://home.regit.org/netfilter-en/nftables-quick-howto/ (minimum packet size is 28 - 36 bytes)
 # Determine if partition type has a p or not: https://unix.stackexchange.com/questions/500887/given-a-block-device-how-to-detect-if-names-of-partitions-must-contain-p
@@ -959,7 +955,7 @@ setupAlpine() {
 # Openrc supports redirecting stdout to file or program: https://unix.stackexchange.com/questions/445427/how-to-view-daemon-stdout-in-openrc
 configLocalInstallation() {
     log "INFO: Installing packages"
-    chroot $mountPoint /sbin/apk add coreutils findutils dmesg logger setpriv doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional acpid ufw@additional nftables fail2ban openssh-server-pam util-linux-login rsyslog xz supercronic@additional || log "UNEXPECTED: Could not install service packages" # libqrencode for qr code?
+    chroot $mountPoint /sbin/apk add coreutils findutils dmesg logger setpriv doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional acpid nftables fail2ban openssh-server-pam util-linux-login rsyslog xz supercronic@additional || log "UNEXPECTED: Could not install service packages" # libqrencode for qr code?
 
     #log "Removing unncessary default packages"
     # Why is alpine-conf hooked to alpine-base..., and why does update-kernel and update-conf exist?
@@ -983,7 +979,7 @@ configLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep $powerUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $powerUsername -s /sbin/nologin $powerUsername 2>/dev/null || log "CRITICAL: Could not create an account for running acpid daemon"; fi
     chroot $mountPoint /usr/sbin/addgroup $powerUsername acpi 2>/dev/null || log "UNEXPECTED: Could not add acpi group to $powerUsername user"
     chroot $mountPoint /usr/sbin/addgroup $powerUsername readGroup 2>/dev/null || log "UNEXPECTED: Could not add readGroup group to $powerUsername user"
-		# Creating system user to execute UFW
+		# Creating system user to execute nftables
     if [ -z "$(chroot $mountPoint /bin/grep $firewallUsername /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/adduser -H -h /dev/null -S -D -G $firewallUsername -s /sbin/nologin $firewallUsername 2>/dev/null || log "CRITICAL: Could not create an account for running firewall"; fi
     chroot $mountPoint /usr/sbin/addgroup $firewallUsername iptables 2>/dev/null || log "UNEXPECTED: Could not add iptables group to firewall user" # Required since it relies on iptables
     chroot $mountPoint /usr/sbin/addgroup $firewallUsername python 2>/dev/null || log "UNEXPECTED: Could not add python group to firewall user" # Required since it relies on python to execute code
@@ -1115,7 +1111,6 @@ configLocalInstallation() {
     chroot $mountPoint /bin/touch /var/log/localScript.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for cron service"
     chroot $mountPoint /bin/touch /var/log/authSystem.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for authentication and authroization"
     chroot $mountPoint /bin/touch /var/log/authPrivSystem.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for authentication and authroization priv"
-    chroot $mountPoint /bin/touch /var/log/daemonUFW.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for capturing UFW daemon"
     chroot $mountPoint /bin/touch /var/log/daemonRSYSLOG.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for capturing rsyslog daemon"
     chroot $mountPoint /bin/touch /var/log/daemonCHRONY.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for capturing chrony daemon"
     chroot $mountPoint /bin/touch /var/log/daemonSSHD.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for capturing ssh daemon"
@@ -1159,10 +1154,6 @@ configLocalInstallation() {
 	log "INFO: Removing useless default installation files, directories, and users"
 		# Busybox
     if [ -d "$mountPoint/etc/busybox-paths.d" ]; then chroot $mountPoint /bin/rm -R /etc/busybox-paths.d || log "UNEXPECTED: Could not removed post-build busybox directory"; fi
-		# UFW
-	if [ -f "$mountPoint/etc/init.d/ufw.apk-new" ]; then chroot $mountPoint /bin/rm /etc/init.d/ufw.apk-new 2>/dev/null || log "UNEXPECTED: Could not remove redundant default file: /etc/init.d/ufw.apk-new"; fi
-    if [ -f "$mountPoint/etc/ufw/ufw.conf.apk-new" ]; then chroot $mountPoint /bin/rm /etc/ufw/ufw.conf.apk-new 2>/dev/null || log "UNEXPECTED: Could not remove redundant default file: /etc/ufw/ufw.conf.apk-new"; fi
-    if [ -f "$mountPoint/etc/default/ufw.apk-new" ]; then chroot $mountPoint /bin/rm /etc/default/ufw.apk-new 2>/dev/null || log "UNEXPECTED: Could not remove redundant default file: /etc/default/ufw.apk-new"; fi
 		# Logrotate
 	if [ -f "$mountPoint/etc/logrotate.d/acpid" ]; then chroot $mountPoint /bin/rm /etc/logrotate.d/acpid 2>/dev/null || log "UNEXPECTED: Could not removed previous acpid logrotate configuration file"; fi
 	if [ -f "$mountPoint/etc/logrotate.d/chrony" ]; then chroot $mountPoint /bin/rm /etc/logrotate.d/chrony 2>/dev/null || log "UNEXPECTED: Could not removed previous chrony logrotate configuration file"; fi
@@ -1183,7 +1174,7 @@ configLocalInstallation() {
 	if [ ! -z "$(chroot $mountPoint /bin/grep halt /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/userdel halt 2>/dev/null || log "UNEXPECTED: Could not remove halt user"; fi
 
     log "INFO: Permitting root to cause changes to certain files"
-    local writablePaths="/etc/issue /etc/fstab /etc/motd /etc/inittab /etc/securetty /etc/profile /etc/mdev.conf /etc/init.d/acpid /etc/init.d/chronyd /etc/init.d/sshd /etc/init.d/fail2ban /etc/init.d/rsyslog /etc/init.d/supercronic /etc/ssh/moduli /etc/doas.d/daemon.conf /etc/doas.d/supercronic.conf /etc/ssh/ssh_config /etc/default/ufw /etc/fail2ban/jail.local /etc/fail2ban/fail2ban.conf /etc/fail2ban/jail.d/alpine-ssh.conf /etc/rsyslog.conf /etc/rsyslog.d/10-discardFilters.conf /etc/rsyslog.d/30-openrcFilters.conf /etc/rsyslog.d/40-broadFilters.conf /etc/rsyslog.d/50-daemonFilters.conf /etc/rsyslog.d/99-failureFilter.conf /etc/logrotate.conf /etc/logrotate.d/logFacilities /etc/logrotate.d/logIndividual /etc/supercronic/crontab /etc/supercronic/helper/logPerm /etc/supercronic/hourly/logrotate"
+    local writablePaths="/etc/issue /etc/fstab /etc/motd /etc/inittab /etc/securetty /etc/profile /etc/mdev.conf /etc/init.d/acpid /etc/init.d/chronyd /etc/init.d/sshd /etc/init.d/fail2ban /etc/init.d/rsyslog /etc/init.d/supercronic /etc/ssh/moduli /etc/doas.d/daemon.conf /etc/doas.d/supercronic.conf /etc/ssh/ssh_config /etc/fail2ban/jail.local /etc/fail2ban/fail2ban.conf /etc/fail2ban/jail.d/alpine-ssh.conf /etc/rsyslog.conf /etc/rsyslog.d/10-discardFilters.conf /etc/rsyslog.d/30-openrcFilters.conf /etc/rsyslog.d/40-broadFilters.conf /etc/rsyslog.d/50-daemonFilters.conf /etc/rsyslog.d/99-failureFilter.conf /etc/logrotate.conf /etc/logrotate.d/logFacilities /etc/logrotate.d/logIndividual /etc/supercronic/crontab /etc/supercronic/helper/logPerm /etc/supercronic/hourly/logrotate"
     for enableWrite in $writablePaths; do
     	chroot $mountPoint /bin/chmod u+w $enableWrite 2>/dev/null || log "UNEXPECTED: Could not guarantee that $enableWrite be modified by root"
     done
@@ -1454,56 +1445,9 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
         chroot $mountPoint /bin/mv /etc/ssh/moduli.safer /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not override /etc/ssh/moduli with less vulnerable bits from /etc/ssh/moduli.safer"
     fi
     
-    log "INFO: Configurating UFW"
-		# Clear prior UFW behavior to default
-    chroot $mountPoint /usr/sbin/ufw --force reset 2>/dev/null || log "CRITICAL: Could not reset firewall properely"
-    chroot $mountPoint /usr/bin/find /etc/ufw/ -name 'after.rules.*' -delete 2>/dev/null || log "UNEXPECTED: Could not remove after.rules.* backup(s)"
-    chroot $mountPoint /usr/bin/find /etc/ufw/ -name 'before.rules.*' -delete 2>/dev/null || log "UNEXPECTED: Could not remove before.rules.* backup(s)"
-    chroot $mountPoint /usr/bin/find /etc/ufw/ -name 'user.rules.*' -delete 2>/dev/null || log "UNEXPECTED: Could not remove user.rules.* backup(s)"
-    chroot $mountPoint /usr/bin/find /etc/ufw/ -name 'after6.rules.*' -delete 2>/dev/null || log "UNEXPECTED: Could not remove after6.rules.* backup(s)"
-    chroot $mountPoint /usr/bin/find /etc/ufw/ -name 'before6.rules.*' -delete 2>/dev/null || log "UNEXPECTED: Could not remove before6.rules.* backup(s)"
-    chroot $mountPoint /usr/bin/find /etc/ufw/ -name 'user6.rules.*' -delete 2>/dev/null || log "UNEXPECTED: Could not remove user6.rules.* backup(s)"
-    chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ -mindepth 1 -delete 2>/dev/null || log "UNEXPECTED: Could not ensure there are no other application rules"
-		# Set UFW logging level
-    chroot $mountPoint /usr/sbin/ufw logging "$ufwLogging" 2>/dev/null || log "UNEXPECTED: Logging was not properely enabled";
-		# Default UFW deny behavior, and prohibit IPV6
-    chroot $mountPoint /usr/sbin/ufw default deny outgoing 2>/dev/null || log "CRITICAL: Failed to set default deny outgoing to ufw firewall"
-    chroot $mountPoint /usr/sbin/ufw default deny incoming 2>/dev/null || log "CRITICAL: Failed to set default deny incoming to ufw firewall"
-    chroot $mountPoint /usr/sbin/ufw default deny routed 2>/dev/null || log "CRITICAL: Failed to set default deny routing packets to ufw firewall"
-    chroot $mountPoint /bin/sed -i 's/#\{0,2\}IPV6\(.*\)=\(.*\)yes/IPV6=no/g' /etc/default/ufw 2>/dev/null || log "UNEXPECTED: No pattern to remove IPV6 from UFW has worked"
-		# Define specific app profiles for UFW
-    chroot $mountPoint /usr/sbin/ufw app default allow 2>/dev/null || log "UNEXPECTED: Failed to guarantee ufw firewall accept newly made profiles"
-    chroot $mountPoint /bin/echo "[SSHServer]
-title=SSH network listener
-description=For remote management of server via ssh
-ports=$sshPort/tcp" > $mountPoint/etc/ufw/applications.d/ssh || log "UNEXPECTED: Failed to permit SSH port $sshPort through firewall"
-    chroot $mountPoint /bin/echo "[APKUpdate]
-title=APK tool
-description=When this computer needs to update packages, then this will be enabled
-ports=$httpPort/tcp|$httpsPort/tcp" > $mountPoint/etc/ufw/applications.d/apk || log "UNEXPECTED: Failed to permit APK ports $httpPort and $httpsPort through firewall"
-    chroot $mountPoint /bin/echo "[NTPListener]
-title=Chronyd network listener
-description=For chronyd service running in background
-ports=$ntpStandardPort/udp|$ntpMonitorPort/udp" > $mountPoint/etc/ufw/applications.d/ntp || log "UNEXPECTED: Failed to permit NTP ports $ntpStandardPort and $ntpMonitorPort through firewall"
-    chroot $mountPoint /bin/echo -e "[DNSListener]
-title=DNS network listener
-description=For a dns service running in background
-ports=$dnsPort" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Failed to permit DNS port $dnsPort through firewall"
-    chroot $mountPoint /usr/sbin/ufw app update SSHServer || log "CRITICAL: Could not ensure ufw recognizes the ssh profile"
-    chroot $mountPoint /usr/sbin/ufw app update DNSListener || log "UNEXPECTED: Could not ensure ufw recognizes the dns profile"
-    chroot $mountPoint /usr/sbin/ufw app update APKUpdate || log "UNEXPECTED: Could not ensure ufw recognizes the apk profile"
-    chroot $mountPoint /usr/sbin/ufw app update NTPListener || log "UNEXPECTED: Could not ensure ufw recognizes the ntp profile"
-    chroot $mountPoint /usr/sbin/ufw app default deny 2>/dev/null || log "CRITICAL: Failed to set default deny creation and modification of application profiles for ufw firewall"
-		# Open http, https, dns, and ntp ports
-    chroot $mountPoint /usr/sbin/ufw allow out log from any to any app APKUpdate 2>/dev/null || log "UNEXPECTED: Failed to permit HTTP/HTTPS port $httpPort/$httpsPort esgress through firewall"
-    chroot $mountPoint /usr/sbin/ufw allow out log from any to any app DNSListener 2>/dev/null || log "UNEXPECTED: Failed to permit DNS port $dnsPort esgress through firewall"
-    chroot $mountPoint /usr/sbin/ufw allow out log from any to any app NTPListener 2>/dev/null || log "UNEXPECTED: Failed to permit NTP port $ntpStandardPort and $ntpMonitorPort esgress through firewall"
-		# Add rate limit and open ssh port
-    chroot $mountPoint /usr/sbin/ufw limit in log from "$localGateway"/"$localNetmask" to "$localGateway"/"$localNetmask" app SSHServer 2>/dev/null || log "CRITICAL: Failed to limit ports $sshPort for ingress traffic on ufw firewall"
-		# Removing UFW code that checks for root access
-    chroot $mountPoint /bin/sed -i "s/    if uid != 0/    if 1 == 2 and uid != 0/1" /usr/lib/python$pythonVer/site-packages/ufw/backend.py 2>/dev/null || log "CRITICAL: Could not modify ufw backend python library to bypass root required access"
-    chroot $mountPoint /bin/sed -i "s/            if statinfo.st_uid != 0/            if 1 == 2 and statinfo.st_uid != 0/1" /usr/lib/python$pythonVer/site-packages/ufw/backend.py 2>/dev/null || log "UNEXPECTED: Could not turn off warning of certain files owned by non-root account in ufw"
-
+    # !!! nftables
+    log "INFO: Configurating nftables"
+    
     log "INFO: Configurating fail2ban"
 		# Fail2ban file creation   # !!! Fail2ban future configuration
     chroot $mountPoint /bin/echo -e '[INCLUDES]\nbefore = paths-debian.conf\n' > $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to include other relevant standard jail settings"
@@ -1521,7 +1465,7 @@ ports=$dnsPort" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Fai
     	# rsyslog.conf
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tumask\(.*\)/\tumask=\"0$umask\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log creation permissions"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tname\(.*\)/\tname=\"$localhostName.format\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default string template name"
-    chroot $mountPoint /bin/sed -i "s/^# Example:\(.*\)/# Example: 1775196943 @ 06:15:43.005424 on 2026-04-03:A[root,example_id]:O[127.0.0.1:,localhost]:S[localhost,imuxsock,-]:user.notice[13]:test/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default string example of template output"
+    chroot $mountPoint /bin/sed -i "s/^# Example:\(.*\)/# Example: 1776138141 @ 03:42:21.164112 on 2026-04-14:localhost[:127.0.0.1::]:user.notice[13]:someService[localhost,31686]: This is a test/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default string example of template output"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tstring\(.*\)/\tstring=\"%timereported:::date-unixtimestamp% @ %timereported:12:26:date-utc,date-rfc3339% on %timereported:1:10:date-utc,date-rfc3339%:%fromhost%[:%fromhost-ip%:%fromhost-port%:]:%pri-text%[%pri%]:%programname%[%hostname%,%procid%]:%msg%\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log string template"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tfileOwner\(.*\)/\tfileOwner=\"$loggerUsername\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log ownership"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tfileGroup\(.*\)/\tfileGroup=\"$loggerUsername\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log group id"
@@ -1539,8 +1483,9 @@ ports=$dnsPort" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Fai
     chroot $mountPoint /bin/sed -i "s/^stop \(.*\) # Replaced inclusive include/stop # Replaced inclusive include/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change update stop statement"
     	
     	# 10-discardFilters.conf
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}:msg,contains,\"UFW AUDIT\"\(.*\) # Discard irrelevant UFW Audit messages/{h;s//:msg,contains,\"UFW AUDIT\" stop # Discard irrelevant UFW Audit messages/};\${x;/^\$/{s//:msg,contains,\"UFW AUDIT\" stop # Discard irrelevant UFW Audit messages/;H};x}" /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/10-discardFilters.conf for discarding unwanted UFW messages"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}:msg,contains,\"STOP is followed by unreachable statements\"\(.*\) # Discard irrelevant Rsyslog warn message/{h;s//:msg,contains,\"STOP is followed by unreachable statements\" stop # Discard irrelevant Rsyslog warn message/};\${x;/^\$/{s//:msg,contains,\"STOP is followed by unreachable statements\" stop # Discard irrelevant Rsyslog warn message/;H};x}" /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/10-discardFilters.conf for discarding unwanted Rsyslog warn messages"
+    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"logrotate\")\(.*\) # Logrotate message filtering/{h;s//if (\$programname == \"logrotate\") and re_match(\$msg, 'Creating|does not need|old logs are|rotating pattern|[0123456789].\* rotations|empty log files|log files >= [0123456789].\* are rotated|after [0123456789].\* days|Now: [01234567890].\*-') then {stop} # Logrotate message filtering/};\${x;/^\$/{s//if (\$programname == \"logrotate\") and re_match(\$msg, 'Creating|does not need|old logs are|rotating pattern|[0123456789].\* rotations|empty log files|log files >= [0123456789].\* are rotated|after [0123456789].\* days|Now: [01234567890].\*-') then {stop} # Logrotate message filtering/;H};x}" /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/10-discardFilters.conf for discarding unwanted verbose Logrotate messages"
+    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"logrotate\")\(.*\) # Logrotate null message filtering/{h;s//if (\$programname == \"logrotate\") and (\$msg == \" \") then {stop} # Logrotate null message filtering/};\${x;/^\$/{s//if (\$programname == \"logrotate\") and (\$msg == \" \") then {stop} # Logrotate null message filtering/;H};x}" /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/10-discardFilters.conf for discarding unwanted null Logrotate messages"
     
     	# 30-openrcFilters.conf
     chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"start-stop-daemon\")\(.*\) # Openrc init.d execution/{h;s//if (\$programname == \"start-stop-daemon\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\") stop} # Openrc init.d execution/};\${x;/^\$/{s//if (\$programname == \"start-stop-daemon\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\") stop} # Openrc init.d execution/;H};x}" /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/30-openrcFilters.conf for Openrc init.d execution logging"
@@ -1552,7 +1497,6 @@ ports=$dnsPort" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Fai
     
     	# 40-broadFilters.conf
     chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogseverity-text == \"emerg\")\(.*\) # emergency message logging/{h;s//if (\$syslogseverity-text == \"emerg\") then {action(type=\"omfile\" File=\"\/var\/log\/emergencySystem.log\") stop} # emergency message logging/};\${x;/^\$/{s//if (\$syslogseverity-text == \"emerg\") then {action(type=\"omfile\" File=\"\/var\/log\/emergencySystem.log\") stop} # emergency message logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for emergency message logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"kern\")\(.*\) # firewall kernel logging/{h;s//if (\$syslogfacility-text == \"kern\") and (\$msg contains \"[UFW\") then {action(type=\"omfile\" File=\"\/var\/log\/kernFirewall.log\") stop} # firewall kernel logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"kern\") and (\$msg contains \"[UFW\") then {action(type=\"omfile\" File=\"\/var\/log\/kernFirewall.log\") stop} # firewall kernel logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for firewall kernel logging"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"kern\")\(.*\) # regular kern logging/{h;s//if (\$syslogfacility-text == \"kern\") then {action(type=\"omfile\" File=\"\/var\/log\/kernSystem.log\") stop} # regular kern logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"kern\") then {action(type=\"omfile\" File=\"\/var\/log\/kernSystem.log\") stop} # regular kern logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for regular kern logging"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"local0\")\(.*\) # mdev logging/{h;s//if (\$syslogfacility-text == \"local0\") then {action(type=\"omfile\" File=\"\/var\/log\/localDevices.log\") stop} # mdev logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"local0\") then {action(type=\"omfile\" File=\"\/var\/log\/localDevices.log\") stop} # mdev logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for mdev logging"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"local1\")\(.*\) # supercronic logging/{h;s//if (\$syslogfacility-text == \"local1\")  then {action(type=\"omfile\" File=\"\/var\/log\/localScript.log\") stop} # supercronic scripting/};\${x;/^\$/{s//if (\$syslogfacility-text == \"local1\")  then {action(type=\"omfile\" File=\"\/var\/log\/localScript.log\") stop} # supercronic scripting/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for supercronic logging"
@@ -1562,7 +1506,6 @@ ports=$dnsPort" > $mountPoint/etc/ufw/applications.d/dns || log "UNEXPECTED: Fai
     	# 50-daemonFilters.conf
     chroot $mountPoint /bin/sed -i "/#\{0,2\}input(type=\"imuxsock\"\(.*\) # sshdSocket/{h;s//input(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sshdSocket\/log\") # sshdSocket/};\${x;/^\$/{s//\t# Input to log chrooted sshd and sftp clients\ninput(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sshdSocket\/log\") # sshdSocket/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not spawn socket file on /etc/rsyslog.d/sshdSocket"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}input(type=\"imuxsock\"\(.*\) # sftpSocket/{h;s//input(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sftpSocket\/log\") # sftpSocket/};\${x;/^\$/{s//input(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sftpSocket\/log\") # sftpSocket/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not spawn socket file on /etc/rsyslog.d/sftpSocket"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"ufw\")\(.*\) # ufw daemon logging/{h;s//if (\$programname == \"ufw\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonUFW.log\") stop} # ufw daemon logging/};\${x;/^\$/{s//\t# Filters for services on local machine\n\t\t# Daemon activity logging only\nif (\$programname == \"ufw\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonUFW.log\") stop} # ufw daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for ufw daemon logging"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"syslog\")\(.*\) # rsyslog daemon logging/{h;s//if (\$syslogfacility-text == \"syslog\") or (\$programname == \"rsyslog\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonRSYSLOG.log\") stop} # rsyslog daemon logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"syslog\") or (\$programname == \"rsyslog\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonRSYSLOG.log\") stop} # rsyslog daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for rsyslog daemon logging"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"chronyd\")\(.*\) # chrony daemon logging/{h;s//if (\$programname == \"chronyd\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonCHRONY.log\") stop} # chrony daemon logging/};\${x;/^\$/{s//if (\$programname == \"chronyd\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonCHRONY.log\") stop} # chrony daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for chrony daemon logging"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"sshd.pam\")\(.*\) # ssh daemon logging/{h;s//if (\$programname == \"sshd.pam\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonSSHD.log\") stop} # ssh daemon logging/};\${x;/^\$/{s//if (\$programname == \"sshd.pam\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonSSHD.log\") stop} # ssh daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for ssh daemon logging"
@@ -1671,11 +1614,11 @@ fi" > $mountPoint/etc/supercronic/hourly/logrotate || log "UNEXPECTED: Could not
 # Make rsyslog re-open files
 kill -HUP \$(pgrep "\/usr\/sbin\/rsyslogd")
 # Logrotate is unable to move utmp backups to appropriate location; assisting
-if [ \"\$(ls /var/run/*-*)\" ]; then mv /var/run/*-* /var/log 2>/dev/null; fi
+if [ \"\$(ls /var/run/*-* 2>/dev/null)\" ]; then mv /var/run/*-* /var/log 2>/dev/null; fi
 # Enforce logging permissions
-chown \"$loggerUsername:utmp\" /var/run/utmp 2>/dev/null
-chown \"$loggerUsername:utmp\" /var/log/wtmp 2>/dev/null
-chown \"$loggerUsername:utmp\" /var/log/btmp 2>/dev/null
+chown \"$loggerUsername:utmp\" /var/run/utmp
+chown \"$loggerUsername:utmp\" /var/log/wtmp
+chown \"$loggerUsername:utmp\" /var/log/btmp
 chown \"$loggerUsername:logread\" /var/log/*log.xz 2>/dev/null
 chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
 /usr/bin/logger -i  -t logrotate_supercronic -p local1.debug \"Finished running helper script: /etc/supercronic/helper/logPerm\"" > $mountPoint/etc/supercronic/helper/logPerm || log "UNEXPECTED: Could not write logrotate script for rsyslog user"; fi
@@ -1764,30 +1707,8 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     chroot $mountPoint /bin/chown "$loggerUsername:logread" /var/log/daemonSSHD.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/daemonSSHD.log"
     chroot $mountPoint /bin/chown "$loggerUsername:logread" /var/log/userSshd.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/userSshd.log"
     chroot $mountPoint /bin/chown "$loggerUsername:logread" /var/log/userSftp.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/userSftp.log"
-        # ufw
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/applications.d"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change ownership for; ssh profile"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change ownership for; apk profile"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change ownership for; ntp profile"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change ownership for; dns profile"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before.init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before.init"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before.rules"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/before6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/before6.rules"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after.init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after.init"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after.rules"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/after6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/after6.rules"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/ufw/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/sysctl.conf"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/default/ufw"
-    chroot $mountPoint /bin/chown "root:$firewallUsername" /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/sbin/ufw"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw/ufw-init"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/lib/ufw/ufw-init-functions"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/ufw.conf"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/user.rules"
-    chroot $mountPoint /bin/chown "$firewallUsername:root" /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /etc/ufw/user6.rules"
+    	# nftables
     chroot $mountPoint /bin/chown "$loggerUsername:logread" /var/log/kernFirewall.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/kernFirewall.log"
-    chroot $mountPoint /bin/chown "$loggerUsername:logread" /var/log/daemonUFW.log 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /var/log/daemonUFW.log"
         # fail2ban
     chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-client 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-client"
     chroot $mountPoint /bin/chown "root:$fail2banUsername" /usr/bin/fail2ban-server 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /usr/bin/fail2ban-server"
@@ -2096,7 +2017,6 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/xtables-nft-multi 2>/dev/null || log "UNEXPECTED: Could not change permissions for; xtables-nft-multi"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/iptables-apply 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables-apply"
     chroot $mountPoint /bin/chmod 0500 /usr/sbin/nft 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nft"
-    chroot $mountPoint /bin/chmod 0550 /usr/sbin/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/logrotate 2>/dev/null || log "UNEXPECTED: Could not change permissions for; logrotate"
     chroot $mountPoint /bin/chmod 0510 /usr/sbin/rsyslogd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; rsyslogd"
     # !!! Seems this package is no longer included?
@@ -2220,24 +2140,8 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     chroot $mountPoint /bin/chmod 0400 /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd_config"
     chroot $mountPoint /bin/chmod 0440 /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh_config"
     chroot $mountPoint /bin/chmod 0440 /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not change permissions for; moduli"
-    chroot $mountPoint /bin/chmod 0440 /etc/default/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw in default"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/ssh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh ufw profile"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/apk 2>/dev/null || log "UNEXPECTED: Could not change permissions for; apk ufw profile"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/ntp 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ntp ufw profile"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/applications.d/dns 2>/dev/null || log "UNEXPECTED: Could not change permissions for; dns ufw profile"
-    chroot $mountPoint /bin/chmod 0550 /etc/ufw/before.init 2>/dev/null || log "UNEXPECTED: Could not change permissions for; before.init"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/before.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; before.rules"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/before6.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; before6.rules"
-    chroot $mountPoint /bin/chmod 0550 /etc/ufw/after.init 2>/dev/null || log "UNEXPECTED: Could not change permissions for; after.init"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/after.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; after.rules"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/after6.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; after6.rules"
-    chroot $mountPoint /bin/chmod 0640 /etc/ufw/user.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; user.rules"
-    chroot $mountPoint /bin/chmod 0640 /etc/ufw/user6.rules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; user6.rules"
-    chroot $mountPoint /bin/chmod 0640 /etc/ufw/ufw.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw.conf"
-    chroot $mountPoint /bin/chmod 0440 /etc/ufw/sysctl.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sysctl.conf"
     chroot $mountPoint /bin/chmod 0440 /etc/ethertypes 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ethertypes"
     chroot $mountPoint /bin/chmod 0440 /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nftables.nft"
-    chroot $mountPoint /bin/chmod 0500 /etc/init.d/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
     chroot $mountPoint /bin/chmod 0500 /etc/init.d/nftables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nftables"
     chroot $mountPoint /bin/chmod 0500 /etc/init.d/iptables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables"
     chroot $mountPoint /bin/chmod 0500 /etc/init.d/ip6tables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ip6tables"
@@ -2356,7 +2260,6 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     chroot $mountPoint /bin/chmod 00000 /etc/apk/protected_paths.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; protected_paths.d"
     chroot $mountPoint /bin/chmod 00710 /etc/chrony 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chrony"
     chroot $mountPoint /bin/chmod 00750 /etc/conf.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; conf.d"
-    chroot $mountPoint /bin/chmod 00701 /etc/default 2>/dev/null || log "UNEXPECTED: Could not change permissions for; default"
     chroot $mountPoint /bin/chmod 00700 /etc/init.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; init.d"
     chroot $mountPoint /bin/chmod 00700 /etc/keymap 2>/dev/null || log "UNEXPECTED: Could not change permissions for; keymap"
     chroot $mountPoint /bin/chmod 00000 /etc/lbu 2>/dev/null || log "UNEXPECTED: Could not change permissions for; lbu"
@@ -2420,8 +2323,6 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     chroot $mountPoint /bin/chmod 00000 /etc/ssh/ssh_config.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh_config.d"
     chroot $mountPoint /bin/chmod 00000 /etc/ssh/sshd_config.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd_config.d"
     chroot $mountPoint /bin/chmod 00750 /etc/ssh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh"
-    chroot $mountPoint /bin/chmod 00750 /etc/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
-    chroot $mountPoint /bin/chmod 00750 /etc/ufw/applications.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; applications.d"
     chroot $mountPoint /bin/chmod 00000 /etc/iptables 2>/dev/null || log "UNEXPECTED: Could not change permissions for; iptables"
     chroot $mountPoint /bin/chmod 00000 /etc/nftables.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; nftables.d"
     chroot $mountPoint /bin/chmod 00000 /etc/fail2ban/fail2ban.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; fail2ban.d"
@@ -2490,15 +2391,12 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
 # /usr/lib/security/pam_wheel.so
 # /usr/lib/security/pam_xauth.so
     chroot $mountPoint /bin/chmod 0640 /usr/lib/os-release 2>/dev/null || log "UNEXPECTED: Could not change permissions for; os-release file permissions for /etc/os-release"
-    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw-init"
-    chroot $mountPoint /bin/chmod 0750 /usr/lib/ufw/ufw-init-functions 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw-init-functions"
     chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sftp-server 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sftp-server"
     chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/ssh-pkcs11-helper 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh-pkcs11-helper"
     chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sshd-auth 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd-auth"
     chroot $mountPoint /bin/chmod 0510 /usr/lib/ssh/sshd-session 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd-session"
     chroot $mountPoint /bin/chmod 0444 "/usr/share/zoneinfo/$timezone" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/share/zoneinfo/$timezone file permissions for /etc/localtime"
     chroot $mountPoint /bin/chmod 500 /usr/share/kernel-hooks.d/secureboot.hook 2>/dev/null || log "UNEXPECTED: Could not change permissions for; secureboot.hook file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
-    chroot $mountPoint /bin/chmod 00750 /usr/lib/ufw 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ufw"
     chroot $mountPoint /bin/chmod 00500 /usr/share/kernel-hooks.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; kernel-hooks.d file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
 
     log "INFO: Changing anything else remaining in /var"
@@ -2512,7 +2410,6 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     chroot $mountPoint /bin/chmod 0640 /var/log/localScript.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/localScript.log file permissions"
     chroot $mountPoint /bin/chmod 0640 /var/log/authSystem.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/authSystem.log file permissions"
     chroot $mountPoint /bin/chmod 0640 /var/log/authPrivSystem.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/authPrivSystem.log file permissions"
-    chroot $mountPoint /bin/chmod 0640 /var/log/daemonUFW.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/daemonUFW.log file permissions"
     chroot $mountPoint /bin/chmod 0640 /var/log/daemonRSYSLOG.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/daemonRSYSLOG.log file permissions"
     chroot $mountPoint /bin/chmod 0640 /var/log/daemonCHRONY.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/daemonCHRONY.log file permissions"
     chroot $mountPoint /bin/chmod 0640 /var/log/daemonSSHD.log 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /var/log/daemonSSHD.log file permissions"
@@ -2594,8 +2491,6 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     chroot $mountPoint /sbin/rc-update add rsyslog boot 2>/dev/null || log "UNEXPECTED: Could not add rsyslog to boot with rc-update"
     chroot $mountPoint /sbin/rc-update add supercronic default 2>/dev/null || log "UNEXPECTED: Could not add supercronic to default with rc-update"
     chroot $mountPoint /sbin/rc-update add sshd default 2>/dev/null || log "UNEXPECTED: Could not add sshd to default with rc-update"
-    chroot $mountPoint /usr/sbin/ufw enable 2>/dev/null || log "UNEXPECTED: ufw could not be enabled from itself"
-    chroot $mountPoint /sbin/rc-update add ufw default 2>/dev/null || log "UNEXPECTED: Could not add ufw to default with rc-update"
     chroot $mountPoint /sbin/rc-update add fail2ban default 2>/dev/null || log "INFO: Could not add fail2ban to default with rc-update"
 
 	log "INFO: Removing certain services"
@@ -2605,13 +2500,10 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     log "INFO: Restarting services and mounts"
     chroot $mountPoint /sbin/mdev -s || "UNEXPECTED: Could not properely ensure mdev.conf has been executed"
     chroot $mountPoint /bin/mount -a 2>/dev/null || log "UNEXPECTED: Could not properly ensure everything has been mounted accordingly"
-    chroot $mountPoint /sbin/rc-service rsyslog restart 2>/dev/null || log "UNEXPECTED: Could not restart rsyslog daemon"
+    chroot $mountPoint /sbin/rc-service rsyslog restart 2>/dev/null || log "UNEXPECTED: Could not restart rsyslog daemon alongside fail2ban and supercronic!" # Restarting rsyslog automatically restarts fail2ban and supercronic due to dependency
     chroot $mountPoint /sbin/rc-service acpid restart || log "UNEXPECTED: Could not restart acpid daemon"
     chroot $mountPoint /sbin/rc-service chronyd restart || log "UNEXPECTED: Could not restart chronyd daemon"
     chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
-    chroot $mountPoint /sbin/rc-service ufw restart 2>/dev/null || log "UNEXPECTED: Could not restart ufw daemon"
-    chroot $mountPoint /sbin/rc-service fail2ban restart 2>/dev/null || log "UNEXPECTED: Could not restart fail2ban daemon"
-    chroot $mountPoint /sbin/rc-service supercronic restart 2>/dev/null || log "UNEXPECTED: Could not restart supercronic daemon"
 
     log "INFO: Successfully reached end of configurating users!"
 
@@ -2746,7 +2638,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep loksh)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find loksh package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep \{at\})" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find \'at\' package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep acpid)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find acpid package"; fi
-    if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep ufw)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find ufw package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep nftables)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find nftables package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep fail2ban)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find fail2ban package"; fi
     if [ -z "$(chroot $mountPoint /sbin/apk list -I 2>/dev/null | grep openssh-server-pam)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find openssh-server-pam package"; fi
@@ -2870,11 +2761,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep $backupUsername /etc/shadow | grep \*)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $backupUsername user may still have a valid login!"; fi
 
 	# File, socket, character and directory existance check
-		# UFW
-    if [ ! -f "$mountPoint/etc/ufw/applications.d/ssh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing firewall app profile for ssh connections!"; fi
-    if [ ! -f "$mountPoint/etc/ufw/applications.d/apk" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing firewall app profile for updating packages!"; fi
-    if [ ! -f "$mountPoint/etc/ufw/applications.d/ntp" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing firewall app profile for ntp connections!"; fi
-    if [ ! -f "$mountPoint/etc/ufw/applications.d/dns" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing firewall app profile for dns connections!"; fi
     	# Fail2ban
     if [ ! -f "$mountPoint/etc/fail2ban/jail.local" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is misconfigured; /etc/fail2ban/jail.local file should exist!"; fi
     if [ ! -f "$mountPoint/var/lib/fail2ban/fail2ban.sqlite3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is misconfigured; /var/lib/fail2ban/fail2ban.sqlite3 file should exist!"; fi
@@ -2931,7 +2817,6 @@ verifyLocalInstallation() {
     if [ ! -f "$mountPoint/var/log/localScript.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/localScript.log should exist!"; fi
     if [ ! -f "$mountPoint/var/log/authSystem.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/authSystem.log should exist!"; fi
     if [ ! -f "$mountPoint/var/log/authPrivSystem.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/authPrivSystem.log should exist!"; fi
-    if [ ! -f "$mountPoint/var/log/daemonUFW.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/daemonUFW.log should exist!"; fi
     if [ ! -f "$mountPoint/var/log/daemonRSYSLOG.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/daemonRSYSLOG.log should exist!"; fi
     if [ ! -f "$mountPoint/var/log/daemonCHRONY.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/daemonCHRONY.log should exist!"; fi
     if [ ! -f "$mountPoint/var/log/daemonSSHD.log" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /var/log/daemonSSHD.log should exist!"; fi
@@ -2997,10 +2882,6 @@ verifyLocalInstallation() {
     # File removal check
     	# Busybox
     if [ -d "$mountPoint/etc/busybox-paths.d" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic is misconfigured; /etc/busybox-paths.d directory should not exist!"; fi
-    	# UFW
-    if [ -f "$mountPoint/etc/init.d/ufw.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/init.d/ufw.apk-new should not exist!"; fi
-    if [ -f "$mountPoint/etc/ufw/ufw.conf.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/ufw/ufw.conf.apk-new should not exist!"; fi
-    if [ -f "$mountPoint/etc/default/ufw.apk-new" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: File /etc/default/ufw.apk-new should not exist!"; fi
     	# Logrotate
     if [ -f "$mountPoint/etc/logrotate.d/acpid" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Rsyslog is misconfigured; /etc/logrotate.d/acpid file should not exist!"; fi
     if [ -f "$mountPoint/etc/logrotate.d/chrony" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Rsyslog is misconfigured; /etc/logrotate.d/chrony file should not exist!"; fi
@@ -3175,48 +3056,6 @@ verifyLocalInstallation() {
 
     # Check if sshd moduli file contains unsafe bits
     if [ ! -z "$(chroot $mountPoint /usr/bin/awk '$5 < 3071' /etc/ssh/moduli)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There are still unsafe bits in /etc/ssh/moduli!"; fi
-
-    # Default policy and configurations for UFW
-    if [ -z "$(chroot $mountPoint /bin/grep 'DEFAULT_INPUT_POLICY="DROP"' /etc/default/ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall does not drop packets that are incoming \(ingress\)"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep 'DEFAULT_OUTPUT_POLICY="DROP"' /etc/default/ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall does not drop packets that are outgoing \(egress\)"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep 'DEFAULT_FORWARD_POLICY="DROP"' /etc/default/ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall does not drop packets meant for routing \(egress\)"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep 'DEFAULT_APPLICATION_POLICY="DROP"' /etc/default/ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall still accepts application profiles \(egress\)"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "IPV6=no" /etc/default/ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall might accept Ipv6 addresses"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "LOGLEVEL=$ufwLogging" /etc/ufw/ufw.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW has wrong loglevel configured!"; fi
-
-    # Checking for expected open ports via UFW
-        # Port http
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep $httpPort 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $httpPort"; fi
-        # Port https
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep $httpsPort 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $httpsPort"; fi
-        # Port 53
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep $dnsPort 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $dnsPort"; fi
-        # Port ntp
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep $ntpStandardPort 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $ntpStandardPort"; fi
-        # Port ntp monitor
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep $ntpMonitorPort 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $ntpMonitorPort"; fi
-        # Port ssh
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/ufw/user.rules | grep $sshPort 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: NFTables does not contain expected UFW firewall configurations for port $sshPort"; fi
-
-    # Checking for general logging enablement on UFW
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-after-logging-input -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for logging"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-after-logging-output -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for logging"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-after-logging-forward -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for logging"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-logging-deny -m conntrack --ctstate INVALID -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 4 for logging"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-logging-deny -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 5 for logging"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-logging-allow -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 6 for logging"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-I ufw-before-logging-input -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 7 for logging"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-I ufw-before-logging-output -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 8 for logging"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-I ufw-before-logging-forward -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 9 for logging"; fi
-
-    # Rate limiting ssh port check
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-limit -m limit --limit 3/minute -j LOG --log-prefix' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 1 for rate limiting"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-limit -j REJECT' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 2 for rate limiting"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep -- '-A ufw-user-limit-accept -j ACCEPT' /etc/ufw/user.rules 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW firewall did not have expected output 3 for rate limiting"; fi
-
-    # UFW root bypass check
-    if [ -z "$(chroot $mountPoint /bin/grep "    if 1 == 2 and uid != 0" /usr/lib/python$pythonVer/site-packages/ufw/backend.py 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: UFW still requires root access to be executed!"; fi
-
     # Fail2ban configuration
     	# jail.local
     if [ -z "$(chroot $mountPoint /bin/grep "^bantime = 1h" /etc/fail2ban/jail.local 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban bantime does not match"; fi
@@ -3240,7 +3079,7 @@ verifyLocalInstallation() {
 		# rsyslog.conf
     if [ -z "$(chroot $mountPoint /bin/grep "\tumask=\"0$umask\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: umask is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tname=\"$localhostName.format\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: name is misconfigured for rsyslog.conf"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "# Example: 1775196943 @ 06:15:43.005424 on 2026-04-03:A\[root,example_id\]:O\[127.0.0.1:,localhost\]:S\[localhost,imuxsock,-\]:user.notice\[13\]:test" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: string example is misconfigured for rsyslog.conf"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "# Example: 1776138141 @ 03:42:21.164112 on 2026-04-14:localhost\[:127.0.0.1::\]:user.notice\[13\]:someService\[localhost,31686\]: This is a test" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: string example is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tstring=\"%timereported:::date-unixtimestamp% @ %timereported:12:26:date-utc,date-rfc3339% on %timereported:1:10:date-utc,date-rfc3339%:%fromhost%\[:%fromhost-ip%:%fromhost-port%:\]:%pri-text%\[%pri%\]:%programname%\[%hostname%,%procid%\]:%msg%\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: string is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tfileOwner=\"$loggerUsername\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fileOwner is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tfileGroup=\"$loggerUsername\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fileGroup is misconfigured for rsyslog.conf"; fi
@@ -3256,8 +3095,9 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "stop \# Replaced inclusive include" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: stop is not included for rsyslog.conf"; fi
     
     	# 10-discardFilters.conf
-    if [ -z "$(chroot $mountPoint /bin/grep ":msg,contains,\"UFW AUDIT\" stop \# Discard irrelevant UFW Audit messages" /etc/rsyslog.d/10-discardFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to remove unwanted messages firewall kernel messages"; fi
     if [ -z "$(chroot $mountPoint /bin/grep ":msg,contains,\"STOP is followed by unreachable statements\" stop \# Discard irrelevant Rsyslog warn message" /etc/rsyslog.d/10-discardFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to remove unwanted warning messages of additional rsyslog.conf configuration"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"logrotate\") and re_match(\$msg, 'Creating|does not need|old logs are|rotating pattern|\[0123456789\].\* rotations|empty log files|log files >= \[0123456789\].\* are rotated|after \[0123456789\].\* days|Now: \[01234567890\].\*-') then {stop} \# Logrotate message filtering" /etc/rsyslog.d/10-discardFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to remove verbose logrotate messages"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"logrotate\") and (\$msg == \" \") then {stop} \# Logrotate null message filtering" /etc/rsyslog.d/10-discardFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to remove null logrotate messages"; fi
     	
     	# 30-openrcFilters.conf
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"start-stop-daemon\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\") stop} \# Openrc init.d execution" /etc/rsyslog.d/30-openrcFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter for OpenRC init.d execution capture"; fi
@@ -3269,7 +3109,6 @@ verifyLocalInstallation() {
     	
     	# 40-broadFilters.conf
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$syslogseverity-text == \"emerg\") then {action(type=\"omfile\" File=\"\/var\/log\/emergencySystem.log\") stop} \# emergency message logging" /etc/rsyslog.d/40-broadFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect emergency messages"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "if (\$syslogfacility-text == \"kern\") and (\$msg contains \"\[UFW\") then {action(type=\"omfile\" File=\"\/var\/log\/kernFirewall.log\") stop} \# firewall kernel logging" /etc/rsyslog.d/40-broadFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect kernel firewall messages"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$syslogfacility-text == \"kern\") then {action(type=\"omfile\" File=\"\/var\/log\/kernSystem.log\") stop} \# regular kern logging" /etc/rsyslog.d/40-broadFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect generic kernel messages"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$syslogfacility-text == \"local0\") then {action(type=\"omfile\" File=\"\/var\/log\/localDevices.log\") stop} \# mdev logging" /etc/rsyslog.d/40-broadFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect new or old device availability mdev messages"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$syslogfacility-text == \"local1\")  then {action(type=\"omfile\" File=\"\/var\/log\/localScript.log\") stop} \# supercronic scripting" /etc/rsyslog.d/40-broadFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect any supercronic messages"; fi
@@ -3279,7 +3118,6 @@ verifyLocalInstallation() {
     	# 50-daemonFilters.conf
     if [ -z "$(chroot $mountPoint /bin/grep "input(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sshdSocket\/log\") \# sshdSocket" /etc/rsyslog.d/50-daemonFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: include is misconfigured for adding a socket on /etc/rsyslog.d/sshdSocket/log"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "input(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sftpSocket\/log\") \# sftpSocket" /etc/rsyslog.d/50-daemonFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: include is misconfigured for adding a socket on /etc/rsyslog.d/sftpSocket/log"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"ufw\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonUFW.log\") stop} \# ufw daemon logging" /etc/rsyslog.d/50-daemonFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect firewall daemon messages"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$syslogfacility-text == \"syslog\") or (\$programname == \"rsyslog\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonRSYSLOG.log\") stop} \# rsyslog daemon logging" /etc/rsyslog.d/50-daemonFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect rsyslog daemon messages"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"chronyd\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonCHRONY.log\") stop} \# chrony daemon logging" /etc/rsyslog.d/50-daemonFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect Chrony daemon messages"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"sshd.pam\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonSSHD.log\") stop} \# ssh daemon logging" /etc/rsyslog.d/50-daemonFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to redirect Ssh daemon messages"; fi
@@ -3477,32 +3315,10 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin/greeting.ksh -user root -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin/greeting.ksh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/logs -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername/logs"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/logs -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername/logs"; fi   
     
-        # Firewall
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ssh -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/ssh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/apk -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/apk"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ntp -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/ntp"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/dns -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/applications.d/dns"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.init -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before.init"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before6.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/before6.rules":; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.init -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after.init"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after6.rules -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/after6.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/sysctl.conf -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/sysctl.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/default/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/ufw -user root -and -group $firewallUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/sbin/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/ufw.conf -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/ufw.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user.rules -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/user.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user6.rules -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /etc/ufw/user6.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init-functions -user $firewallUsername -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/lib/ufw/ufw-init-functions"; fi
+    	# nftables    
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/kernFirewall.log -user $loggerUsername -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/kernFirewall.log"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/daemonUFW.log -user $loggerUsername -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/daemonUFW.log"; fi   
     
         # Fail2ban
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/bin/fail2ban-client -user root -and -group $fail2banUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /usr/bin/fail2ban-client"; fi
@@ -3760,7 +3576,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/atrun -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/atrun"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/kacpimon -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/kacpimon"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/chronyd -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/chronyd"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/ufw -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/ufw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/faillock -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/faillock"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/xtables-nft-multi -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/xtables-nft-multi"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/iptables-apply -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/iptables-apply"; fi
@@ -3777,28 +3592,10 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config.d -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config.d"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/sshd_config -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/sshd_config"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d -perm 750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ssh -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/ssh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/apk -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/apk"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/ntp -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/ntp"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/applications.d/dns -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/applications.d/dns"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default/ufw -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/ufw.conf -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/ufw.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/sysctl.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/sysctl.conf"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.init -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/after.init"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after.rules -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/after.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/after6.rules -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/after6.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.init -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/before.init"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before.rules -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/before.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/before6.rules -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/before6.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user.rules -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/user.rules"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ufw/user6.rules -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ufw/user6.rules"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ethertypes -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ethertypes"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/nftables.nft -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/nftables.nft"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/iptables -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/iptables"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/nftables.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/nftables.d"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ufw -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ufw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/nftables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/nftables"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/iptables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/iptables"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ip6tables -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ip6tables"; fi
@@ -3913,7 +3710,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/sysfsconf -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/sysfsconf"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/syslog -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/syslog"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/termencoding -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/termencoding"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/ufw -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/ufw"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/user -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/user"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/init.d/watchdog -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/init.d/watchdog"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/security/access.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/access.conf"; fi
@@ -4003,7 +3799,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/terminfo/x -perm 755 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/terminfo/x"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/udhcpc -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/udhcpc"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/zoneinfo -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/zoneinfo"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/default -perm 701 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/default"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/KEK.auth -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/KEK.auth"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/uefi-keys/KEK.cer -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/uefi-keys/KEK.cer"; fi
@@ -4105,9 +3900,6 @@ verifyLocalInstallation() {
 
     # Checking /usr/lib permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/os-release -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc//usr/lib/os-release for /etc/os-release"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw/ufw-init"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /usr/lib/ufw/ufw-init-functions -perm 0750 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ufw/ufw-init-functions"; fi
 
     # Checking /usr/share permissions
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/share/zoneinfo/$timezone -perm 0444 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/share/zoneinfo/$timezone for /etc/localtime"; fi
@@ -4140,7 +3932,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/localScript.log -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/localScript.log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/authSystem.log -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/authSystem.log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/authPrivSystem.log -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/authPrivSystem.log"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/daemonUFW.log -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/daemonUFW.log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/daemonRSYSLOG.log -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/daemonRSYSLOG.log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/daemonCHRONY.log -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/daemonCHRONY.log"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/daemonSSHD.log -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/log/daemonSSHD.log"; fi
@@ -4213,7 +4004,6 @@ verifyLocalInstallation() {
 
     # Service existance check
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i sshd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: sshd should be added to rc list"; fi
-    if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i ufw 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Ufw is yet to be added to rc list"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i fail2ban 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is yet to be added to rc list"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep rsyslog)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Rsyslog service is not managed currently by OpenRC"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep supercronic)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Supercronic service is not managed currently by OpenRC"; fi
