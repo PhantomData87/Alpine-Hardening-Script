@@ -112,9 +112,7 @@ table inet filter {
 		set ipRecognizeInboundServices {
 			type ipv4_addr . inet_service . inet_proto
 			flags constant, interval
-			elements = { 
-				SPECIFICINBOUND
-			};
+			# inboundPortsWithFixedIP
 		}
 		# ⟥── Allowed combination of IPv4, port, and layer 4 protocol ────⟤
 		# Syntax example (remove quotation mark): "n.n.n.n/x? . m . tcp|udp"
@@ -124,9 +122,7 @@ table inet filter {
 		set ipRecognizeOutboundServices {
 			type ipv4_addr . inet_service . inet_proto
 			flags constant, interval
-			elements = { 
-				SPECIFICOUTBOUND
-			};
+			# outboundPortsWithFixedIP
 		}
 		set broadInboundPorts {
 		# Syntax example (remove quotation mark): "n . tcp|udp"
@@ -134,9 +130,7 @@ table inet filter {
 		# A literal example (remove quotation mark): "22 . udp"
 			type inet_service . inet_proto
 			flags constant, interval
-			elements = { 
-				BROADINBOUND
-			};
+			# inboundPortsDueToNoFixedIP
 		}
 		set broadOutboundPorts {
 		# Syntax example (remove quotation mark): "n . tcp|udp"
@@ -144,9 +138,7 @@ table inet filter {
 		# A literal example (remove quotation mark): "22 . udp"
 			type inet_service . inet_proto
 			flags constant, interval
-			elements = {
-				BROADOUTBOUND
-			};
+			# outboundPortsDueToNoFixedIP
 		}
 		# ⟥── Specify the localhost LAN network address and subnet ───────⟤
 		set localhostAddress {
@@ -155,9 +147,7 @@ table inet filter {
 		# A literal example (remove quotation mark): "192.168.0.0"
 			type ipv4_addr
 			flags constant, interval
-			elements = { 
-				SPECIFICLOCALHOST
-			};
+			# localhostAddressOnLocalNetwork
 		}
 		# ⟥── IPv4 protocol whitelist to prevent unknown IPv4 protocols ──⟤
 		# Source: https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers
@@ -291,8 +281,7 @@ table inet filter {
 		# ⟥── Check if ICMP packet type and code is whitelisted ──────────⟤
 		chain knownICMP {
 			# Ensure ICMP packets of code 8 or 0 are sending no additional data
-			icmp type 8 jump isOutboundNullICMP;
-			icmp type 0 jump isOutboundNullICMP;
+			icmp type vmap { 8 : jump isOutboundNullICMP, 0 : jump isOutboundNullICMP };
 			
 			# Check if the ICMP type & ICMP code are whitelisted
 			icmp type . icmp code == @validICMP counter name outboundSuccessICMP log prefix "[ACCEPT:OUT:ICMP] " level info flags all accept;
@@ -432,8 +421,7 @@ table inet filter {
 		# ⟥── Check if ICMP packet type and code is whitelisted ──────────⟤
 		chain icmpFilter {
 			# Check if the ICMP data payload is of size 0
-			icmp type 8 jump isInboundNullICMP;
-			icmp type 0 jump isInboundNullICMP;
+			icmp type vmap { 8 : jump isInboundNullICMP, 0 : jump isInboundNullICMP };
 
 			# Check if the ICMP type & ICMP code are whitelisted
 			icmp type . icmp code == @validICMP counter name inboundAcceptICMP log prefix "[ACCEPT:IN:ICMP] " level info flags all accept;
@@ -681,9 +669,7 @@ table arp filter {
 		set knownNetworkDevicesARP {
 			type ipv4_addr . ether_addr;
 			size 4;
-			elements = {
-				ARPREPLACE
-			}
+			# arpKnownOnNetwork
 			flags constant;
 		}
 
@@ -755,11 +741,8 @@ table arp filter {
 			# Check if new connections are being received to fast
 			update @arpReceiveMaxSpeed { arp saddr ether limit rate over 30/minute burst 5 packets } counter name floodInboundArp log prefix "[FLOOD:IN:ARP] " level warn flags all goto blacklistPoisoner;
 
-			# Is it a ARP broadcast
-			arp operation 0x01 goto broadcastInputARP;
-			
-			# Is it a ARP reply?
-			arp operation 0x02 goto replyInputARP;
+			# Is it a ARP broadcast or ARP reply?
+			arp operation vmap { 0x01 : goto broadcastInputARP, 0x02 : goto replyInputARP };
 			
 			# Otherwise drop
 			counter name inboundGenericDropArp log prefix "[DROP:IN:Generic ARP error] " level err flags all drop;
@@ -799,11 +782,8 @@ table arp filter {
 			# Are we sending too many arp broadcast or replies?
 			update @arpSendMaxSpeed { arp saddr ether limit rate over 20/minute burst 5 packets } counter name floodOutgoingArp log prefix "[FLOOD:OUT:ARP] " level warn flags all drop;
 			
-			# Is it a ARP broadcast
-			arp operation 0x01 goto broadcastOutputARP;
-			
-			# Is it a ARP reply?
-			arp operation 0x02 goto replyOutputARP;
+			# Is it a ARP broadcast or ARP reply?
+			arp operation vmap { 0x01 : goto broadcastOutputARP, 0x02 : goto replyOutputARP };
 			
 			# Otherwise drop
 			counter name outgoingGenericDropArp log prefix "[DROP:OUT:Generic ARP error] " level err flags all drop;

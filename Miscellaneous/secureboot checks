@@ -29,3 +29,52 @@ rsyslog filter for userLogrotate spam???
 # warn : General Blacklisting/Dropping package/Average Flood
 # notice: Accepting a TCP/UDP connection
 # info : Accepting a ICMP/ARP
+
+
+				ipRecognizeInboundServices
+				192.168.0.0/24 . 594 . tcp 										# SSH & SFTP
+			# outboundPortsWithFixedIP
+			elements = { 
+				SPECIFICINBOUND
+			};
+				
+				ipRecognizeOutboundServices
+				mirror.math.princeton.edu . 443 . tcp, 							# HTTPS
+				mirrors.ocf.berkeley.edu . 443 . tcp, 							# HTTPS
+				1.1.1.1 . 53 . udp, 											# DNS
+				9.9.9.9 . 53 . udp, 											# DNS
+				192.168.0.230 . 27036 . tcp 									# Testing script
+			# outboundPortsWithFixedIP
+			elements = { 
+				SPECIFICOUTBOUND
+			};
+				
+				broadInboundPorts
+			# inboundPortsDueToNoFixedIP
+			elements = { 
+				BROADINBOUND
+			};
+				
+				broadOutboundPorts
+				123 . udp,														# NTP
+				80 . tcp,														# HTTP
+			# outboundPortsDueToNoFixedIP
+			elements = {
+				BROADOUTBOUND
+			};
+
+				localhostAddress
+				192.168.0.0/24
+			# localhostAddressOnLocalNetwork
+			elements = { 
+				SPECIFICLOCALHOST
+			};
+
+				knownNetworkDevicesARP
+				192.168.0.1 . 08:02:8e:c7:37:6a									# Router
+				...
+			# arpKnownOnNetwork
+			elements = {
+				ARPREPLACE
+			}
+
