@@ -71,6 +71,7 @@
 # readjust log levels for maximum clarity and minimum verbosity
 # dmesg permanent configuration?
 # Fail2ban re-configuration with new log files
+# Monitor ARP traffic: https://www.tecmint.com/monitor-ethernet-activity-in-linux/
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -953,6 +954,13 @@ setupAlpine() {
 # Manpage explains the removal of HUP signal from rsyslog to restart logging: https://linux.die.net/man/8/rsyslogd
 # logrotate does not support in-line comments: https://github.com/logrotate/logrotate/issues/390
 # Openrc supports redirecting stdout to file or program: https://unix.stackexchange.com/questions/445427/how-to-view-daemon-stdout-in-openrc
+# Manpage with a lot of useful information: https://netfilter.org/projects/nftables/manpage.html#lbCH
+# Some pointers in designing the firewall & inspired me to block Nmap scans https://samuel.forestier.app/blog/security/nftables-hardening-rules-and-good-practices
+# BOGONS awareness source: https://thecybersecguru.com/glossary/what-is-a-bogon-ip-guide/
+# IPV6 BOGONS: https://www.team-cymru.org/Services/Bogons/fullbogons-ipv6.
+# IPV4 BOGONS: https://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt
+# Attack Smurf, Fraggle, and Land: https://www.jaacostan.com/2018/04/dos-attacks-smurffraggleland.html
+# Introduction to NFtables source: https://www.youtube.com/watch?v=K8JPwbcNy_0&list=PLUF494I4KUvqwDjhOoP3IFUpgEhE1OVDO
 configLocalInstallation() {
     log "INFO: Installing packages"
     chroot $mountPoint /sbin/apk add coreutils findutils dmesg logger setpriv doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional acpid nftables fail2ban openssh-server-pam util-linux-login rsyslog xz supercronic@additional || log "UNEXPECTED: Could not install service packages" # libqrencode for qr code?

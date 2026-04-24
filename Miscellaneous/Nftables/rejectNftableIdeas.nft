@@ -1,0 +1,48 @@
+# ∥─────────────────────────────────────────────────────────────────∥
+# ∥ Initial attempt to force ICMP packet to contain 0 bytes of data									  
+# ∥─────────────────────────────────────────────────────────────────
+# Failed to enforce 0 size icmp payload through FIREWALL modification, instead of dropping the packet (kernel didn't respect modification)
+#        chain nullRequest { # Inspired by https://superuser.com/questions/1808579/need-help-using-nftables-to-drop-snmp-packets-containing-a-specific-community-st
+#			# Modify Data header to delete unnecessary data
+#			@nh,224,128 set 0x0000000000000000;
+#			@nh,352,128 set 0x0000000000000000;
+#			@nh,480,128 set 0x0000000000000000;
+#			@nh,592,80 set 0x0000000000;
+			
+#			# Modify Checksum field to have valid packet
+#			# Note: nftables lack arithmatic operations natively. Thus, a compromise: Only the first 256 packets are guaranteed to pass when calculating a new checksum due to the last 8 bits being 0. Thus the identifier field will only be ensured to not conflict with the type 8 code.
+#			icmp id set (icmp id) & 0xf700;
+#			icmp sequence > 0x00ff reject;
+#			icmp checksum set (@nh,160,16 ^ icmp id ^ icmp sequence) ^ 0xffff;
+#        }
+
+        chain modifyPacket {
+			type filter hook output priority mangle;
+			
+#			# Ensure icmp packet has a null payload
+#			icmp type == 8 counter jump nullRequest;
+			
+			# Ensure Do-Not-Fragment packet is always set
+			
+			# Adjust TCP options
+			tcp flags syn tcp option maxseg size set rt mtu;
+			
+			# Set TTL value to outgoing IP packets (icmp & tcp & udp)
+        	ip ttl set 16;
+        }
+
+#				# SCTP protocol scan with -sY. Am not using SCTP protocol
+#			sctp chunk init 0x01 counter name floodScannerSignature log prefix "[DROP:i:SCTP scanner init] " level CHANGEME flags all goto blacklistScanner;
+#				# SCTP protocol scan with -s.
+#			sctp chunk cookie-echo 0x0A counter name floodScannerSignature log prefix "[DROP:i:SCTP scanner cookie-echo] " level CHANGEME flags all goto blacklistScanner;
+
+# ∥────────────────────────────────────────────────────────────────────────────────────────∥
+# ∥ An attempt to see if an IP packet's IPv4 source and address field can be tampered with							  
+# ∥────────────────────────────────────────────────────────────────────────────────────────
+# Failed direct ipv4 sourtce address and destination address comparison
+#			meta protocol ip @nh,96,32 set 0xC1A8003C
+#			meta protocol ip @nh,128,32 set 0xC1A8003C
+
+			# A temporary counter to check if it had succeeded
+#			ip saddr == 0xC1A8003C counter name debugging;
+#			ip daddr == 0xC1A8003C counter name debugging;

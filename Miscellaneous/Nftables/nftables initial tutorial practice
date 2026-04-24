@@ -1,5 +1,3 @@
-# Layered approach for dealing DDoS with XDP: https://dev.to/arzenlabscom/building-a-high-performance-ddos-mitigation-pipeline-with-nftables-and-xdp-2e0j
-# Tutorial source: https://www.youtube.com/watch?v=K8JPwbcNy_0&list=PLUF494I4KUvqwDjhOoP3IFUpgEhE1OVDO
 flush ruleset # Indicate to remove all prior rules (usually included at the top)
 
 # Version 1

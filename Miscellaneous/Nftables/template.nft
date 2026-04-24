@@ -1,0 +1,811 @@
+#!/usr/sbin/nft -f
+flush ruleset
+
+# ∥════════════════════════════════════════════════════════════════════════∥
+# ∥ Table for IP Layer (inet, ip, ipv6)									   ∥
+# ∥════════════════════════════════════════════════════════════════════════∥
+table inet filter {
+# ∥───────────────────────────────────────────────∥
+# ∥ Counters for IP layer									  
+# ∥───────────────────────
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# Inbound connection counters  #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Dropping packet counter ────────────────────────────────────⟤
+		counter inboundDropIP {}												# Rejecting IP From ipBlacklistInbound set
+		counter inboundDropIPV6 {}												# Rejecting IPv6 connections
+		counter inboundDropICMP {}												# Rejecting unaccepted ICMP codes & types
+		counter inboundDropFragmentation {}										# Rejecting IP fragmentation
+		counter inboundDropExcessiveConnection {}								# Rejecting multiple simulteneous connections from same IP
+		counter inboundDropPayloadICMP {}										# Rejecting ICMP code 0 or 8 with packet size above 28 bytes. May contain exfiltrated data
+		counter inboundDropLoInterface {}										# Rejecting 127.0.0.0/24 connections on LO interface
+		counter inboundDropUnknownInterface {}									# Rejecting connections on LO interface that were not 127.0.0.0/24
+		# ⟥── Prohibited connection counter ──────────────────────────────⟤
+		counter inboundUnknownTCPFlag {}										# Received a new connection packet that didn't solely contain SYN flag in TCP packet
+		counter inboundUnknownEstablish {}										# Received a existing connection packet that was no longer being accepted
+		counter inboundUnknownTCPPort {}										# Received a new connection packet connecting to a closed TCP port
+		counter inboundUnknownUDPPort {}										# Received a new connection packet connecting to a closed UDP port
+		counter inboundUnknownIPProtocol {}										# Received a packet with the IP protocol section not set to ICMP, UDP, or TCP
+		# ⟥── Acceptance packet counter ──────────────────────────────────⟤
+		counter inboundAcceptICMP {}											# Accepted a new connection packet that is ICMP
+		counter inboundAcceptTCP {}												# Accepted a new connection packet that is TCP
+		counter inboundAcceptUDP {}												# Accepted a new connection packet that is UDP
+		# ⟥── Firewall didn't filter counter ─────────────────────────────⟤
+		counter inboundGenericDropDestination {}								# "I suck at filtering" counter of shame
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# Outbound connection counters #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Dropping packet counter ────────────────────────────────────⟤
+		counter outboundDropICMP {}												# Rejecting unaccepted ICMP codes & types
+		counter outboundDropIP {}												# Rejecting IP From ipBlacklistOutbound set
+		counter outboundDropDefragmentation {}									# Rejecting IP fragmentation
+		counter outboundDropIPV6 {}												# Rejecting IPv6 connections
+		counter outboundDropPayloadICMP {}										# Rejecting ICMP code 0 or 8 with packet size above 28 bytes. May contain exfiltrated data
+		counter outgoingDropLoInterface {}										# Rejecting 127.0.0.0/24 connections on LO interface
+		counter outgoingDropUnknownInterface {}									# Rejecting connections on LO interface that were not 127.0.0.0/24
+		# ⟥── Prohibited connection counter ──────────────────────────────⟤
+		counter outboundUnknownIPProtocol {}									# Received a packet with the IP protocol section not set to ICMP, UDP, or TCP
+		counter outboundUnknownTCPPort {}										# Received a new connection packet connecting to a closed TCP port
+		counter outboundUnknownUDPPort {}										# Received a new connection packet connecting to a closed UDP port
+		# ⟥── Acceptance packet counter ──────────────────────────────────⟤
+		counter outboundSuccessICMP {}											# Sent a new connection packet that is ICMP
+		counter outboundSuccessTCP {}											# Sent a new connection packet that is TCP
+		counter outboundSuccessUDP {}											# Sent a new connection packet that is UDP
+		# ⟥── Firewall didn't filter counter ─────────────────────────────⟤
+		counter outboundGenericDropDestination {}								# "I suck at preventing" counter of shame
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	   Flood/DoS counters	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── How many packets from the "scanner" set were found? ────────⟤
+		counter floodReBlacklisted {}											# Match once again an IP from "scanner" set was still in timeout
+		# ⟥── How many packets were similar to a network scanner? ────────⟤
+		counter floodScannerSignature {}										# Match to a known attack found in common scanners: Nmap and Hping3
+		# ⟥── How many packets resulted in spam? ─────────────────────────⟤
+		counter floodIncomingNew {}												# Too many packets from new connections with Syn flag
+		counter floodIncomingEstablished {}										# Too many packets from existing connections
+		counter floodOutgoing {}												# Too many packets coming out of the device
+		# ⟥── Possibly a DoS attack counter ──────────────────────────────⟤
+		counter floodInboundLand {}												# Received a packet destined to arrive to itself!
+		counter floodInboundSmurf {}											# A device had sent a broadcast to ICMP or UDP flood this machine!
+		counter floodOutboundLand {}											# Received a packet destined to arrive to itself!
+		counter floodOutboundSmurf {}											# A device had sent a broadcast to ICMP or UDP flood this machine!
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	  Lo interface counters	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Existance of localhost usage counter ───────────────────────⟤
+		counter outgoingLogLoInterfaceUsage {}									# It's not expected for the LO interface to be used, so here is a counter to make sure this firewall isn't blocking any important connections on 127.0.0.0/8
+		counter inboundLogLoInterfaceUsage {}									# Same as above, but for uncommon usage of 127.0.0.0/24 
+
+
+# ∥───────────────────────────────────────────────∥
+# ∥ Sets for IP Layer									  
+# ∥───────────────────
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	   IPv4 blacklist sets	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── A static blacklist that contains untrusted IPv4 addresses ──⟤
+		set ipBlacklistInbound {
+			type ipv4_addr
+			flags constant, interval
+		}
+		set ipBlacklistOutbound {
+			type ipv4_addr
+			flags constant, interval
+		}
+		# ⟥── IPv4 addresses that flooded/caused DoS/tried to scanned ────⟤
+		set scanner {
+			type ipv4_addr;
+			flags timeout, dynamic;
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	 IPv4 Static Allow sets    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Allowed combination of IPv4, port, and layer 4 protocol ────⟤
+		# Syntax example (remove quotation mark): "n.n.n.n/x? . m . tcp|udp"
+		# A literal example (remove quotation mark): "192.168.0.0/24 . 22 . tcp"
+		# A literal example (remove quotation mark): "192.168.0.234 . 22 . udp"
+		# A literal example (remove quotation mark): "mirror.somesite.edu . 443 . tcp"
+		set ipRecognizeInboundServices {
+			type ipv4_addr . inet_service . inet_proto
+			flags constant, interval
+			elements = { 
+				SPECIFICINBOUND
+			};
+		}
+		# ⟥── Allowed combination of IPv4, port, and layer 4 protocol ────⟤
+		# Syntax example (remove quotation mark): "n.n.n.n/x? . m . tcp|udp"
+		# A literal example (remove quotation mark): "192.168.0.0/24 . 22 . tcp"
+		# A literal example (remove quotation mark): "192.168.0.234 . 22 . udp"
+		# A literal example (remove quotation mark): "mirror.somesite.edu . 443 . tcp"
+		set ipRecognizeOutboundServices {
+			type ipv4_addr . inet_service . inet_proto
+			flags constant, interval
+			elements = { 
+				SPECIFICOUTBOUND
+			};
+		}
+		set broadInboundPorts {
+		# Syntax example (remove quotation mark): "n . tcp|udp"
+		# A literal example (remove quotation mark): "22 . tcp"
+		# A literal example (remove quotation mark): "22 . udp"
+			type inet_service . inet_proto
+			flags constant, interval
+			elements = { 
+				BROADINBOUND
+			};
+		}
+		set broadOutboundPorts {
+		# Syntax example (remove quotation mark): "n . tcp|udp"
+		# A literal example (remove quotation mark): "22 . tcp"
+		# A literal example (remove quotation mark): "22 . udp"
+			type inet_service . inet_proto
+			flags constant, interval
+			elements = {
+				BROADOUTBOUND
+			};
+		}
+		# ⟥── Specify the localhost LAN network address and subnet ───────⟤
+		set localhostAddress {
+		# Syntax example (remove quotation mark): "n.n.n.n/x"
+		# A literal example (remove quotation mark): "192.168.0.0/24"
+		# A literal example (remove quotation mark): "192.168.0.0"
+			type ipv4_addr
+			flags constant, interval
+			elements = { 
+				SPECIFICLOCALHOST
+			};
+		}
+		# ⟥── IPv4 protocol whitelist to prevent unknown IPv4 protocols ──⟤
+		# Source: https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers
+		set ipWhitelistProtocol {
+			type inet_proto
+			flags constant
+			elements = { 
+				1,																# ICMP
+				6,																# TCP
+				17																# UDP
+			}
+		}
+		# ⟥── Whitelisting which physical network interface can be used ──⟤
+		set validNetInterfaces {
+			type ifname
+			flags constant;
+			elements = {
+				eth0															# An ethernet port. Change or add a different interface
+			}
+		}
+		# ⟥── Whitelisting ICMP type and code pairs ──────────────────────⟤
+		# Source: https://www.iana.org/assignments/icmp-parameters/icmp-parameters.xhtml
+		set validICMP {
+			type icmp_type . icmp_code
+			flags constant;
+			elements = {
+				0 . 0,    														# Echo reply
+				3 . 0,    														# Net unreachable
+				3 . 1, 	  														# Host unreachable
+				3 . 4,    														# Fragmentation needed (For MTU calculation)
+				8 . 0,    														# Echo request
+				11 . 0,   														# Time to Live exceeded in Transit
+				12 . 0,   														# Paramter problem: Pointer indicates the error
+				12 . 1,   														# Paramter problem: Missing a Required Option
+				12 . 2    														# Paramter problem: Bad Length
+			}
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	 IPv4 Dynamic Allow sets   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Tracking local ports to permit remote connection ───────────⟤
+		# When a network socket is opened from a machine. It contacts through a open port (Destination), and reserves a port on itself (Source)
+		# If this machine tried to connect on port 22 on another machine (Destination). It might reserve port 45654, port 28958, or etc (source) as an entry point for the remote machine to communicate back.
+		set requestedPort {
+			type ipv4_addr . inet_service . inet_proto ;
+			size 131072
+			timeout 5s
+			flags timeout, dynamic;
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	 IPv4 Dynamic Drop sets    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #	
+		# ⟥── Prevent local machine from acting as a DoS source itself ───⟤
+		set rateLimitSelf {
+			type ipv4_addr
+			size 131072
+			timeout 1m
+            flags timeout, dynamic
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# IPv4 Dynamic Conn Throttling #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #	
+		# ⟥── Prevent remote machines from sending too many packets ──────⟤
+		set connectionMaxSpeed {
+			type ipv4_addr
+			size 131072
+			timeout 1m
+            flags timeout, dynamic
+		}
+		# ⟥── Prevent remote machine from sending too little TCP packets ─⟤
+		set connectionMinSpeed {
+			type ipv4_addr
+			size 131072
+			timeout 1m
+            flags timeout, dynamic
+		}
+		# ⟥── Detect when remote machine is sending too much ─────────────⟤
+		# This is a weak attempt to detect exfiltration, or atleast notice when network activity spikes
+		set connectionEstablishedSpeed {
+			type ipv4_addr
+			size 131072
+			timeout 1m
+            flags timeout, dynamic
+		}
+		# ⟥── Prevent too many simultaneous connections from same IPv4 ───⟤
+		set connectionIPLimit {
+			type ipv4_addr
+			size 65535
+            flags dynamic
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	IPv4 DoS Protection Set    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #	
+		# ⟥── Workaround implementation to detect and prevent LAND DoS ───⟤
+		# Nftables at the time of writing doesn't support "ip saddr == ip daddr" check.
+		# Currently that same expression is intepreted as "ip saddr == [IPv4] == ip daddr == [IPv4]", which causes a syntax error from unepxected middle "==".
+		# Meaning it can only evaluate "ip saddr" or "ip daddr" seperately, and not together
+		set self {
+			type ipv4_addr
+			size 131072
+			timeout 1h;
+			flags timeout, dynamic;
+		}
+		
+# ∥───────────────────────────────────────────────∥
+# ∥ Forward HOOK for IP Layer									  
+# ∥───────────────────────────
+        chain forward {
+		# ⟥── Disable forwarding by setting default policy to drop ───────⟤
+			type filter hook forward priority 0; policy drop;
+        }
+
+# ∥───────────────────────────────────────────────∥
+# ∥ Output HOOK for IP Layer								  
+# ∥──────────────────────────
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	  Output ICMP Filtering	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Is ICMP packet size of 28 bytes? If not, it's exfiltrating ─⟤
+        # Only ping-pong of size 0 allowed: ping -s 0 x.x.x.x
+        chain isOutboundNullICMP {
+        	ip length != 28 counter name outboundDropPayloadICMP log prefix "[DROP:OUT:ICMP payload] " level warn flags all drop
+        	
+        	# Must be a valid ICMP packet we are permitting with a payload size of 0
+        	return;
+        }
+		# ⟥── Check if ICMP packet type and code is whitelisted ──────────⟤
+		chain knownICMP {
+			# Ensure ICMP packets of code 8 or 0 are sending no additional data
+			icmp type 8 jump isOutboundNullICMP;
+			icmp type 0 jump isOutboundNullICMP;
+			
+			# Check if the ICMP type & ICMP code are whitelisted
+			icmp type . icmp code == @validICMP counter name outboundSuccessICMP log prefix "[ACCEPT:OUT:ICMP] " level info flags all accept;
+			counter name outboundDropICMP limit rate 2/hour log prefix "[DROP:OUT:Prohibited ICMP] " level alert flags all drop;
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	   Output TCP Filtering	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Accepting TCP port corner ──────────────────────────────────⟤
+		chain establishNewTCPConnection {
+			ip daddr . tcp dport . ip protocol == @ipRecognizeOutboundServices update @requestedPort { ip daddr . tcp sport . ip protocol } counter name outboundSuccessTCP log prefix "[ACCEPT:OUT:TCP Restricted] " level notice flags all accept;
+			tcp dport . ip protocol == @broadOutboundPorts update @requestedPort { ip daddr . tcp sport . ip protocol } counter name outboundSuccessTCP log prefix "[ACCEPT:OUT:TCP Unrestricted] " level notice flags all accept;
+			
+			# Must have connected to a unknown non-whitelisted TCP port
+			counter name outboundUnknownTCPPort limit rate 2/second log prefix "[DROP:OUT:Unknown TCP Service and Port] " level alert flags all drop;
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	   Output UDP Filtering	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Accepting UDP port corner ──────────────────────────────────⟤
+		chain establishNewUDPConnection {
+			ip daddr . udp dport . ip protocol == @ipRecognizeOutboundServices update @requestedPort { ip daddr . udp sport . ip protocol } counter name outboundSuccessUDP log prefix "[ACCEPT:OUT:UDP Restricted] " level notice flags all accept
+			udp dport . ip protocol == @broadOutboundPorts update @requestedPort { ip daddr . udp sport . ip protocol } counter name outboundSuccessUDP log prefix "[ACCEPT:OUT:UDP Unrestricted] " level notice flags all accept
+			
+			# Must have connected to a unknown non-whitelisted UDP port
+			counter name outboundUnknownUDPPort limit rate 2/second log prefix "[DROP:OUT:Unknown UDP Service and Port] " level alert flags all drop;
+		}
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#		  Output MAIN		   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Rate limit, accept known, Filter, and log failures ─────────⟤
+        chain output {
+			type filter hook output priority filter; policy drop;
+			
+			# Rate limit output
+			update @rateLimitSelf { ip saddr limit rate over 600/second burst 50 packets } limit rate 1/hour log prefix "[FLOOD:OUT:All packets] " level alert flags all;
+			update @rateLimitSelf { ip saddr limit rate over 600/second burst 50 packets } counter name floodOutgoing drop;
+			
+			# Is connection established? Than accept
+			ct state { established, related } accept;
+			
+			# If whitelisted port is matched for output. Then save it on a table for later
+			ip protocol vmap { tcp : jump establishNewTCPConnection, udp : jump establishNewUDPConnection, icmp : goto knownICMP }
+			
+			# Log any packet that has slipped past through the filters
+			counter name outboundGenericDropDestination log prefix "[DROP:OUT:Generic packet error] " level err flags all drop;
+        }
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#   Output Mangling/Tampering  #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Change TCP Window scale, and maybe set packet TTL ──────────⟤
+        chain modifyPacket {
+			type filter hook output priority mangle;
+			
+			# Adjust TCP options
+			tcp flags syn tcp option maxseg size set rt mtu;
+			
+			# Set TTL value to outgoing local IP packets (icmp & tcp & udp)
+        	ip daddr == @localhostAddress ip ttl set 16;
+        }
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#  Output IP/Interface Filter  #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Filter outbound connections and filter interfaces ──────────⟤
+        chain filterUnwantedOutboundPackages {
+			type filter hook output priority -450;
+
+ 			# Drop already known prohibited IPS
+			ip saddr == @ipBlacklistOutbound limit rate 2/second log prefix "[DROP:OUT:Blacklisted IPv4 tried to connect] " level warn flags all;
+			ip saddr == @ipBlacklistOutbound counter name outboundDropIP drop
+			
+			# Drop IPV6 IPs & pings
+			meta protocol ip6 limit rate 2/hour log prefix "[DROP:OUT:Unknown IPv6] " level warn flags all;
+			meta protocol ip6 counter name outboundDropIPV6 drop;
+			
+			# Drop IP null attacks by checking if field is null
+			ip protocol != @ipWhitelistProtocol counter name outboundUnknownIPProtocol log prefix "[DROP:OUT:Unknown IP Protocol] " level alert flags all drop;
+			
+			# Drop Land Attacks by droppping same referential ip
+			update @self { ip saddr timeout 1h };
+			ip daddr == @self limit rate 2/hour log prefix "[FLOOD:OUT:LAND DoS] " level alert flags all;
+			ip daddr == @self counter name floodOutboundLand drop;
+			
+			# Detect Smurf/Fraggle attacks by dropping broadcast
+			ip daddr & 0x000000FF == 0x000000FF limit rate 2/hour log prefix "[FLOOD:OUT:Smurf/Fraggle DoS] " level alert flags all;
+			ip daddr & 0x000000FF == 0x000000FF counter name floodOutboundSmurf drop;
+			
+			# Drop fragmentation
+			ip frag-off & 0x1fff != 0x00 counter name outboundDropDefragmentation log prefix "[DROP:OUT:IP fragmentation] " level warn flags all drop;
+			
+			# Drop lo interface
+			oifname lo ip daddr == 127.0.0.0/8 limit rate 10/minute log prefix "[DROP:OUT:Lo interface 127.0.0.0] " level err flags all;
+			oifname lo ip daddr == 127.0.0.0/8 counter name outgoingLogLoInterfaceUsage drop;
+			oifname lo limit rate 10/minute log prefix "[DROP:OUT:Lo interface unknown address] " level err flags all;
+			oifname lo counter name outgoingDropLoInterface drop;
+			
+			# Drop unknown interfaces
+			oifname != @validNetInterfaces limit rate 10/minute log prefix "[DROP:OUT:Unknown interface] " level err flags all;
+			oifname != @validNetInterfaces counter name outgoingDropUnknownInterface drop;
+        }
+
+# ∥───────────────────────────────────────────────∥
+# ∥ Input HOOK for IP Layer								  
+# ∥─────────────────────────
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#    Input function helpers    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Where IPs are blacklisted, and the timeout set ─────────────⟤
+		chain blacklistScanner {
+			add @scanner { ip saddr timeout 5m };
+			drop;
+		}
+		# ⟥── Before blacklisting an IP. Check if known connection ───────⟤
+		chain isKnownConnection {
+			ct state { established, related } return;
+			
+			# Otherwise, this is an unknown connection
+			update @scanner { ip saddr timeout 5m } counter name floodReBlacklisted drop;
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	  Input ICMP Filtering	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Check if ICMP packet size if exactly 28 bytes ──────────────⟤
+		chain isInboundNullICMP {
+        	ip length != 28 limit rate 2/hour log prefix "[DROP:IN:ICMP payload] " level err flags all;
+        	ip length != 28 counter name inboundDropPayloadICMP drop;
+
+        	# Must be a valid ICMP packet we are permitting with a payload size of 0
+        	return;
+        }
+		# ⟥── Check if ICMP packet type and code is whitelisted ──────────⟤
+		chain icmpFilter {
+			# Check if the ICMP data payload is of size 0
+			icmp type 8 jump isInboundNullICMP;
+			icmp type 0 jump isInboundNullICMP;
+
+			# Check if the ICMP type & ICMP code are whitelisted
+			icmp type . icmp code == @validICMP counter name inboundAcceptICMP log prefix "[ACCEPT:IN:ICMP] " level info flags all accept;
+			
+			# Drop Unwanted ICMP messages
+			limit rate 2/hour log prefix "[DROP:IN:Prohibited ICMP] " level warn flags all;
+			counter name inboundDropICMP drop;
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	  Input TCP Filtering	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Check if TCP port is open or closed ────────────────────────⟤
+		chain unrecognizeTCPService {
+			ip saddr . tcp dport . ip protocol == @ipRecognizeInboundServices return;
+			tcp dport . ip protocol == @broadInboundPorts return;
+			counter name inboundUnknownTCPPort log prefix "[DROP:IN:Unknown TCP Service and Port] " level alert flags all goto blacklistScanner;
+		}
+		# ⟥── Check if new TCP request is meeting certain criteria ───────⟤
+		# Does not match known network scanner packet attributions
+		# Only has SYN flag set
+		# Is connecting to a open/whitelisted TCP port
+		# The same remote host does not have more than 2 simulteneous connections
+		# The remote host has sent more than 2 packets in the first minute
+		chain newInboundTCPConnection {
+			# Based on Nmap scanning techniques & some arguments from Hping3: https://nmap.org/book/man-port-scanning-techniques.html
+			# NMAP various type of scans: Except -sT or -sU since they are too similar to regular connections
+				# TCP Maimon scan with -sM
+			tcp flags & (fin|ack) == fin|ack counter name floodScannerSignature log prefix "[DROP:IN:FIN/ACK] " level alert flags all goto blacklistScanner;
+				# FIN scan with -sF
+			tcp flags & (fin) == fin counter name floodScannerSignature log prefix "[DROP:IN:TCP scanner FIN] " level alert flags all goto blacklistScanner;
+				# Null scan with -sN
+			tcp flags & (fin|syn|rst|psh|ack|urg|ecn|cwr) == 0x0 counter name floodScannerSignature log prefix "[DROP:IN:TCP scanner Null] " level alert flags all goto blacklistScanner;
+				# XMAS scan with -sX
+			tcp flags & (fin|psh|urg) == fin|psh|urg counter name floodScannerSignature log prefix "[DROP:IN:TCP scanner FIN/PSH/URG] " level alert flags all goto blacklistScanner;
+				# ACK scan with -sA, and technically counts TCP Window Scan -sW
+			tcp flags & (ack) == ack counter name floodScannerSignature log prefix "[DROP:IN:TCP scanner ACK] " level alert flags all goto blacklistScanner;
+				# SYN scan with -sS  due to predictable size of 44 bytes (instead of 60 bytes). Not the first to notice: https://danielmiessler.com/blog/synpackets
+			ct bytes 44 counter name floodScannerSignature log prefix "[DROP:IN:TCP scanner SYN] " level alert flags all goto blacklistScanner;
+			
+			# Hping3
+				# XMAS scan with -X for 0x40 bit
+			tcp flags & (ecn) == ecn counter name floodScannerSignature log prefix "[DROP:IN:TCP scanner ECE] " level alert flags all goto blacklistScanner;
+				# YMAS scan with -Y for 0x80 bit
+			tcp flags & (cwr) == cwr counter name floodScannerSignature log prefix "[DROP:IN:TCP scanner CWR] " level alert flags all goto blacklistScanner;
+            
+            # Check TCP flag is SYN
+            tcp flags & (syn) != 0x02 counter name inboundUnknownTCPFlag log prefix "[DROP:IN:TCP new Non-Syn] " level alert flags all goto blacklistScanner;
+            
+            # Does it connect outside of an expected service?
+            jump unrecognizeTCPService;
+            
+			# Are we excedding expected connections?
+			ct state new add @connectionIPLimit { ip saddr ct count over 2 } counter name inboundDropExcessiveConnection log prefix "[DROP:IN:Excessive TCP IP connection] " level warn flags all drop;
+
+			# Common protocols that are expected to speak are not sending less than 120 byte packets every minute.
+			update @connectionMinSpeed { ip saddr limit rate over 120 bytes/minute } return;
+            
+            # Must be a valid packet, but will be dropped to encouraged more packets to be sent
+            log prefix "[DROP:IN:Low TCP rate] " level notice flags all drop;
+		}
+		# ⟥── Filter new TCP connection, and if packet is SynAck-ing ─────⟤
+		chain tcpFilter {
+            # Send all new connections to a different filter permenantly
+            ct state { new, invalid } jump newInboundTCPConnection;  
+            
+            # Is this an expected connection to finished 3-way handshake?
+			ip saddr . tcp dport . ip protocol == @requestedPort accept; 
+			
+			# Are we accepting a new connection on a valid service port?
+			ip saddr . tcp dport . ip protocol == @ipRecognizeInboundServices counter name inboundAcceptTCP log prefix "[ACCEPT:IN:TCP Restricted] " level notice flags all accept;
+			tcp dport . ip protocol == @broadInboundPorts counter name inboundAcceptTCP log prefix "[ACCEPT:IN:TCP Unrestricted] " level notice flags all accept;
+			
+			# Rejecting packages
+			counter name inboundUnknownEstablish log prefix "[DROP:IN:Unknown Established] " level err flags all goto blacklistScanner;
+		}
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	  Input UDP Filtering	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Check if UDP port is open or closed ────────────────────────⟤
+		chain unrecognizeUDPService {
+			ip saddr . udp dport . ip protocol != @ipRecognizeInboundServices return;
+			udp dport . ip protocol != @broadInboundPorts return;
+			counter name inboundUnknownUDPPort log prefix "[DROP:IN:Unknown UDP Service and Port] " level alert flags all goto blacklistScanner;
+		}
+		# ⟥── Check if new UDP request is meeting certain criteria ───────⟤
+		chain newInboundUDPConnection {
+			# Does it connect outside of expected ports?
+            jump unrecognizeUDPService;
+
+			# Are we excedding expected connections?
+			ct state new add @connectionIPLimit { ip saddr ct count over 2 } counter name inboundDropExcessiveConnection log prefix "[DROP:IN:Excessive UDP IP connection] " level warn flags all drop;
+			
+			# Common protocols that are expected to speak are not sending less than 120 byte packets every minute.
+			update @connectionMinSpeed { ip saddr limit rate over 120 bytes/minute } return;
+            
+            # Must be a valid packet, but will be dropped to encouraged more packets to be sent
+            log prefix "[DROP:IN:Low UDP rate] " level notice flags all drop;
+		}
+		# ⟥── Filter new UDP connection, and if packet is expected ───────⟤
+		chain udpFilter {
+            # Send all new connections to a different filter permenantly
+            ct state { new, invalid } jump newInboundUDPConnection; 
+			
+			# Are we replying a UDP connection?
+			ip saddr . udp dport . ip protocol == @requestedPort accept;
+			
+			# Are we accepting a new connection on a valid service port?
+			ip saddr . udp dport . ip protocol == @ipRecognizeInboundServices counter name inboundAcceptUDP log prefix "[ACCEPT:IN:UDP Restricted] " level notice flags all accept;
+			udp dport . ip protocol == @broadInboundPorts counter name inboundAcceptUDP log prefix "[ACCEPT:IN:UDP Unrestricted] " level notice flags all accept;
+			
+			# Rejecting packages
+			counter name inboundUnknownEstablish log prefix "[DROP:IN:Unknown Established] " level err flags all goto blacklistScanner;
+		}
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#		  Input MAIN		   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Rate limiting, Filters, and count when firewall fails ──────⟤
+        chain inputIP {
+			type filter hook input priority 0; policy drop;
+			
+			# Are we receiving too many packets?
+				# Check if new connections are being received to fast
+			ct state { new, invalid } update @connectionMaxSpeed { ip saddr limit rate over 60/minute burst 5 packets } counter name floodIncomingNew log prefix "[FLOOD:IN:New connection] " level warn flags all goto blacklistScanner;
+            	# Rate limit any other connection, but just log
+			ct state { established, related } update @connectionEstablishedSpeed { ip saddr limit rate over 600/minute burst 50 packets } limit rate 1/hour counter name floodIncomingEstablished log prefix "[FLOOD:IN:Established connection] " level warn flags all;
+	
+			# Pass through expected filters
+			ip protocol vmap { tcp : jump tcpFilter, udp : jump udpFilter, icmp : jump icmpFilter }
+			
+			# Log any packet that has slipped past through the filters
+			counter name inboundGenericDropDestination log prefix "[DROP:IN:Generic packet error] " level err flags all drop;
+        }
+
+# ∥───────────────────────────────────────────────∥
+# ∥ Prerouting HOOK for IP Layer									  
+# ∥──────────────────────────────
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#Prerouting IP/Interface Filter#
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Filter outbound connections and filter interfaces ──────────⟤
+ 		chain filterUnwantedInboundPackages {
+			type filter hook prerouting priority -450;
+ 
+ 			# Drop already known prohibited IPs
+			ip saddr == @ipBlacklistInbound limit rate 2/second log prefix "[DROP:IN:Blacklisted IPv4 tried to connect] " level warn flags all;
+			ip saddr == @ipBlacklistInbound counter name inboundDropIP drop
+			
+			# Drop IPV6 IPs & pings
+			meta protocol ip6 limit rate 2/hour log prefix "[DROP:IN:Unknown IPv6] " level warn flags all;
+			meta protocol ip6 counter name inboundDropIPV6 drop;
+			
+			# Blacklisted ip's due to possibility of being a scanner
+			ip saddr @scanner jump isKnownConnection;	
+			
+			# Drop IP null attacks by checking if field is accepted
+			ip protocol != @ipWhitelistProtocol counter name inboundUnknownIPProtocol log prefix "[DROP:IN:Unknown IP Protocol] " level err flags all goto blacklistScanner;
+			
+			# Drop Land Attacks by droppping same referential ip: hping3 -c 3 -s x -d x --flood --spoof a.b.c.y a.b.c.y
+			add @self { ip daddr timeout 1h };
+			ip saddr == @self limit rate 2/hour log prefix "[FLOOD:IN:LAND DoS] " level alert flags all;
+			ip saddr == @self counter name floodInboundLand drop;
+			
+			# Prevent Smurf/Fraggle attacks by dropping broadcast: hping3 -1 --flood --spoof a.b.c.x a.b.c.255
+			ip daddr & 0x000000FF == 0x000000FF limit rate 2/hour log prefix "[FLOOD:IN:Smurf/Fraggle DoS] " level alert flags all;
+			ip daddr & 0x000000FF == 0x000000FF counter name floodInboundSmurf drop;
+			
+			# IP fragmentation is not welcomed
+			ip frag-off & 0x1fff != 0x00 counter name inboundDropFragmentation log prefix "[DROP:IN:IP fragmentation] " level warn flags all goto blacklistScanner;
+			
+			# Drop lo interface
+			iifname lo ip saddr == 127.0.0.0/8 limit rate 10/minute log prefix "[DROP:IN:Lo interface 127.0.0.0] " level err flags all;
+			iifname lo ip saddr == 127.0.0.0/8 counter name inboundLogLoInterfaceUsage drop;
+			iifname lo limit rate 10/minute log prefix "[DROP:IN:Lo interface unknown address] " level err flags all;
+			iifname lo counter name inboundDropLoInterface drop;
+			
+			# Drop unknown interfaces
+			iifname != @validNetInterfaces limit rate 10/minute log prefix "[DROP:IN:Unknown interface] " level err flags all;
+			iifname != @validNetInterfaces counter name inboundDropUnknownInterface drop;
+		}
+}
+
+
+# ∥════════════════════════════════════════════════════════════════════════∥
+# ∥ Table for ARP Layer													   ∥
+# ∥════════════════════════════════════════════════════════════════════════∥
+table arp filter {
+# ∥───────────────────────────────────────────────∥
+# ∥ Counters for ARP layer									  
+# ∥────────────────────────
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#     Inbound ARP counters     #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Dropping packet counter ────────────────────────────────────⟤
+		counter inboundDropNonBroadcast {}										# A broadcast ARP packet didn't set its destination address to FF:FF:FF:FF:FF:FF
+		counter inboundDropReply {}												# A reply ARP packet was not expected from the MAC address given
+		counter inboundDropPoison {}											# A reply ARP packet that tried to poison the local ARP table
+		# ⟥── Acceptance packet counter ──────────────────────────────────⟤
+		counter inboundAcceptBroadcast {}										# Accepted an ARP broadcast packet
+		counter inboundAcceptReply {}											# Accepted an ARP reply packet
+		# ⟥── Firewall didn't filter counter ─────────────────────────────⟤
+		counter inboundGenericDropArp {}										# "I suck at filtering" counter of shame
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#     Outbound ARP counters    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Dropping packet counter ────────────────────────────────────⟤
+		counter outgoingDropNonBroadcast {}										# A broadcast ARP packet didn't set its destination address to FF:FF:FF:FF:FF:FF
+		counter outgoingDropReply {}											# A reply ARP packet that tried to poison someone else's ARP table
+		# ⟥── Acceptance packet counter ──────────────────────────────────⟤
+		counter outboundAcceptBroadcast {}										# Accepted & sent an ARP broadcast packet
+		counter outboundAcceptReply {}											# Accepted & sent an ARP reply packet
+		# ⟥── Firewall didn't filter counter ─────────────────────────────⟤
+		counter outgoingGenericDropArp {}										# "I suck at preventing" counter of shame
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#    Flood/DoS ARP counters    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── How many packets from the "poisoner" set were found? ────────⟤
+		counter floodArpReBlacklist {}											# Match once again a MAC address from "poisoner" set was still in timeout
+		# ⟥── How many packets resulted in spam? ──────────────────────────⟤
+		counter floodInboundArp {}												# Too many packets received from a specific MAC address
+		counter floodOutgoingArp {}												# Too many ARP packets made locally on device
+
+# ∥───────────────────────────────────────────────∥
+# ∥ Sets for ARP Layer									  
+# ∥────────────────────
+        # ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	   ARP blacklist set	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Blacklisted MAC addresses that sent a false ARP response ───⟤
+		set poisoner {
+			type ether_addr;
+			flags timeout, dynamic;
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	  ARP Static Allow set     #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Static set of pre-defined answers ip to mac resolutions ────⟤
+		# Syntax example (remove quotation mark): "n.n.n.n . mm:mm:mm:mm:mm:mm"
+		# A literal example (remove quotation mark): "192.168.0.1 . 1a:fc:73:C7:83:6a"
+		set knownNetworkDevicesARP {
+			type ipv4_addr . ether_addr;
+			size 4;
+			elements = {
+				ARPREPLACE
+			}
+			flags constant;
+		}
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#	  ARP Dynamic Allow set    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Recording outbound ARP requests had indeed happened ────────⟤
+		set requestedARP {
+			type ipv4_addr;
+			size 131072
+			flags timeout, dynamic;
+		}
+		
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#  ARP Dynamic Conn Throttling #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Check if we are flooded from a given ethernet mac address ──⟤
+		set arpReceiveMaxSpeed {
+			type ether_addr
+			size 131072
+			timeout 1m
+            flags timeout, dynamic
+		}
+		# ⟥── Check if we are are flooding arp requests ──────────────────⟤
+		set arpSendMaxSpeed {
+			type ether_addr
+			size 131072
+			timeout 1m
+            flags timeout, dynamic
+		}
+
+# ∥───────────────────────────────────────────────∥
+# ∥ Input HOOK for ARP Layer									  
+# ∥──────────────────────────
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#     Input function helper    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Blacklist MAC address of device sending false ARP answers ──⟤
+		chain blacklistPoisoner {
+			update @poisoner { arp saddr ether timeout 5m };
+			counter name floodArpReBlacklist drop;
+		}
+		# ⟥── Ensure broadcast packet is valid ───────────────────────────⟤
+		chain broadcastInputARP{
+			arp daddr ether != 00:00:00:00:00:00 counter name inboundDropNonBroadcast log prefix "[DROP:IN:Fake ARP broadcast] " level warn flags all goto blacklistPoisoner;
+			
+			# Must be a valid broadcast
+			counter name inboundAcceptBroadcast log prefix "[ACCEPT:IN:ARP broadcast] " level info flags all accept; 
+		}
+		# ⟥── Check if expecting a reply, and if it has valid response ───⟤
+		chain replyInputARP {
+			arp saddr ip != @requestedARP counter name inboundDropReply log prefix "[DROP:IN:Unknown ARP reply] " level warn flags all drop;
+        	
+			# Unsolicitated ARP responses must match known table
+			arp saddr ip . arp saddr ether != @knownNetworkDevicesARP counter name inboundDropPoison log prefix "[DROP:IN:Poisoned ARP reply] " level alert flags all goto blacklistPoisoner;
+			counter name inboundAcceptReply log prefix "[ACCEPT:IN:ARP reply] " level info flags all accept;
+		}
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#		  Input MAIN		   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Rate limit, filter ARP packets, and count failures ─────────⟤
+        chain inputARP {
+			type filter hook input priority filter; policy drop;
+			
+			# Early filter on known poisoner
+			arp saddr ether @poisoner goto blacklistPoisoner;
+			
+			# Check if new connections are being received to fast
+			update @arpReceiveMaxSpeed { arp saddr ether limit rate over 30/minute burst 5 packets } counter name floodInboundArp log prefix "[FLOOD:IN:ARP] " level warn flags all goto blacklistPoisoner;
+
+			# Is it a ARP broadcast
+			arp operation 0x01 goto broadcastInputARP;
+			
+			# Is it a ARP reply?
+			arp operation 0x02 goto replyInputARP;
+			
+			# Otherwise drop
+			counter name inboundGenericDropArp log prefix "[DROP:IN:Generic ARP error] " level err flags all drop;
+        }
+
+# ∥───────────────────────────────────────────────∥
+# ∥ Output HOOK for ARP Layer									  
+# ∥───────────────────────────
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#    Output function helper    #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Ensure broadcast packet is valid, and record expectation ───⟤
+        chain broadcastOutputARP {
+        	arp daddr ether != 00:00:00:00:00:00 counter name outgoingDropNonBroadcast log prefix "[DROP:OUT:Fake ARP broadcast] " level warn flags all drop
+        
+			# Write down requested IP address from broadcast
+			update @requestedARP { arp daddr ip timeout 30s };
+			
+			# Must be a valid broadcast
+			counter name outboundAcceptBroadcast log prefix "[ACCEPT:OUT:ARP broadcast] " level info flags all accept;
+        }
+		# ⟥── Check if new reply contains a valid response ───────────────⟤
+        chain replyOutputARP{
+			arp daddr ip . arp daddr ether != @knownNetworkDevicesARP counter name outgoingDropReply log prefix "[DROP:OUT:Unknown ARP reply] " level warn flags all drop;
+        
+        	# Must be a valid reply
+        	counter name outboundAcceptReply log prefix "[ACCEPT:OUT:ARP reply] " level info flags all accept;
+        }
+
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#		   Output MAIN		   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		# ⟥── Rate limit, filter ARP packets, and count failures ─────────⟤
+        chain outputARP {
+			type filter hook output priority filter; policy drop;
+			
+			# Are we sending too many arp broadcast or replies?
+			update @arpSendMaxSpeed { arp saddr ether limit rate over 20/minute burst 5 packets } counter name floodOutgoingArp log prefix "[FLOOD:OUT:ARP] " level warn flags all drop;
+			
+			# Is it a ARP broadcast
+			arp operation 0x01 goto broadcastOutputARP;
+			
+			# Is it a ARP reply?
+			arp operation 0x02 goto replyOutputARP;
+			
+			# Otherwise drop
+			counter name outgoingGenericDropArp log prefix "[DROP:OUT:Generic ARP error] " level err flags all drop;
+        }
+}

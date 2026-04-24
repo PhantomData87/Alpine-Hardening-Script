@@ -7,78 +7,25 @@
 - Update kernel configuration: https://linuxvox.com/blog/config-linux-kernel/#using-make-oldconfig
 - Live patch: https://wiki.alpinelinux.org/wiki/Kernel_live_patching
 
-# Firewall evasion: https://unclesp1d3r.github.io/posts/2023-04-03-firewall-bypass/
-
 networking: caught SIGINIT, aborting????
-- rc filter for userLogrotate spam???
-- Firewall objectives:
-	- Blocking invalid packets?
-	- Disable loopback traffic
-	- Default policy
-	- logging
-	- Counter port scanning!
-	- Counter packet fragmentation
-	- IP blacklisting
-	- Detect common tool signatures?
-	- Mitigate DNS tunneling
-	- Mitigate ICMP Tunneling
-	- Timing attacks
-	- Mitigate Invalid Checksum injection to reduce noise
-	- TTL Evasion mitigation
-	- Detect Nmap or Masscan stealth scans
-	- BOGON check
-	- IP Attacks
-		- IP null; Setting IPV4 header to zero, Waste time finding if UDP or TCP
-		- Land DDoS attack
-		- Misused application attack; Trusted deevices suddenly flooding device
-		- Hijacking
-		- IP Fragmentation attacks: MTU
-			- Overlapping offsets
-			- Tiny Fragments; Not only resource exhaustion, but to evade static detection
-			- Excessive fragmentation
-			- Disruptive reassbly
-	- TCP attack
-		- DOS
-			- SYN Flood: Mitigation is Syn Cookies, but Resource conssumption
-			- Sockstress
-			- PUSH Floods
-			- ACK floods
-			- Any other floods
-			- TCP persist timer?
-		- TCP Forged attacks
-			- TCP Reset attack
-			- Change TCP sequence number
-			- Out-Of-State TCP
-		- TCP Veto; only detectable by a single duplicate packet
-		- Connection hijacking; sequence number
-	- UDP attakcs
-		- UDP flood; goal is to cause massive ICMP packet
-		- Fraggle attack
-	- ICMP
-		- ICMP flood; Forcing every machine to respond
-		- Ping of Death; Cause buffer overflow via fragmentation
-		- Smurf attack; Forging ICMP echo request
-		- ICMP fragmentation: Invalid fragmentation packets to consume resources
-	- IGMP
-		- IGMP Storm
-	- ARP
-		- Man in the middle
-		- DOS
-		- Session hijacking
-		- ARP Spoofing
-		- ARP Flood
-		- ARP Filtering
-	- Application specific
-		- Ignore DHCP request + potential ban
-			- Detect Discover reflection/amplification
-		- DNS flood
-		- DNS amplification
-		- NTP flood
-		- NTP amplification
-		- Multi-vector DDoS attack; Combining multiple protocols
-	
-High level mitigation:
-- Network sweeps: Find live hosts
-- Network Tracing: Determine network topology
-- Port scans: UDP & TCP
-- OS Fingerprints: Guessable network behavior
+rsyslog filter check: FLOOD, ACCEPT, DROP
+rsyslog filter for userLogrotate spam???
+
+# Apply:  nft -f /etc/nftables.conf
+# Check:  nft -c -f /etc/nftables.conf  (dry-run, syntax check only)
+# List:   nft list ruleset
+# Flush:  nft flush ruleset
+
+# Netdev table Output logging levels
+# alert : Flooding or attacks
+# err : Malformed unexpected packets
+# warn : General Blacklisting/Dropping package
+# notice: Accepting a TCP/UDP connection
+# info : Accepting a ICMP/ARP
+
+# ARP table Output & Input, and Netdev table Input logging levels
+# alert : Detecting an attack
+# err : Malformed unexpected packets
+# warn : General Blacklisting/Dropping package/Average Flood
+# notice: Accepting a TCP/UDP connection
+# info : Accepting a ICMP/ARP
