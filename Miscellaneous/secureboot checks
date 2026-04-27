@@ -44,17 +44,6 @@ chrony permission errors
 
 echo $apkRepoList | grep -o https.* | grep -o "https://[a-zA-Z.]*/" | sed "s/https://" | sed "s/\///g"
 
-# Guide help
-				192.168.0.0/24													# LAN defined
-
-				192.168.0.0/24 . 594 . tcp 										# SSH & SFTP
-				mirror.math.princeton.edu . 443 . tcp, 							# HTTPS
-				mirrors.ocf.berkeley.edu . 443 . tcp, 							# HTTPS
-				1.1.1.1 . 53 . udp, 											# DNS
-				9.9.9.9 . 53 . udp, 											# DNS
-				192.168.0.230 . 27036 . tcp 									# Testing script
-				192.168.0.1 . 08:02:8e:c7:37:6a									# Router
-				192.168.0.1 . 08:02:8e:c7:37:6a\t\t\t\t\t\t\t\t\t# Router
 
 # Revisit:
 - fail2ban
