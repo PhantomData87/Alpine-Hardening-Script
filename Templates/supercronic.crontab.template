@@ -1,0 +1,9 @@
+# supercronic scheduling script
+# min   hour    day     month   weekday command
+# */15    *       *       *       *       run-parts /etc/supercronic/15min
+# 0       *       *       *       *       run-parts /etc/supercronic/hourly
+# 0       2       *       *       *       run-parts /etc/supercronic/daily
+# 0       3       *       *       6       run-parts /etc/supercronic/weekly
+# 0       5       1       *       *       run-parts /etc/supercronic/monthly
+# *       *       *       *       *       run-parts /etc/supercronic/unique
+0	*	*	*	*	/bin/sh /etc/supercronic/hourly/logrotate # For logrotate, helper: logPerm

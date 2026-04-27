@@ -1,0 +1,65 @@
+# From alpineHarden.sh
+# By: Alonzo Ortiz-Sanchez
+# Default sshd_config options
+Port awaitingChange
+AddressFamily inet
+#ListenAddress
+HostKey /etc/ssh/ssh_host_ed25519_key
+RekeyLimit 256M 1h
+SyslogFacility awaitingChange
+LogLevel awaitingChange
+LoginGraceTime 15
+PermitRootLogin no
+StrictModes yes
+MaxAuthTries 2
+MaxSessions 2
+PubkeyAuthentication yes
+AuthorizedKeysFile /home/.keys/%u/authorized_keys
+#AuthorizedPrincipalsIsFile
+#AuthorizedKeysCommand
+#AuthorizedKeysCommandUser
+HostbasedAuthentication no
+IgnoreUserKnownHosts no
+IgnoreRhosts yes
+PasswordAuthentication no
+PermitEmptyPasswords no
+#KbdInteractiveAuthentication yes
+#KerberosAuthentication no
+#KerberosOrLocalPasswd yes
+#KerberosTicketCleanup yes
+#KerberosGetAFSToken no
+#GSSAPIAuthentication no
+#GSSAPICleanupCredentials yes
+UsePAM yes
+#AllowAgentForwarding yes
+AllowTcpForwarding no
+GatewayPorts no
+X11Forwarding no
+#X11DisplayOffset 10
+#X11UseLocalhost yes
+PermitTTY yes
+PrintMotd yes
+#PrintLastLog yes
+TCPKeepAlive yes
+PermitUserEnvironment no
+Compression yes
+ClientAliveInterval 150
+ClientAliveCountMax 2
+UseDNS no
+PidFile /var/run/sshd/sshd.pid
+#MaxStartups 10:30:100
+PermitTunnel no
+#VersionAddendum none
+Banner /etc/issue
+Subsystem sftp internal-sftp
+
+# AlpineHarden.sh static additions
+DisableForwarding yes
+FingerprintHash sha256
+ChannelTimeout session=20m
+Ciphers aes256-gcm@openssh.com,aes256-ctr
+KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com
+MACs hmac-sha2-512-etm@openssh.com
+PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com
+
+# AlpineHarden.sh dynamic additions

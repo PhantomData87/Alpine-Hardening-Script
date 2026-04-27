@@ -1,0 +1,12 @@
+# Logrotate enforce file permissions in /var/log due to logrotate not respecting GID
+# Make rsyslog re-open files
+kill -HUP $(pgrep "\/usr\/sbin\/rsyslogd")
+# Logrotate is unable to move utmp backups to appropriate location; assisting
+if [ "$(ls /var/run/*-* 2>/dev/null)" ]; then mv /var/run/*-* /var/log 2>/dev/null; fi
+# Enforce logging permissions
+chown "logUsername:utmp" /var/run/utmp
+chown "logUsername:utmp" /var/log/wtmp
+chown "logUsername:utmp" /var/log/btmp
+chown "logUsername:logread" /var/log/*log.xz 2>/dev/null
+chown "logUsername:logread" /var/log/*log 2>/dev/null
+/usr/bin/logger -i  -t logrotate_supercronic -p local1.debug "Finished running helper script: /etc/supercronic/helper/logPerm"

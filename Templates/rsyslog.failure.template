@@ -1,0 +1,5 @@
+# Rsyslog configuration for default logging
+# By: Alonzo Ortiz-Sanchez
+
+# Failsafe, and a sign of a significant error
+*.* /var/log/unsorted.log # Failsafe log path

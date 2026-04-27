@@ -1,0 +1,26 @@
+# From alpineHarden.sh
+# By: Alonzo Ortiz-Sanchez
+
+# File modification and frequency
+daily
+rotate 2
+maxage 90
+tabooext + .apk-new,.xz
+# Global flags
+noolddir
+notifempty
+nomail
+nomissingok
+# File extension naming
+extension .log
+dateext 
+dateformat -%Y.%m.%d-%s
+compressext .xz
+# Compression
+compress
+compresscmd /usr/bin/xz
+uncompresscmd /usr/bin/unxz
+compressoptions -S .xz -qq -6 --memory=110MiB
+# Include files
+include /etc/logrotate.d/logIndividual
+include /etc/logrotate.d/logFacilities

@@ -1,5 +1,6 @@
 #!/bin/sh
 #Alpine defualt configuration
+# By: Alonzo Ortiz-Sanchez
 
 # Dev accepted risk notes in QA format:
 # Q: What is my threat model?
@@ -9,7 +10,8 @@
 # A: Additionally, logrotate needs the ability to perform kill -HUP on the local rsyslog daemon to re-open existing log files to continue functionality. This would mean giving $loggerUsername the ability to spawn shells (busybox:/bin/sh to execute), run internal network connections (busybox:/usr/bin/nc), and sending signals to processes (coreutils:/bin/kill). Therefore, to permit $backgroundUsername to interact with $loggerUsername via doas; a simple doas root /bin/sh script file is provided. Hopefully, due to its simplicity it will not be used for anything malicious, nor have greater access than setting a file's ownership to $loggerUsername:logread or $loggerUsername:utmp. We are trusting pgrep in performing its expected function. The file that is being reference is located @ "/etc/supercronic/helper/logPerm" that doesn't use any user input.
 
 # Helpful patterns
-# sed -i "/#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
+# sed -i "s/condition_1/result_1/; s/failsafe/result_2/g;" file
+# sed -i "/^#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
 # find /usr/bin ! -perm 777 -and ! -perm 0500
 
 # Default setup interface
@@ -72,6 +74,7 @@
 # dmesg permanent configuration?
 # Fail2ban re-configuration with new log files
 # Monitor ARP traffic: https://www.tecmint.com/monitor-ethernet-activity-in-linux/
+# Remove self-sign error
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -120,11 +123,9 @@ export extractUsername="obtain" # A user that will be deleted after 4 hours, and
 export pythonVer="$(python --version | awk '{print($2)}' | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}')" # Obtain major release in x.x format
 # Service ports
 export sshPort="594"
-export httpPort="80"
-export httpsPort="443"
+export apkPort="443"
 export dnsPort="53"
 export ntpStandardPort="123"
-export ntpMonitorPort="323"
 
 # For all Banners. Remove symbol: ` and add a space after symbol if at the end of the line it has: \
 export bannerIssue="###############################################################
@@ -896,6 +897,32 @@ setupAlpine() {
     log "INFO: Finished pre-setup for default alpine installation!"
 }
 
+# Same syntax as getRemoteFileAndPreserve
+getRemoteFile() {
+	# Delete original file
+	if [ -f "$mountPoint/$1" ]; then chroot $mountPoint rm "$1" 2>/dev/null || log "UNEXPECTED: Could not remove the original file located at $1!"; fi
+	
+	# Obtain brand new file
+	chroot $mountPoint wget --no-check-certificate -q -O "$1" "https://$scriptAddress:$scriptPort/$2" || log "CRITICAL: Could not download $2 from $scriptAddress!"
+	
+	# Enable writing permission of new file & chown (It will be correct later anyways)
+	chroot $mountPoint chown "root:root" $1 || log "UNEXPECTED: Could not ensure $1 was owner by root"
+	chroot $mountPoint chmod u+w $1 || log "UNEXPECTED: Could not guarantee $1 can be modified"
+}
+
+# Syntax: getRemoteFileAndPreserve absolute_file_path Remote_HTTPS_Directory_Path
+# Example: getRemoteFileAndPreserve "/tmp/tester.abc" "Templates/nftables"
+getRemoteFileAndPreserve() {
+	# Ensure existing file can be preserved
+	local fileName="$(echo $1 | grep -o "[^/]*$" | grep -o "^[^.]*[^.]")"
+	local fileExtension="$(echo $1 | grep -o "[^/]*$" | grep -o "[^.]*$")"
+	if [ -f "$mountPoint/$1" ] && [ "$fileName" != "$fileExtension" ]; then chroot $mountPoint mv "$1" "/home/$backupUsername/existingConfig/$fileName-$(date +'%s').$fileExtension" 2>/dev/null || log "UNEXPECTED: Could not ensure the prior copy was saved elsewhere!"; fi
+	if [ -f "$mountPoint/$1" ] && [ "$fileName" == "$fileExtension" ]; then chroot $mountPoint mv "$1" "/home/$backupUsername/existingConfig/$fileName-$(date +'%s')" 2>/dev/null || log "UNEXPECTED: Could not ensure the prior copy was saved elsewhere!"; fi
+	
+	# Obtain file remotely
+	getRemoteFile $1 $2 || log "UNEXPECTED: Could not obtain remote file $fileName.$fileExtension from $scriptAddress"
+}
+
 # !!!
 # Alpine hardening guide: https://wiki.alpinelinux.org/wiki/How_to_get_regular_stuff_working
 # Resources:
@@ -1089,6 +1116,7 @@ configLocalInstallation() {
     chroot $mountPoint /bin/mkdir -p /etc/rsyslog.d/sshdSocket/pts 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd dev mount"
     chroot $mountPoint /bin/mkdir -p /etc/rsyslog.d/sftpSocket/pts 2>/dev/null || log "UNEXPECTED: Could not create directory for sftp dev mount"
     chroot $mountPoint /bin/mkdir -p /home/$monitorUsername/logs 2>/dev/null || log "UNEXPECTED: Could not create directory for mounting logs to $monitorUsername"
+    chroot $mountPoint /bin/mkdir -p /home/$backupUsername/existingConfig 2>/dev/null || log "UNEXPECTED: Could not create directory for preserving possibly overwritten files"
     chroot $mountPoint /bin/mkdir -p /etc/supercronic 2>/dev/null || log "UNEXPECTED: Could not create directory for supercronic"
     chroot $mountPoint /bin/mkdir -p /etc/supercronic/15min 2>/dev/null || log "UNEXPECTED: Could not create directory for 15min scripts for supercronic"
     chroot $mountPoint /bin/mkdir -p /etc/supercronic/hourly 2>/dev/null || log "UNEXPECTED: Could not create directory for hourly scripts for supercronic"
@@ -1134,19 +1162,6 @@ configLocalInstallation() {
     chroot $mountPoint /bin/touch /var/log/booking.state 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for generic unsorted messages"
     chroot $mountPoint /bin/touch /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "CRITICAL: Could not generate a sqlite3 database for fail2ban"
     chroot $mountPoint /bin/touch /etc/fail2ban/jail.local 2>/dev/null || log "CRITICAL: Failed to create configuration file for fail2ban"
-    chroot $mountPoint /bin/touch /etc/logrotate.d/logFacilities 2>/dev/null || log "CRITICAL: Failed to create configuration file for logrotate"
-    chroot $mountPoint /bin/touch /etc/logrotate.d/logIndividual 2>/dev/null || log "CRITICAL: Failed to create configuration file for logrotate"
-    chroot $mountPoint /bin/touch /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null || log "UNEXPECTED: Could not generate a file meant for rsyslog configuration of discarding unwanted text"
-    chroot $mountPoint /bin/touch /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null || log "UNEXPECTED: Could not generate a file meant for rsyslog configuration of capturing openrc startup and shutdown"
-    chroot $mountPoint /bin/touch /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not generate a file meant for rsyslog configuration of broad categories"
-    chroot $mountPoint /bin/touch /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not generate a file meant for rsyslog configuration of daemon or user"
-    chroot $mountPoint /bin/touch /etc/rsyslog.d/99-failureFilter.conf 2>/dev/null || log "UNEXPECTED: Could not generate a file meant for rsyslog configuration of default logging location"
-    chroot $mountPoint /bin/touch /etc/init.d/supercronic 2>/dev/null || log "UNEXPECTED: Could not generate OpenRC script file for running supercronic daemon"
-    chroot $mountPoint /bin/touch /etc/doas.d/daemon.conf 2>/dev/null || log "UNEXPECTED: Could not generate doas configuration file for OpenRC"
-    chroot $mountPoint /bin/touch /etc/doas.d/supercronic.conf 2>/dev/null || log "UNEXPECTED: Could not generate doas configuration file for Supercronic"
-    chroot $mountPoint /bin/touch /etc/supercronic/crontab 2>/dev/null || log "UNEXPECTED: Could not generate a file meant for supercronic daemon to execute supercronically as $backgroundUsername user"
-    chroot $mountPoint /bin/touch /etc/supercronic/hourly/logrotate 2>/dev/null || log "UNEXPECTED: Could not generate a file meant for supercronic daemon to execute rsyslog logrotate as $loggerUsername user"
-    chroot $mountPoint /bin/touch /etc/supercronic/helper/logPerm 2>/dev/null || log "UNEXPECTED: Could not generate a file meant for supercronic daemon to enforce rsyslog /var/log file permissions"
     for i in $previewUsername $serverCommandUsername; do
     	chroot $mountPoint /bin/touch "/home/$i/bin/rksh" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; rksh"
     	chroot $mountPoint /bin/touch "/home/$i/bin/echo" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; echo"
@@ -1182,37 +1197,40 @@ configLocalInstallation() {
 	if [ ! -z "$(chroot $mountPoint /bin/grep halt /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/userdel halt 2>/dev/null || log "UNEXPECTED: Could not remove halt user"; fi
 
     log "INFO: Permitting root to cause changes to certain files"
-    local writablePaths="/etc/issue /etc/fstab /etc/motd /etc/inittab /etc/securetty /etc/profile /etc/mdev.conf /etc/init.d/acpid /etc/init.d/chronyd /etc/init.d/sshd /etc/init.d/fail2ban /etc/init.d/rsyslog /etc/init.d/supercronic /etc/ssh/moduli /etc/doas.d/daemon.conf /etc/doas.d/supercronic.conf /etc/ssh/ssh_config /etc/fail2ban/jail.local /etc/fail2ban/fail2ban.conf /etc/fail2ban/jail.d/alpine-ssh.conf /etc/rsyslog.conf /etc/rsyslog.d/10-discardFilters.conf /etc/rsyslog.d/30-openrcFilters.conf /etc/rsyslog.d/40-broadFilters.conf /etc/rsyslog.d/50-daemonFilters.conf /etc/rsyslog.d/99-failureFilter.conf /etc/logrotate.conf /etc/logrotate.d/logFacilities /etc/logrotate.d/logIndividual /etc/supercronic/crontab /etc/supercronic/helper/logPerm /etc/supercronic/hourly/logrotate"
+    local writablePaths="/etc/issue /etc/fstab /etc/motd /etc/inittab /etc/securetty /etc/profile /etc/mdev.conf /etc/init.d/acpid /etc/init.d/chronyd /etc/init.d/sshd /etc/init.d/fail2ban /etc/init.d/rsyslog /etc/init.d/supercronic /etc/ssh/moduli /etc/doas.d/daemon.conf /etc/doas.d/supercronic.conf /etc/ssh/ssh_config /etc/fail2ban/jail.local /etc/fail2ban/fail2ban.conf /etc/fail2ban/jail.d/alpine-ssh.conf /etc/rsyslog.conf /etc/rsyslog.d/10-discardFilters.conf /etc/rsyslog.d/30-openrcFilters.conf /etc/rsyslog.d/40-broadFilters.conf /etc/rsyslog.d/50-daemonFilters.conf /etc/rsyslog.d/99-failureFilter.conf /etc/logrotate.conf /etc/logrotate.d/logFacilities /etc/logrotate.d/logIndividual /etc/supercronic/crontab /etc/supercronic/helper/logPerm /etc/supercronic/hourly/logrotate /etc/nftables.nft"
     for enableWrite in $writablePaths; do
     	chroot $mountPoint /bin/chmod u+w $enableWrite 2>/dev/null || log "UNEXPECTED: Could not guarantee that $enableWrite be modified by root"
     done
     
-    log "INFO: Writing text into certain files in preparation of sed"
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/doas.d/daemon.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Doas configuration for limited system services" > "$mountPoint/etc/doas.d/daemon.conf" || log "UNEXPECTED: Could not ensure doas configuration file for daemon services to have some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/doas.d/supercronic.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Doas configuration for crond commands" > "$mountPoint/etc/doas.d/supercronic.conf" || log "UNEXPECTED: Could not ensure doas configuration file for running custom commands within supercronic"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Rsyslog discarding unwanted logs to show functionality" > "$mountPoint/etc/rsyslog.d/10-discardFilters.conf" || log "UNEXPECTED: Could not ensure rsyslog configuration could discard unwanted logs had some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Rsyslog capturing openrc logs to show functionality" > "$mountPoint/etc/rsyslog.d/30-openrcFilters.conf" || log "UNEXPECTED: Could not ensure rsyslog openrc configuration file has some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Rsyslog broad categorical filters" > "$mountPoint/etc/rsyslog.d/40-broadFilters.conf" || log "UNEXPECTED: Could not ensure rsyslog broad configuration file has some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Rsyslog configuration for seperating daemon and user logs" > "$mountPoint/etc/rsyslog.d/50-daemonFilters.conf" || log "UNEXPECTED: Could not ensure rsyslog daemon configuration file has some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/rsyslog.d/99-failureFilter.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Rsyslog configuration for default logging" > "$mountPoint/etc/rsyslog.d/99-failureFilter.conf" || log "UNEXPECTED: Could not ensure rsyslog safe default fail configuration file has some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Log rotations for individual log files" > "$mountPoint/etc/logrotate.d/logIndividual" || log "UNEXPECTED: Could not ensure logrotate individual configuration file has some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/logrotate.d/logFacilities 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Log rotations for facility based log files" > "$mountPoint/etc/logrotate.d/logFacilities" || log "UNEXPECTED: Could not ensure logorate facility configuration file has some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/supercronic/crontab 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# supercronic scheduling script" > "$mountPoint/etc/supercronic/crontab" || log "UNEXPECTED: Could not ensure supercronic safe default fail configuration file has some text; ensuring sed works as intended"; fi
-    if [ -z "$(chroot $mountPoint /bin/cat /etc/init.d/supercronic 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "#!/sbin/openrc-run
-
-name=\"supercronic\"
-command=\"/usr/sbin/crond\"
-command_args=\"\"
-pidfile=\"/run/crond/$RC_SVCNAME.pid\"
-command_background=true
-output_logger=\"\"
-error_logger=\"\"
-
-depend() {
-        need localmount
-        need logger
-}" > "$mountPoint/etc/init.d/supercronic" || log "UNEXPECTED: Could not ensure supercronic safe default fail configuration file has some text; ensuring sed works as intended"; fi
-
+    log "INFO: Downloading prepared files"
+    	# Files originally made by me
+	    	# doas
+    getRemoteFile "/etc/doas.d/daemon.conf" "Templates/doas.daemon.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/doas.d/daemon.conf from $scriptAddress!"
+    getRemoteFile "/etc/doas.d/supercronic.conf" "Templates/doas.supercronic.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/doas.d/supercronic.conf from $scriptAddress!"
+    		# rsyslog
+    getRemoteFile "/etc/rsyslog.d/10-discardFilters.conf" "Templates/rsyslog.discard.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/rsyslog.d/10-discardFilters.conf from $scriptAddress!"
+    getRemoteFile "/etc/rsyslog.d/30-openrcFilters.conf" "Templates/rsyslog.openrcFilter.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/rsyslog.d/30-openrcFilters.conf from $scriptAddress!"
+    getRemoteFile "/etc/rsyslog.d/40-broadFilters.conf" "Templates/rsyslog.broad.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/rsyslog.d/40-broadFilters.conf from $scriptAddress!"
+    getRemoteFile "/etc/rsyslog.d/50-daemonFilters.conf" "Templates/rsyslog.daemon.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/rsyslog.d/50-daemonFilters.conf from $scriptAddress!"
+    getRemoteFile "/etc/rsyslog.d/99-failureFilter.conf" "Templates/rsyslog.failure.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/rsyslog.d/99-failureFilter.conf from $scriptAddress!"
+    		# logrotate
+    getRemoteFile "/etc/logrotate.d/logIndividual" "Templates/logrotate.individual.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/logrotate.d/logIndividual from $scriptAddress!"
+    getRemoteFile "/etc/logrotate.d/logFacilities" "Templates/logrotate.facility.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/logrotate.d/logFacilities from $scriptAddress!"
+	    	# Supercronic
+    getRemoteFile "/etc/supercronic/crontab" "Templates/supercronic.crontab.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/supercronic/crontab from $scriptAddress!"
+    getRemoteFile "/etc/init.d/supercronic" "Templates/supercronic.openrc.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace existing /etc/init.d/supercronic from $scriptAddress!"
+	getRemoteFile "/etc/supercronic/hourly/logrotate" "Scripts/supercronic.logrotate.script" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/supercronic/hourly/logrotate from $scriptAddress!"
+	getRemoteFile "/etc/supercronic/helper/logPerm" "Scripts/supercronic.logPerm.script" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/supercronic/helper/logPerm from $scriptAddress!"
+			# SSHD
+	getRemoteFile "/home/$previewUsername/bin/greeting.ksh" "Scripts/sshd.previewUsername.script" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace existing /home/$previewUsername/bin/greeting.ksh from $scriptAddress!"
+	getRemoteFile "/home/$serverCommandUsername/bin/greeting.ksh" "Scripts/sshd.serverCommandUsername.script" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace existing /home/$serverCommandUsername/bin/greeting.ksh from $scriptAddress!"
+		# System files that could have had user interaction prior
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/nftables.nft 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/nftables.nft" "Templates/nftables.nft.template" || log "CRITICAL: Could not obtain remote file to replace /etc/nftables.nft!"; else getRemoteFile "/etc/nftables.nft" "Templates/nftables.nft.template" || log "CRITICAL: Could not obtain remote file to replace /etc/nftables.nft!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/logrotate.conf 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/logrotate.conf" "Templates/logrotate.conf.template" || log "CRITICAL: Could not obtain remote logrotate.conf from $scriptAddress"; else getRemoteFile "/etc/logrotate.conf" "Templates/logrotate.conf.template" || log "CRITICAL: Could not obtain remote logrotate.conf from $scriptAddress"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/ssh/ssh_config 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/ssh/ssh_config" "Templates/sshd.ssh.conf.template" || log "CRITICAL: Could not obtain remote sshd.ssh.conf from $scriptAddress"; else getRemoteFile "/etc/ssh/ssh_config" "Templates/sshd.ssh.conf.template" || log "CRITICAL: Could not obtain remote sshd.ssh.conf from $scriptAddress"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/ssh/sshd_config 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/ssh/sshd_config" "Templates/sshd.sshd.conf.template" || log "CRITICAL: Could not obtain remote sshd.sshd.conf from $scriptAddress"; else getRemoteFile "/etc/ssh/sshd_config" "Templates/sshd.sshd.conf.template" || log "CRITICAL: Could not obtain remote sshd.sshd.conf from $scriptAddress"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/rsyslog.conf 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/rsyslog.conf" "Templates/rsyslog.conf.template" || log "CRITICAL: Could not obtain remote rsyslog.conf from $scriptAddress"; else getRemoteFile "/etc/rsyslog.conf" "Templates/rsyslog.conf.template" || log "CRITICAL: Could not obtain remote rsyslog.conf from $scriptAddress"; fi
+	
     log "INFO: Chroot bindings added to fstab"
 		# Modifying fstab to bind files to certain locations in home director for $previewUsername & $serverCommandUsername chroot environment (including rsyslog)
     for i in $previewUsername $serverCommandUsername; do
@@ -1238,11 +1256,6 @@ depend() {
 # !!! ? RKSH CONFIG FILE
 # Resource: https://www.ibm.com/docs/en/aix/7.2.0?topic=shell-restricted-korn
 # Fix sftp issue form using rksh
-    log "INFO: Rksh configuration for: $previewUsername and $serverCommandUsername"
-    echo "#!/bin/rksh
-print \"You have connected succesfully! Built-in commands will be here soon.\"" > $mountPoint/home/$previewUsername/bin/greeting.ksh 2>/dev/null || log "CRITICAL: Could not create greeting script for $previewUsername"
-    echo "#!/bin/rksh
-print \"You have connected succesfully! Built-in commands will be here soon.\"" > $mountPoint/home/$serverCommandUsername/bin/greeting.ksh 2>/dev/null || log "CRITICAL: Could not create greeting script for $serverCommandUsername"
 
 # !!! PAM
 # Reading: 
@@ -1334,104 +1347,34 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     log "INFO: Configurating SSH"
 		# Modifying sshd profile's defualt settings
     chroot $mountPoint /bin/sed -i "/^#\{0,2\}Port\(.*\)/{h;s//Port $sshPort/};\${x;/^\$/{s//Port $sshPort/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Port"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AddressFamily\(.*\)/{h;s//AddressFamily inet/};\${x;/^\$/{s//AddressFamily inet/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AddressFamily"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}ListenAddress\(.*\)/{h;s//#ListenAddress/};\${x;/^\$/{s//#ListenAddress/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ListenAddress"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}HostKey\(.*\)/{h;s//HostKey \/etc\/ssh\/ssh_host_ed25519_key/};\${x;/^\$/{s//HostKey \/etc\/ssh\/ssh_host_ed25519_key/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's HostKey"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}RekeyLimit\(.*\)/{h;s//RekeyLimit 256M 1h/};\${x;/^\$/{s//RekeyLimit 256M 1h/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's RekeyLimit"
     chroot $mountPoint /bin/sed -i "/^#\{0,2\}SyslogFacility\(.*\)/{h;s//SyslogFacility $sshFacility/};\${x;/^\$/{s//SyslogFacility $sshFacility/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's SyslogFacility"
     chroot $mountPoint /bin/sed -i "/^#\{0,2\}LogLevel\(.*\)/{h;s//LogLevel $sshLogging/};\${x;/^\$/{s//LogLevel $sshLogging/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's LogLevel"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}LoginGraceTime\(.*\)/{h;s//LoginGraceTime 15/};\${x;/^\$/{s//LoginGraceTime 15/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's LoginGraceTime"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitRootLogin\(.*\)/{h;s//PermitRootLogin no/};\${x;/^\$/{s//PermitRootLogin no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitRootLogin"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}StrictModes\(.*\)/{h;s//StrictModes yes/};\${x;/^\$/{s//StrictModes yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's StrictModes"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}MaxAuthTries\(.*\)/{h;s//MaxAuthTries 2/};\${x;/^\$/{s//MaxAuthTries 2/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MaxAuthTries"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}MaxSessions\(.*\)/{h;s//MaxSessions 2/};\${x;/^\$/{s//MaxSessions 2/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MaxSessions"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PubkeyAuthentication\(.*\)/{h;s//PubkeyAuthentication yes/};\${x;/^\$/{s//PubkeyAuthentication yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PubkeyAuthentication"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AuthorizedKeysFile\(.*\)/{h;s//AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys/};\${x;/^\$/{s//AuthorizedKeysFile \/home\/.keys\/%u\/authorized_keys/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthorizedKeysFile"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AuthorizedPrincipalsIsFile\(.*\)/{h;s//#AuthorizedPrincipalsIsFile/};\${x;/^\$/{s//#AuthorizedPrincipalsIsFile/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthorizedPrincipalsIsFile"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AuthorizedKeysCommand\(.*\) # Cmd/{h;s//#AuthorizedKeysCommand # Cmd/};\${x;/^\$/{s//#AuthorizedKeysCommand # Cmd/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthorizedKeysCommand"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AuthorizedKeysCommandUser\(.*\) # User/{h;s//#AuthorizedKeysCommandUser # User/};\${x;/^\$/{s//#AuthorizedKeysCommandUser # User/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthorizedKeysCommandUser"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}HostbasedAuthentication\(.*\)/{h;s//HostbasedAuthentication no/};\${x;/^\$/{s//HostbasedAuthentication no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's HostbasedAuthentication"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}IgnoreUserKnownHosts\(.*\)/{h;s//IgnoreUserKnownHosts no/};\${x;/^\$/{s//IgnoreUserKnownHosts no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's IgnoreUserKnownHosts"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}IgnoreRhosts\(.*\)/{h;s//IgnoreRhosts yes/};\${x;/^\$/{s//IgnoreRhosts yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's IgnoreRhosts"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PasswordAuthentication\(.*\)/{h;s//PasswordAuthentication no/};\${x;/^\$/{s//PasswordAuthentication no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PasswordAuthentication"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitEmptyPasswords\(.*\)/{h;s//PermitEmptyPasswords no/};\${x;/^\$/{s//PermitEmptyPasswords no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitEmptyPasswords"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KbdInteractiveAuthentication yes\(.*\)/{h;s//#KbdInteractiveAuthentication yes/};\${x;/^\$/{s//#KbdInteractiveAuthentication yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KbdInteractiveAuthentication"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KerberosAuthentication\(.*\)/{h;s//#KerberosAuthentication no/};\${x;/^\$/{s//#KerberosAuthentication no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KerberosAuthentication"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KerberosOrLocalPasswd\(.*\)/{h;s//#KerberosOrLocalPasswd yes/};\${x;/^\$/{s//#KerberosOrLocalPasswd yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KerberosOrLocalPasswd"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KerberosTicketCleanup\(.*\)/{h;s//#KerberosTicketCleanup yes/};\${x;/^\$/{s//#KerberosTicketCleanup yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KerberosTicketCleanup"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}KerberosGetAFSToken\(.*\)/{h;s//#KerberosGetAFSToken no/};\${x;/^\$/{s//#KerberosGetAFSToken no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KerberosGetAFSToken"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}GSSAPIAuthentication\(.*\)/{h;s//#GSSAPIAuthentication no/};\${x;/^\$/{s//#GSSAPIAuthentication no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's GSSAPIAuthentication"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}GSSAPICleanupCredentials\(.*\)/{h;s//#GSSAPICleanupCredentials yes/};\${x;/^\$/{s//#GSSAPICleanupCredentials yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's GSSAPICleanupCredentials"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}UsePAM yes\(.*\)/{h;s//UsePAM yes/};\${x;/^\$/{s//UsePAM yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's UsePAM"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AllowAgentForwarding\(.*\)/{h;s//#AllowAgentForwarding yes/};\${x;/^\$/{s//#AllowAgentForwarding yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowAgentForwarding"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}AllowTcpForwarding\(.*\)/{h;s//AllowTcpForwarding no/};\${x;/^\$/{s//AllowTcpForwarding no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowTcpForwarding"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}GatewayPorts\(.*\)/{h;s//GatewayPorts no/};\${x;/^\$/{s//GatewayPorts no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's GatewayPorts"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}X11Forwarding\(.*\)/{h;s//X11Forwarding no/};\${x;/^\$/{s//X11Forwarding no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's X11Forwarding"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}X11DisplayOffset\(.*\)/{h;s//#X11DisplayOffset 10/};\${x;/^\$/{s//#X11DisplayOffset 10/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's X11DisplayOffset"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}X11UseLocalhost\(.*\)/{h;s//#X11UseLocalhost yes/};\${x;/^\$/{s//#X11UseLocalhost yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's X11UseLocalhost"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitTTY\(.*\)/{h;s//PermitTTY yes/};\${x;/^\$/{s//PermitTTY yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitTTY"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PrintMotd\(.*\)/{h;s//PrintMotd yes/};\${x;/^\$/{s//PrintMotd yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PrintMotd"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PrintLastLog\(.*\)/{h;s//#PrintLastLog yes/};\${x;/^\$/{s//#PrintLastLog yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PrintLastLog"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}TCPKeepAlive\(.*\)/{h;s//TCPKeepAlive yes/};\${x;/^\$/{s//TCPKeepAlive yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's TCPKeepAlive"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitUserEnvironment\(.*\)/{h;s//PermitUserEnvironment no/};\${x;/^\$/{s//PermitUserEnvironment no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitUserEnvironment"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}Compression\(.*\)/{h;s//Compression yes/};\${x;/^\$/{s//Compression yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Compression"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}ClientAliveInterval\(.*\)/{h;s//ClientAliveInterval 150/};\${x;/^\$/{s//ClientAliveInterval 150/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ClientAliveInterval"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}ClientAliveCountMax\(.*\)/{h;s//ClientAliveCountMax 2/};\${x;/^\$/{s//ClientAliveCountMax 2/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ClientAliveCountMax"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}UseDNS\(.*\)/{h;s//UseDNS no/};\${x;/^\$/{s//UseDNS no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's UseDNS"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PidFile\(.*\)/{h;s//PidFile \/var\/run\/sshd\/sshd.pid/};\${x;/^\$/{s//PidFile \/var\/run\/sshd\/sshd.pid/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PidFile"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}MaxStartups\(.*\)/{h;s//#MaxStartups 10:30:100/};\${x;/^\$/{s//#MaxStartups 10:30:100/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MaxStartups"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}PermitTunnel\(.*\)/{h;s//PermitTunnel no/};\${x;/^\$/{s//PermitTunnel no/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PermitTunnel"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}VersionAddendum\(.*\)/{h;s//#VersionAddendum none/};\${x;/^\$/{s//#VersionAddendum none/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's VersionAddendum"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}Banner\(.*\)/{h;s//Banner \/etc\/issue/};\${x;/^\$/{s//Banner \/etc\/issue/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Banner"
-    chroot $mountPoint /bin/sed -i "/^#\{0,2\}Subsystem\(.*\)/{h;s//Subsystem sftp internal-sftp/};\${x;/^\$/{s//Subsystem sftp internal-sftp/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Subsystem"
-		# Adding sshd configurations not present in default
-	chroot $mountPoint /bin/sed -i "/^# AlpineHarden.sh additions\(.*\)/{h;s//# AlpineHarden.sh additions/};\${x;/^\$/{s//\n# AlpineHarden.sh additions/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not indicate additional sshd configuration in the config file"
-	chroot $mountPoint /bin/sed -i "/^#\{0,2\}DisableForwarding\(.*\)/{h;s//DisableForwarding yes/};\${x;/^\$/{s//DisableForwarding yes/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's DisableForwarding"
-	chroot $mountPoint /bin/sed -i "/^#\{0,2\}FingerprintHash\(.*\)/{h;s//FingerprintHash sha256/};\${x;/^\$/{s//FingerprintHash sha256/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's FingerprintHash"
-	chroot $mountPoint /bin/sed -i "/^#\{0,2\}ChannelTimeout\(.*\)/{h;s//ChannelTimeout session=20m/};\${x;/^\$/{s//ChannelTimeout session=20m/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChannelTimeout"
-	chroot $mountPoint /bin/sed -i "/^Ciphers\(.*\)/{h;s//Ciphers aes256-gcm@openssh.com,aes256-ctr/};\${x;/^\$/{s//Ciphers aes256-gcm@openssh.com,aes256-ctr/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Ciphers"
-	chroot $mountPoint /bin/sed -i "/^#\{0,2\}KexAlgorithms\(.*\)/{h;s//KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com/};\${x;/^\$/{s//KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's KexAlgorithms"
-	chroot $mountPoint /bin/sed -i "/^#\{0,2\}MACs\(.*\)/{h;s//MACs hmac-sha2-512-etm@openssh.com/};\${x;/^\$/{s//MACs hmac-sha2-512-etm@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's MACs"
-	chroot $mountPoint /bin/sed -i "/^#\{0,2\}PubkeyAcceptedKeyTypes\(.*\)/{h;s//PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com/};\${x;/^\$/{s//PubkeyAcceptedKeyTypes ssh-ed25519,ssh-ed25519-cert-v01@openssh.com,sk-ssh-ed25519@openssh.com,sk-ssh-ed25519-cert-v01@openssh.com/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's PubkeyAcceptedKeyTypes"
+		# Adding user whitelist to sshd_config
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}AllowUsers\(.*\)/{h;s//AllowUsers $previewUsername@$localGateway\/$localNetmask $backupUsername@$localGateway\/$localNetmask $serverCommandUsername@$localGateway\/$localNetmask $monitorUsername@$localGateway\/$localNetmask $extractUsername@$localGateway\/$localNetmask/};\${x;/^\$/{s//AllowUsers $previewUsername@$localGateway\/$localNetmask $backupUsername@$localGateway\/$localNetmask $serverCommandUsername@$localGateway\/$localNetmask $monitorUsername@$localGateway\/$localNetmask $extractUsername@$localGateway\/$localNetmask/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowUsers"
 		# Adding user-specific commands
 	chroot $mountPoint /bin/sed -i "/^# SFTP server configuration\(.*\)/{h;s//# SFTP server configuration/};\${x;/^\$/{s//# SFTP server configuration/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not indicate the additional placement of user-restrive sshd interactions in the config file"
+			# $previewUsername
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}Match User $previewUsername\(.*\)/{h;s//Match User $previewUsername/};\${x;/^\$/{s//Match User $previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $previewUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ChrootDirectory \/home\/$previewUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$previewUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $previewUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ForceCommand greeting.ksh # For $previewUsername\(.*\)/{h;s//    ForceCommand greeting.ksh # For $previewUsername/};\${x;/^\$/{s//    ForceCommand greeting.ksh # For $previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $previewUsername"
+			# $serverCommandUsername
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}Match User $serverCommandUsername\(.*\)/{h;s//Match User $serverCommandUsername/};\${x;/^\$/{s//Match User $serverCommandUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $serverCommandUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ChrootDirectory \/home\/$serverCommandUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$serverCommandUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$serverCommandUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $serverCommandUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ForceCommand greeting.ksh # For $serverCommandUsername\(.*\)/{h;s//    ForceCommand greeting.ksh # For $serverCommandUsername/};\${x;/^\$/{s//    ForceCommand greeting.ksh # For $serverCommandUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $serverCommandUsername"
+			# $backupUsername
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}Match User $backupUsername\(.*\)/{h;s//Match User $backupUsername/};\${x;/^\$/{s//Match User $backupUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $backupUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ChrootDirectory \/home\/$backupUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$backupUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$backupUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $backupUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $backupUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $backupUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $backupUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $backupUsername"
+			# $monitorUsername
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}Match User $monitorUsername\(.*\)/{h;s//Match User $monitorUsername/};\${x;/^\$/{s//Match User $monitorUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $monitorUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ChrootDirectory \/home\/$monitorUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$monitorUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$monitorUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $monitorUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $monitorUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $monitorUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $monitorUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $monitorUsername"
+			# $extractUsername
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}Match User $extractUsername\(.*\)/{h;s//Match User $extractUsername/};\${x;/^\$/{s//Match User $extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $extractUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ChrootDirectory \/home\/$extractUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$extractUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $extractUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $extractUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $extractUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $extractUsername"
-		# Lockdown ssh_config
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}Host \* # AlpineHarden.sh\(.*\)/{h;s//Host * # AlpineHarden.sh/};\${x;/^\$/{s//Host * # AlpineHarden.sh/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; Host"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    AddressFamily \(.*\) # AlpineHarden.sh 1\(.*\)/{h;s//    AddressFamily inet # AlpineHarden.sh 1/};\${x;/^\$/{s//    AddressFamily inet # AlpineHarden.sh 1/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; AddressFamily"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    BatchMode \(.*\) # AlpineHarden.sh 2\(.*\)/{h;s//    BatchMode no # AlpineHarden.sh 2/};\${x;/^\$/{s//    BatchMode no # AlpineHarden.sh 2/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; BatchMode"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ChallengeResponseAuthentication \(.*\) # AlpineHarden.sh 3\(.*\)/{h;s//    ChallengeResponseAuthentication yes # AlpineHarden.sh 3/};\${x;/^\$/{s//    ChallengeResponseAuthentication yes # AlpineHarden.sh 3/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; ChallengeResponseAuthentication"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    CheckHostIP \(.*\) # AlpineHarden.sh 4\(.*\)/{h;s//    CheckHostIP yes # AlpineHarden.sh 4/};\${x;/^\$/{s//    CheckHostIP yes # AlpineHarden.sh 4/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; CheckHostIP"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    Compression \(.*\) # AlpineHarden.sh 5\(.*\)/{h;s//    Compression yes # AlpineHarden.sh 5/};\${x;/^\$/{s//    Compression yes # AlpineHarden.sh 5/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; Compression"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    CompressionLevel \(.*\) # AlpineHarden.sh 6\(.*\)/{h;s//    CompressionLevel 9 # AlpineHarden.sh 6/};\${x;/^\$/{s//    CompressionLevel 9 # AlpineHarden.sh 6/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; CompressionLevel"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ConnectTimeout \(.*\) # AlpineHarden.sh 7\(.*\)/{h;s//    ConnectTimeout 99999 # AlpineHarden.sh 7/};\${x;/^\$/{s//    ConnectTimeout 99999 # AlpineHarden.sh 7/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; ConnectTimeout"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForwardAgent \(.*\) # AlpineHarden.sh 8\(.*\)/{h;s//    ForwardAgent no # AlpineHarden.sh 8/};\${x;/^\$/{s//    ForwardAgent no # AlpineHarden.sh 8/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; ForwardAgent"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    ForwardX11 \(.*\) # AlpineHarden.sh 9\(.*\)/{h;s//    ForwardX11 no # AlpineHarden.sh 9/};\${x;/^\$/{s//    ForwardX11 no # AlpineHarden.sh 9/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; ForwardX11"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    GatewayPorts \(.*\) # AlpineHarden.sh 10\(.*\)/{h;s//    GatewayPorts no # AlpineHarden.sh 10/};\${x;/^\$/{s//    GatewayPorts no # AlpineHarden.sh 10/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; GatewayPorts"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    HashKnownHosts \(.*\) # AlpineHarden.sh 11\(.*\)/{h;s//    HashKnownHosts yes # AlpineHarden.sh 11/};\${x;/^\$/{s//    HashKnownHosts yes # AlpineHarden.sh 11/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; HashKnownHosts"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    LogLevel \(.*\) # AlpineHarden.sh 12\(.*\)/{h;s//    LogLevel $sshLogging # AlpineHarden.sh 12/};\${x;/^\$/{s//    LogLevel $sshLogging # AlpineHarden.sh 12/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; LogLevel"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    PasswordAuthentication \(.*\) # AlpineHarden.sh 13\(.*\)/{h;s//    PasswordAuthentication no # AlpineHarden.sh 13/};\${x;/^\$/{s//    PasswordAuthentication no # AlpineHarden.sh 13/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; PasswordAuthentication"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    PermitLocalCommand \(.*\) # AlpineHarden.sh 14\(.*\)/{h;s//    PermitLocalCommand no # AlpineHarden.sh 14/};\${x;/^\$/{s//    PermitLocalCommand no # AlpineHarden.sh 14/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; PermitLocalCommand"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    PreferredAuthentications \(.*\) # AlpineHarden.sh 15\(.*\)/{h;s//    PreferredAuthentications publickey # AlpineHarden.sh 15/};\${x;/^\$/{s//    PreferredAuthentications publickey # AlpineHarden.sh 15/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; PreferredAuthentications"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    TCPKeepAlive \(.*\) # AlpineHarden.sh 16\(.*\)/{h;s//    TCPKeepAlive yes # AlpineHarden.sh 16/};\${x;/^\$/{s//    TCPKeepAlive yes # AlpineHarden.sh 16/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; TCPKeepAlive"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    Tunnel \(.*\) # AlpineHarden.sh 17\(.*\)/{h;s//    Tunnel no # AlpineHarden.sh 17/};\${x;/^\$/{s//    Tunnel no # AlpineHarden.sh 17/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; Tunnel"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    UsePrivilegedPort \(.*\) # AlpineHarden.sh 18\(.*\)/{h;s//    UsePrivilegedPort no # AlpineHarden.sh 18/};\${x;/^\$/{s//    UsePrivilegedPort no # AlpineHarden.sh 18/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; UsePrivilegedPort"
-	chroot $mountPoint /bin/sed -i "/#\{0,2\}    PubkeyAuthentication \(.*\) # AlpineHarden.sh 19\(.*\)/{h;s//    PubkeyAuthentication yes # AlpineHarden.sh 19/};\${x;/^\$/{s//    PubkeyAuthentication yes # AlpineHarden.sh 19/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; PubkeyAuthentication"
+		# Modify ssh_config
+	chroot $mountPoint /bin/sed -i "/#\{0,2\}\tLogLevel \(.*\)\(.*\)/{h;s//\tLogLevel $sshLogging/};\${x;/^\$/{s//\tLogLevel $sshLogging/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; LogLevel"
 		# Generate ssh keys for authorized users
     if [ ! -f "$mountPoint/home/.keys/$extractUsername/authorized_keys" ]; then chroot $mountPoint /bin/echo "$sshUsernameKey" > "$mountPoint/home/.keys/$extractUsername/authorized_keys" || log "CRITICAL: Failed to add ssh public key to /home/.keys for $extractUsername"; fi
     if [ ! -f "$mountPoint/home/.keys/$monitorUsername/authorized_keys" ]; then chroot $mountPoint /usr/bin/ssh-keygen -f "/home/$extractUsername/$localhostName.$monitorUsername-key" -t ed25519 -P "$tempSshPass" || log "CRITICAL: Could not generate sshd key for $monitorUsername"; chroot $mountPoint /bin/mv -f /home/$extractUsername/$localhostName.$monitorUsername-key.pub /home/.keys/$monitorUsername/authorized_keys 2>/dev/null || log "CRITICAL: Could not create authorized_keys file for $monitorUsername"; fi
@@ -1453,9 +1396,77 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
         chroot $mountPoint /bin/mv /etc/ssh/moduli.safer /etc/ssh/moduli 2>/dev/null || log "UNEXPECTED: Could not override /etc/ssh/moduli with less vulnerable bits from /etc/ssh/moduli.safer"
     fi
     
-    # !!! nftables
     log "INFO: Configurating nftables"
-    
+    # Add static ARP table to nftables configuration
+    if [ ! -z $nftablesARP ]; then
+    	# Automatic additions
+    	arp -n | grep -ow "[0-9]\{1,3\}.[0-9]\{1,3\}.[0-9]\{1,3\}.[0-9]\{1,3\}.*[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}" | sed "s/)//g" | awk '{print($1" . "$3)}' | while read -r arpLine; do
+    		chroot $mountPoint /bin/sed -i "s/\t\t\t# arpKnownOnNetwork/\t\t\telements = {\n\t\t\t\t# ARPREPLACE\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank ARP element list could be made!"
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$arpLine\t\t\t\t\t\t\t\t\t# ARP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# ARPREPLACE/\t\t\t\t$arpLine\t\t\t\t\t\t\t\t\t# ARP automatically set\n\t\t\t\t# ARPREPLACE/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a automatic ARP entry for $arpLine was added!"; fi
+    	done
+    else
+    	# Manual additions
+    	echo "$nftablesARP" | while IFS= read -r arpLine; do
+    		chroot $mountPoint /bin/sed -i "s/\t\t\t# arpKnownOnNetwork/\t\t\telements = {\n\t\t\t\t# ARPREPLACE\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank ARP element list could be made!"
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$arpLine\t\t\t\t\t\t\t\t\t# ARP manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# ARPREPLACE/\t\t\t\t$arpLine\t\t\t\t\t\t\t\t\t# ARP manually set\n\t\t\t\t# ARPREPLACE/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual ARP entry for $arpLine was added!"; fi
+    	done
+    fi
+    # Add in inbound fixed addresses
+    	# Ensure element list exists
+    chroot $mountPoint /bin/sed -i "s/\t\t\t# inboundPortsWithFixedIP/\t\t\telements = {\n\t\t\t\t# SPECIFICINBOUND\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank Specific Inbound element list could be made!"
+    	# SSH
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$localGateway\/$localNetmask . $sshPort . tcp\t\t\t\t\t\t\t\t\t# SSH and SFTP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICINBOUND/\t\t\t\t$localGateway\/$localNetmask . $sshPort . tcp\t\t\t\t\t\t\t\t\t# SSH and SFTP automatically set\n\t\t\t\t# SPECIFICINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Inbound entry for ssh and sftp was added!"; fi
+		# Manual additions
+	if [ ! -z $nftablesSpecificInbound ]; then
+    	echo "$nftablesSpecificInbound" | while IFS= read -r customSpecificInbound; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customSpecificInbound\t\t\t\t\t\t\t\t\t# Specfic Inbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICINBOUND/\t\t\t\t$customSpecificInbound\t\t\t\t\t\t\t\t\t# Specfic Inbound manually set\n\t\t\t\t# SPECIFICINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Inbound entry for $customSpecificOutbound was added!"; fi
+    	done
+	fi
+    # Add in outbound fixed addresses
+    	# Ensure element list exists
+    chroot $mountPoint /bin/sed -i "s/\t\t\t# outboundPortsWithFixedIP/\t\t\telements = {\n\t\t\t\t# SPECIFICOUTBOUND\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank Specific Outbound element list could be made!"
+    	# APK repository
+   	echo $apkRepoList | grep -o https.* | grep -o "https://[a-zA-Z.]*/" | sed "s/https://" | sed "s/\///g" | while read -r apkLine; do
+	    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$apkLine . $apkPort . tcp\t\t\t\t\t\t\t\t\t# APK HTTPS automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$apkLine . $apkPort . tcp\t\t\t\t\t\t\t\t\t# APK HTTPS automatically set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic specific Outbound APK whitelist entry for $apkLine was added!"; fi
+    done
+    	# DNS
+   	for dnsLine in $dnsList; do
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$dnsLine . $dnsPort . udp\t\t\t\t\t\t\t\t\t# DNS automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$$dnsLine . $dnsPort . udp\t\t\t\t\t\t\t\t\t# DNS automatically set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic specific Outbound DNS whitelist entry for $dnsLine was added!"; fi
+    done    	
+    	# This very script
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$scriptAddress . $scriptPort . $scriptIPProtocol\t\t\t\t\t\t\t\t\t# Central script location" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$scriptAddress . $scriptPort . $scriptIPProtocol\t\t\t\t\t\t\t\t\t# Central script location\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure this script could continue downloading!"; fi
+		# Manual additions
+	if [ ! -z $nftablesSpecificOutbound ]; then
+    	echo "$nftablesSpecificOutbound" | while IFS= read -r customSpecificOutbound; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customSpecificOutbound\t\t\t\t\t\t\t\t\t# Specfic Outbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$customSpecificOutbound\t\t\t\t\t\t\t\t\t# Specfic Outbound manually set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Outbound entry for $customSpecificOutbound was added!"; fi
+    	done
+	fi
+    # Add broad inbound ports
+	if [ ! -z $nftablesBroadInbound ]; then
+    	# Ensure element list exists
+    	chroot $mountPoint /bin/sed -i "s/\t\t\t# inboundPortsDueToNoFixedIP/\t\t\telements = {\n\t\t\t\t# BROADINBOUND\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank Broad Inbound element list could be made!"
+    	# Manual additions
+    	echo "$nftablesBroadInbound" | while IFS= read -r customBroadInbound; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customBroadInbound\t\t\t\t\t\t\t\t\t# Broad Inbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADINBOUND/\t\t\t\t$customBroadInbound\t\t\t\t\t\t\t\t\t# Broad Inbound manually set\n\t\t\t\t# BROADINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Broad Inbound entry for $customBroadInbound was added!"; fi
+    	done
+	fi
+    # Add broad outbound ports
+		# Ensure element list exists
+    chroot $mountPoint /bin/sed -i "s/\t\t\t# outboundPortsDueToNoFixedIP/\t\t\telements = {\n\t\t\t\t# BROADOUTBOUND\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank Broad Outbound element list could be made!"
+    	# NTP
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$ntpStandardPort . udp\t\t\t\t\t\t\t\t\t# NTP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADOUTBOUND/\t\t\t\t$ntpStandardPort . udp\t\t\t\t\t\t\t\t\t# NTP automatically set\n\t\t\t\t# BROADOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic outbound entry for NTP could be added!"; fi
+    if [ ! -z $nftablesBroadOutbound ]; then
+    	# Manual additions
+    	echo "$nftablesBroadOutbound" | while IFS= read -r customBroadOutbound; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customBroadOutbound\t\t\t\t\t\t\t\t\t# Broad Outbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADOUTBOUND/\t\t\t\t$customBroadOutbound\t\t\t\t\t\t\t\t\t# Broad Outbound manually set\n\t\t\t\t# BROADOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Broad Outbound entry for $customBroadOutbound was added!"; fi
+    	done
+	fi
+    # Add LAN address for local packet manipulation
+    	# Ensure element list exists
+    chroot $mountPoint /bin/sed -i "s/\t\t\t# lanAddressOnLocalNetwork/\t\t\telements = {\n\t\t\t\t# SPECIFICLAN\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank LAN element list could be made!"
+		# Add local LAN entry
+	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$localGateway\/$localNetmask\t\t\t\t\t\t\t\t\t# LAN defined" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICLAN/\t\t\t\t$localGateway\/$localNetmask\t\t\t\t\t\t\t\t\t# LAN defined\n\t\t\t\t# SPECIFICLAN/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual LAN entry for manipulating packets was added!"; fi
+
     log "INFO: Configurating fail2ban"
 		# Fail2ban file creation   # !!! Fail2ban future configuration
     chroot $mountPoint /bin/echo -e '[INCLUDES]\nbefore = paths-debian.conf\n' > $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to include other relevant standard jail settings"
@@ -1468,100 +1479,15 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 		# Fail2ban jail.d
 	chroot $mountPoint /bin/sed -i "s/^#\{0,2\}logpath\(.*\)/logpath = \/var\/log\/userSshd.log/g" /etc/fail2ban/jail.d/alpine-ssh.conf || log "UNEXPECTED: Could not change log file location on /etc/fail2ban/jail.d/alpine-ssh.conf"
 
-
     log "INFO: Configurating rsyslogd!"
     	# rsyslog.conf
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tumask\(.*\)/\tumask=\"0$umask\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log creation permissions"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tname\(.*\)/\tname=\"$localhostName.format\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default string template name"
-    chroot $mountPoint /bin/sed -i "s/^# Example:\(.*\)/# Example: 1776138141 @ 03:42:21.164112 on 2026-04-14:localhost[:127.0.0.1::]:user.notice[13]:someService[localhost,31686]: This is a test/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default string example of template output"
-    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tstring\(.*\)/\tstring=\"%timereported:::date-unixtimestamp% @ %timereported:12:26:date-utc,date-rfc3339% on %timereported:1:10:date-utc,date-rfc3339%:%fromhost%[:%fromhost-ip%:%fromhost-port%:]:%pri-text%[%pri%]:%programname%[%hostname%,%procid%]:%msg%\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log string template"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tfileOwner\(.*\)/\tfileOwner=\"$loggerUsername\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log ownership"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tfileGroup\(.*\)/\tfileGroup=\"$loggerUsername\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log group id"
-    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tfileCreateMode\(.*\)/\tfileCreateMode=\"0400\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log creation permissions"
-    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tdirCreateMode\(.*\)/\tdirCreateMode=\"0500\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default log creation permissions"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tTemplate\(.*\)/\tTemplate=\"$localhostName.format\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default template used for log messages"
-    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}module\(.*\) # local system logs (\/dev\/log)/module(load=\"imuxsock\" SysSock.UseSpecialParser=\"off\") # local system logs (\/dev\/log)/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default imuxsock in /dev/log to abandon old syslog formatting"
-    	# Initial include in rsyslog.conf
-    chroot $mountPoint /bin/sed -i "s/^#\{0,2\}include(file=\"\/etc\/rsyslog.d\/\*.conf\" mode=\"optional\")/include(file=\"\/etc\/rsyslog.d\/10-discardFilters.conf\" mode=\"abort-if-missing\")\ninclude(file=\"\/etc\/rsyslog.d\/30-openrcFilters.conf\" mode=\"abort-if-missing\")\ninclude(file=\"\/etc\/rsyslog.d\/40-broadFilters.conf\" mode=\"abort-if-missing\")\ninclude(file=\"\/etc\/rsyslog.d\/50-daemonFilters.conf\" mode=\"abort-if-missing\")\ninclude(file=\"\/etc\/rsyslog.d\/99-failureFilter.conf\" mode=\"abort-if-missing\")\nstop # Replaced inclusive include/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change include and stop execution of /etc/rsyslog.conf afterwards"
-    chroot $mountPoint /bin/sed -i "s/^include(file=\"\/etc\/rsyslog.d\/10-discardFilters.conf\"\(.*\)/include(file=\"\/etc\/rsyslog.d\/10-discardFilters.conf\" mode=\"abort-if-missing\")/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not update include for 10-discardFilters.conf"
-    chroot $mountPoint /bin/sed -i "s/^include(file=\"\/etc\/rsyslog.d\/30-openrcFilters.conf\"\(.*\)/include(file=\"\/etc\/rsyslog.d\/30-openrcFilters.conf\" mode=\"abort-if-missing\")/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not update include for 30-openrcFilters.conf"
-    chroot $mountPoint /bin/sed -i "s/^include(file=\"\/etc\/rsyslog.d\/40-broadFilters.conf\"\(.*\)/include(file=\"\/etc\/rsyslog.d\/40-broadFilters.conf\" mode=\"abort-if-missing\")/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not update include for 40-broadFilters.conf"
-    chroot $mountPoint /bin/sed -i "s/^include(file=\"\/etc\/rsyslog.d\/50-daemonFilters.conf\"\(.*\)/include(file=\"\/etc\/rsyslog.d\/50-daemonFilters.conf\" mode=\"abort-if-missing\")/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change update include for 50-daemonFilters.conf"
-    chroot $mountPoint /bin/sed -i "s/^include(file=\"\/etc\/rsyslog.d\/99-failureFilter.conf\"\(.*\)/include(file=\"\/etc\/rsyslog.d\/99-failureFilter.conf\" mode=\"abort-if-missing\")/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change update include for 99-failureFilter.conf"
-    chroot $mountPoint /bin/sed -i "s/^stop \(.*\) # Replaced inclusive include/stop # Replaced inclusive include/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change update stop statement"
-    	
-    	# 10-discardFilters.conf
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}:msg,contains,\"STOP is followed by unreachable statements\"\(.*\) # Discard irrelevant Rsyslog warn message/{h;s//:msg,contains,\"STOP is followed by unreachable statements\" stop # Discard irrelevant Rsyslog warn message/};\${x;/^\$/{s//:msg,contains,\"STOP is followed by unreachable statements\" stop # Discard irrelevant Rsyslog warn message/;H};x}" /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/10-discardFilters.conf for discarding unwanted Rsyslog warn messages"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"logrotate\")\(.*\) # Logrotate message filtering/{h;s//if (\$programname == \"logrotate\") and re_match(\$msg, 'Creating|does not need|old logs are|rotating pattern|[0123456789].\* rotations|empty log files|log files >= [0123456789].\* are rotated|after [0123456789].\* days|Now: [01234567890].\*-') then {stop} # Logrotate message filtering/};\${x;/^\$/{s//if (\$programname == \"logrotate\") and re_match(\$msg, 'Creating|does not need|old logs are|rotating pattern|[0123456789].\* rotations|empty log files|log files >= [0123456789].\* are rotated|after [0123456789].\* days|Now: [01234567890].\*-') then {stop} # Logrotate message filtering/;H};x}" /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/10-discardFilters.conf for discarding unwanted verbose Logrotate messages"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"logrotate\")\(.*\) # Logrotate null message filtering/{h;s//if (\$programname == \"logrotate\") and (\$msg == \" \") then {stop} # Logrotate null message filtering/};\${x;/^\$/{s//if (\$programname == \"logrotate\") and (\$msg == \" \") then {stop} # Logrotate null message filtering/;H};x}" /etc/rsyslog.d/10-discardFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/10-discardFilters.conf for discarding unwanted null Logrotate messages"
-    
-    	# 30-openrcFilters.conf
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"start-stop-daemon\")\(.*\) # Openrc init.d execution/{h;s//if (\$programname == \"start-stop-daemon\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\") stop} # Openrc init.d execution/};\${x;/^\$/{s//if (\$programname == \"start-stop-daemon\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\") stop} # Openrc init.d execution/;H};x}" /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/30-openrcFilters.conf for Openrc init.d execution logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"fail2ban.server\")\(.*\) # Openrc daemon fail2ban/{h;s//if (\$programname == \"fail2ban.server\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\")} # Openrc daemon fail2ban/};\${x;/^\$/{s//if (\$programname == \"fail2ban.server\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\")} # Openrc daemon fail2ban/;H};x}" /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/30-openrcFilters.conf for Openrc daemon fail2ban logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"sshd.pam\")\(.*\) # Openrc daemon ssh logging/{h;s//if (\$programname == \"sshd.pam\") and re_match(\$msg, 'received|listening') then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\")} # Openrc daemon ssh logging/};\${x;/^\$/{s//if (\$programname == \"sshd.pam\") and re_match(\$msg, 'received|listening') then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\")} # Openrc daemon ssh logging/;H};x}" /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/30-openrcFilters.conf for Openrc daemon ssh logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"supercronic_daemon\")\(.*\) # Openrc daemon supercronic logging/{h;s//if (\$programname == \"supercronic_daemon\") and re_match(\$msg, 'read crontab|exiting') then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\")} # Openrc daemon supercronic logging/};\${x;/^\$/{s//if (\$programname == \"supercronic_daemon\") and re_match(\$msg, 'read crontab|exiting') then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\")} # Openrc daemon supercronic logging/;H};x}" /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/30-openrcFilters.conf for Openrc daemon supercronic logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"chronyd\")\(.*\) # Openrc daemon chrony logging/{h;s//if (\$programname == \"chronyd\") and re_match(\$msg, 'exiting|starting|filter') then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\")} # Openrc daemon chrony logging/};\${x;/^\$/{s//if (\$programname == \"chronyd\") and re_match(\$msg, 'exiting|starting|filter') then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\")} # Openrc daemon chrony logging/;H};x}" /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/30-openrcFilters.conf for Openrc daemon chrony logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"authPriv\")\(.*\) # Openrc daemon authpriv logging/{h;s//if (\$syslogfacility-text == \"authPriv\") and re_match(\$msg, 'ran command|command not permitted') then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\") stop} # Openrc daemon authpriv logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"authPriv\") and re_match(\$msg, 'ran command|command not permitted') then {action(type=\"omfile\" File=\"\/var\/log\/daemonOPENRC.log\") stop} # Openrc daemon authpriv logging/;H};x}" /etc/rsyslog.d/30-openrcFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/30-openrcFilters.conf for Openrc daemon authpriv logging"
-    
-    	# 40-broadFilters.conf
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogseverity-text == \"emerg\")\(.*\) # emergency message logging/{h;s//if (\$syslogseverity-text == \"emerg\") then {action(type=\"omfile\" File=\"\/var\/log\/emergencySystem.log\") stop} # emergency message logging/};\${x;/^\$/{s//if (\$syslogseverity-text == \"emerg\") then {action(type=\"omfile\" File=\"\/var\/log\/emergencySystem.log\") stop} # emergency message logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for emergency message logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"kern\")\(.*\) # regular kern logging/{h;s//if (\$syslogfacility-text == \"kern\") then {action(type=\"omfile\" File=\"\/var\/log\/kernSystem.log\") stop} # regular kern logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"kern\") then {action(type=\"omfile\" File=\"\/var\/log\/kernSystem.log\") stop} # regular kern logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for regular kern logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"local0\")\(.*\) # mdev logging/{h;s//if (\$syslogfacility-text == \"local0\") then {action(type=\"omfile\" File=\"\/var\/log\/localDevices.log\") stop} # mdev logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"local0\") then {action(type=\"omfile\" File=\"\/var\/log\/localDevices.log\") stop} # mdev logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for mdev logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"local1\")\(.*\) # supercronic logging/{h;s//if (\$syslogfacility-text == \"local1\")  then {action(type=\"omfile\" File=\"\/var\/log\/localScript.log\") stop} # supercronic scripting/};\${x;/^\$/{s//if (\$syslogfacility-text == \"local1\")  then {action(type=\"omfile\" File=\"\/var\/log\/localScript.log\") stop} # supercronic scripting/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for supercronic logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"auth\")\(.*\) # auth logging/{h;s//if (\$syslogfacility-text == \"auth\") then {action(type=\"omfile\" File=\"\/var\/log\/authSystem.log\") stop} # auth logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"auth\") then {action(type=\"omfile\" File=\"\/var\/log\/authSystem.log\") stop} # auth logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for auth logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"authpriv\")\(.*\) # authPriv logging/{h;s//if (\$syslogfacility-text == \"authpriv\") then {action(type=\"omfile\" File=\"\/var\/log\/authPrivSystem.log\") stop} # authPriv logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"authpriv\") then {action(type=\"omfile\" File=\"\/var\/log\/authPrivSystem.log\") stop} # authPriv logging/;H};x}" /etc/rsyslog.d/40-broadFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/40-broadFilters.conf for authPriv logging"
-
-    	# 50-daemonFilters.conf
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}input(type=\"imuxsock\"\(.*\) # sshdSocket/{h;s//input(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sshdSocket\/log\") # sshdSocket/};\${x;/^\$/{s//\t# Input to log chrooted sshd and sftp clients\ninput(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sshdSocket\/log\") # sshdSocket/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not spawn socket file on /etc/rsyslog.d/sshdSocket"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}input(type=\"imuxsock\"\(.*\) # sftpSocket/{h;s//input(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sftpSocket\/log\") # sftpSocket/};\${x;/^\$/{s//input(type=\"imuxsock\" UseSpecialParser=\"off\" Socket=\"\/etc\/rsyslog.d\/sftpSocket\/log\") # sftpSocket/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not spawn socket file on /etc/rsyslog.d/sftpSocket"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$syslogfacility-text == \"syslog\")\(.*\) # rsyslog daemon logging/{h;s//if (\$syslogfacility-text == \"syslog\") or (\$programname == \"rsyslog\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonRSYSLOG.log\") stop} # rsyslog daemon logging/};\${x;/^\$/{s//if (\$syslogfacility-text == \"syslog\") or (\$programname == \"rsyslog\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonRSYSLOG.log\") stop} # rsyslog daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for rsyslog daemon logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"chronyd\")\(.*\) # chrony daemon logging/{h;s//if (\$programname == \"chronyd\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonCHRONY.log\") stop} # chrony daemon logging/};\${x;/^\$/{s//if (\$programname == \"chronyd\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonCHRONY.log\") stop} # chrony daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for chrony daemon logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"sshd.pam\")\(.*\) # ssh daemon logging/{h;s//if (\$programname == \"sshd.pam\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonSSHD.log\") stop} # ssh daemon logging/};\${x;/^\$/{s//if (\$programname == \"sshd.pam\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonSSHD.log\") stop} # ssh daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for ssh daemon logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname contains\(.*\) # fail2ban daemon logging/{h;s//if (\$programname contains \"fail2ban\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonFAIL2BAN.log\") stop} # fail2ban daemon logging/};\${x;/^\$/{s//if (\$programname contains \"fail2ban\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonFAIL2BAN.log\") stop} # fail2ban daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for fail2ban daemon logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname contains\(.*\) # supercronic daemon logging/{h;s//if (\$programname contains \"supercronic_daemon\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonSUPERCRONIC.log\") stop} # supercronic daemon logging/};\${x;/^\$/{s//if (\$programname contains \"supercronic_daemon\") then {action(type=\"omfile\" File=\"\/var\/log\/daemonSUPERCRONIC.log\") stop} # supercronic daemon logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for supercronic daemon logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname contains \"sshd-session.pam\")\(.*\) # sshd daemon or sshd user logging/{h;s//if (\$programname contains \"sshd-session.pam\") then {if re_match(\$msg, 'Connection from|Accepted key|Postponed publickey for|Accepted publickey for|User child is on pid|Changed root directory|Disconnected from user' ) then {action(type=\"omfile\" File=\"\/var\/log\/daemonSSHD.log\") stop} else {action(type=\"omfile\" File=\"\/var\/log\/userSshd.log\") stop}} # sshd daemon or sshd user logging/};\${x;/^\$/{s//\t\t# Daemon and User activity logging\nif (\$programname contains \"sshd-session.pam\") then {if re_match(\$msg, 'Connection from|Accepted key|Postponed publickey for|Accepted publickey for|User child is on pid|Changed root directory|Disconnected from user' ) then {action(type=\"omfile\" File=\"\/var\/log\/daemonSSHD.log\") stop} else {action(type=\"omfile\" File=\"\/var\/log\/userSshd.log\") stop}} # sshd daemon or sshd user logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for sshd daemon or sshd user logging"
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"internal-sftp\")\(.*\) # sftp logging/{h;s//if (\$programname == \"internal-sftp\") then {action(type=\"omfile\" File=\"\/var\/log\/userSftp.log\") stop} # sftp logging/};\${x;/^\$/{s//\t\t# User activity logging only\nif (\$programname == \"internal-sftp\") then {action(type=\"omfile\" File=\"\/var\/log\/userSftp.log\") stop} # sftp logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for sftp logging"    
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}if (\$programname == \"logrotate\")\(.*\) # logrotate logging/{h;s//if (\$programname == \"logrotate\") then {action(type=\"omfile\" File=\"\/var\/log\/userLogrotate.log\") stop} # logrotate logging/};\${x;/^\$/{s//if (\$programname == \"logrotate\") then {action(type=\"omfile\" File=\"\/var\/log\/userLogrotate.log\") stop} # logrotate logging/;H};x}" /etc/rsyslog.d/50-daemonFilters.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/50-daemonFilters.conf for logrotate logging"
-    
-    	# 99-failureFilter.conf
-    chroot $mountPoint /bin/sed -i "/#\{0,2\}\*.\* \/\(.*\) # Failsafe log path/{h;s//\*.\* \/var\/log\/unsorted.log # Failsafe log path/};\${x;/^\$/{s//\*.\* \/var\/log\/unsorted.log # Failsafe log path/;H};x}" /etc/rsyslog.d/99-failureFilter.conf 2>/dev/null || log "UNEXPECTED: Could not add filter to /etc/rsyslog.d/99-failureFilter.conf for default failsafe log path"
     
     log "INFO: Configurating logrotate!"
-    	# logrotate.conf
-    if [ ! -z "$(chroot $mountPoint /bin/grep "^# see \"man logrotate\" for details" /etc/logrotate.conf 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# alpineHarden configuration
-	# File modification and frequency
-daily
-rotate 2
-maxage 90
-tabooext + .apk-new,.xz
-	# Global flags
-noolddir
-notifempty
-nomail
-nomissingok
-	# File extension naming
-extension .log
-dateext 
-dateformat -%Y.%m.%d-%s
-compressext .xz
-	# Compression
-compress
-compresscmd /usr/bin/xz
-uncompresscmd /usr/bin/unxz
-compressoptions -S .xz -qq -6 --memory=110MiB
-	# Include files
-include /etc/logrotate.d/logIndividual
-include /etc/logrotate.d/logFacilities" > /etc/logrotate.conf || log "UNEXPECTED: Could not delete original logrotate.conf configuration"; fi
-    chroot $mountPoint /bin/sed -i "s/^rotate \(.*\)/rotate 2/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not ensure global log rotation rule rotate is configured in /etc/logrotate.conf"
-    chroot $mountPoint /bin/sed -i "s/^maxage \(.*\)/maxage 90/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not include global log rotation rule maxage is configured in /etc/logrotate.conf"
-    chroot $mountPoint /bin/sed -i "s/^tabooext \(.*\)/tabooext + .apk-new,.xz/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not include global log rotation rule tabooext is configured in /etc/logrotate.conf"
-    chroot $mountPoint /bin/sed -i "s/^extension \(.*\)/extension .log/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not include global log rotation rule extension is configured in /etc/logrotate.conf"
-    chroot $mountPoint /bin/sed -i "s/^dateformat \(.*\)/dateformat -%Y.%m.%d-%s/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not include global log rotation rule dateformat is configured in /etc/logrotate.conf"
-    chroot $mountPoint /bin/sed -i "s/^compressext \(.*\)/compressext .xz/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not include global log rotation rule compressext is configured in /etc/logrotate.conf"
-    chroot $mountPoint /bin/sed -i "s/^compresscmd \(.*\)/compresscmd \/usr\/bin\/xz/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not include global log rotation rule compresscmd is configured in /etc/logrotate.conf"
-    chroot $mountPoint /bin/sed -i "s/^uncompresscmd \(.*\)/uncompresscmd \/usr\/bin\/unxz/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not include global log rotation rule uncompresscmd is configured in /etc/logrotate.conf"
-    chroot $mountPoint /bin/sed -i "s/^compressoptions \(.*\)/compressoptions -S .xz -qq -6 --memory=110MiB/g" /etc/logrotate.conf 2>/dev/null || log "UNEXPECTED: Could not include global log rotation rule compressoptions is configured in /etc/logrotate.conf"
-    
     	# logIndividual (All values must be unique, otherwise it will conflict)
     chroot $mountPoint /bin/sed -i "/^\tmaxsize 10k/{h;s//\tmaxsize 10k/};\${x;/^\$/{s//\/var\/log\/emergencySystem.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 10k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of emergency logs in /etc/logrotate.d/logIndividual"
     chroot $mountPoint /bin/sed -i "/^\tmaxsize 11k/{h;s//\tmaxsize 11k/};\${x;/^\$/{s//\/var\/log\/apk.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 11k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of apk logs in /etc/logrotate.d/logIndividual"
@@ -1595,43 +1521,10 @@ include /etc/logrotate.d/logFacilities" > /etc/logrotate.conf || log "UNEXPECTED
 # Add simple checksum scans
 # Add script to automatically populate /var/run with services: ssh, chrony, and fail2ban
 # Make configAutostart() function to add in the following scripts: set kernel.modules_disabled = 1, turning on and off firewall for timed ntp, dns, or apk updates, DNS check and validation, kernel update notifications, file integrity monitor, malware scanning, ...
-    log "INFO: Configurating supercronic!"
-# !!! DELETE WHEN FINISHED:    Default configuration!
-# min   hour    day     month   weekday command
-#*/15    *       *       *       *       run-parts /etc/supercronic/15min
-#0       *       *       *       *       run-parts /etc/supercronic/hourly
-#0       2       *       *       *       run-parts /etc/supercronic/daily
-#0       3       *       *       6       run-parts /etc/supercronic/weekly
-#0       5       1       *       *       run-parts /etc/supercronic/monthly
-#*       *       *       *       *       run-parts /etc/supercronic/unique
-		# Writing scripts
-	if [ -z "$(chroot $mountPoint /bin/cat /etc/supercronic/hourly/logrotate 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Logrotate executed as another user
-/usr/bin/doas -u $loggerUsername /usr/sbin/logrotate -l syslog -s /var/log/booking.state /etc/logrotate.conf
-EXITVALUE=\$?
-
-# Decide if we run permission enforcement
-if [ \$EXITVALUE != 0 ]; then 
-	/usr/bin/logger -i  -t logrotate_supercronic -p local1.err \"Could not execute logrotate for rsyslog user!\"
-	return 1
-else
-	/usr/bin/logger -i  -t logrotate_supercronic -p local1.debug \"Enforcing log permissions located in /var/log\"
-	/usr/bin/doas -u root /etc/supercronic/helper/logPerm
-	return 0
-fi" > $mountPoint/etc/supercronic/hourly/logrotate || log "UNEXPECTED: Could not write logrotate script for rsyslog user"; fi
-	if [ -z "$(chroot $mountPoint /bin/cat /etc/supercronic/helper/logPerm 2>/dev/null)" ]; then chroot $mountPoint /bin/echo "# Logrotate enforce file permissions in /var/log due to logrotate not respecting GID
-# Make rsyslog re-open files
-kill -HUP \$(pgrep "\/usr\/sbin\/rsyslogd")
-# Logrotate is unable to move utmp backups to appropriate location; assisting
-if [ \"\$(ls /var/run/*-* 2>/dev/null)\" ]; then mv /var/run/*-* /var/log 2>/dev/null; fi
-# Enforce logging permissions
-chown \"$loggerUsername:utmp\" /var/run/utmp
-chown \"$loggerUsername:utmp\" /var/log/wtmp
-chown \"$loggerUsername:utmp\" /var/log/btmp
-chown \"$loggerUsername:logread\" /var/log/*log.xz 2>/dev/null
-chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
-/usr/bin/logger -i  -t logrotate_supercronic -p local1.debug \"Finished running helper script: /etc/supercronic/helper/logPerm\"" > $mountPoint/etc/supercronic/helper/logPerm || log "UNEXPECTED: Could not write logrotate script for rsyslog user"; fi
-		# Modifying $backgroundUsername crontab
-	chroot $mountPoint /bin/sed -i "/^0\t\*\t\*\t\*\t\*\t\/bin\/sh \(.*\) # For logrotate, helper: logPerm/{h;s//0\t\*\t\*\t\*\t\*\t\/bin\/sh \/etc\/supercronic\/hourly\/logrotate # For logrotate, helper: logPerm/};\${x;/^\$/{s//0\t\*\t\*\t\*\t\*\t\/bin\/sh \/etc\/supercronic\/hourly\/logrotate # For logrotate, helper: logPerm/;H};x}" /etc/supercronic/crontab 2>/dev/null || log "CRITICAL: Could not make supercronic engage in logrotation for a unpriviledge user within /etc/supercronic/crontab"
+    log "INFO: Configurating supercronic scripts!"
+		# Adding appropriate users to script
+	chroot $mountPoint /bin/sed -i 's/logUsername/$loggerUsername/g' /etc/supercronic/hourly/logrotate 2>/dev/null || log "UNEXPECTED: Could not replace template placeholder name with $loggerUsername user for /etc/supercronic/hourly/logrotate"
+	chroot $mountPoint /bin/sed -i 's/logUsername/$loggerUsername/g' /etc/supercronic/helper/logPerm 2>/dev/null || log "UNEXPECTED: Could not replace template placeholder name with $loggerUsername user for /etc/supercronic/helper/logPerm"
 	
     log "INFO: Adding logging capabilities and modifying permissions inside of mdev.conf"
     		# Only changing permissions and ownership
@@ -1836,6 +1729,7 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
         chroot $mountPoint /bin/chown root:root "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr/lib/libskarnet.so.2.14"
     done
     chroot $mountPoint /bin/chown "root:$loggerUsername" "/home/$monitorUsername/logs" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$monitorUsername/logs"
+    chroot $mountPoint /bin/chown "root:$backupUsername" "/home/$backupUsername/existingConfig" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$backupUsername/existingConfig"
     
 	log "INFO: Setting permissions on /bin executables"
     chroot $mountPoint /bin/chmod 0510 /bin/busybox 2>/dev/null || log "UNEXPECTED: Could not change permissions for; busybox"
@@ -2447,7 +2341,8 @@ chown \"$loggerUsername:logread\" /var/log/*log 2>/dev/null
     log "INFO: Setting home files and directories"
     chroot $mountPoint /bin/chmod 00500 /root 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /root directory permissions to read only"
     chroot $mountPoint /bin/chmod 00550 /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/.keys/"
-    chroot $mountPoint /bin/chmod 00571 "/home/$monitorUsername/logs" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$monitorUsername/logs"
+    chroot $mountPoint /bin/chmod 00571 "/home/$monitorUsername/logs" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$monitorUsername/logs"
+    chroot $mountPoint /bin/chmod 00570 "/home/$backupUsername/existingConfig" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$backupUsername/existingConfig"
         # Permissions of: SSH authorization directories, SSH authorization file
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
         chroot $mountPoint /bin/chmod 00550 "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$i"
@@ -2886,6 +2781,7 @@ verifyLocalInstallation() {
     if [ ! -d "$mountPoint/home/$serverCommandUsername/usr/lib" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$serverCommandUsername/bin" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/bin directory should exist!"; fi
     if [ ! -d "$mountPoint/home/$monitorUsername/logs" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$monitorUsername/logs directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/$backupUsername/existingConfig" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$backupUsername/existingConfig directory should exist!"; fi
 
     # File removal check
     	# Busybox
@@ -3103,7 +2999,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "stop \# Replaced inclusive include" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: stop is not included for rsyslog.conf"; fi
     
     	# 10-discardFilters.conf
-    if [ -z "$(chroot $mountPoint /bin/grep ":msg,contains,\"STOP is followed by unreachable statements\" stop \# Discard irrelevant Rsyslog warn message" /etc/rsyslog.d/10-discardFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to remove unwanted warning messages of additional rsyslog.conf configuration"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"logrotate\") and re_match(\$msg, 'Creating|does not need|old logs are|rotating pattern|\[0123456789\].\* rotations|empty log files|log files >= \[0123456789\].\* are rotated|after \[0123456789\].\* days|Now: \[01234567890\].\*-') then {stop} \# Logrotate message filtering" /etc/rsyslog.d/10-discardFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to remove verbose logrotate messages"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"logrotate\") and (\$msg == \" \") then {stop} \# Logrotate null message filtering" /etc/rsyslog.d/10-discardFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to remove null logrotate messages"; fi
     	
@@ -3323,7 +3218,8 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/lib -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/lib"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin/greeting.ksh -user root -and -group $serverCommandUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$serverCommandUsername/bin/greeting.ksh"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/logs -user root -and -group root 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername/logs"; fi   
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/logs -user root -and -group $loggerUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$monitorUsername/logs"; fi   
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/existingConfig -user root -and -group $backupUsername 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /home/$backupUsername/existingConfig"; fi   
     
     	# nftables    
     if [ -z "$(chroot $mountPoint /usr/bin/find /var/log/kernFirewall.log -user $loggerUsername -and -group logread 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong file ownership for /var/log/kernFirewall.log"; fi
@@ -3992,6 +3888,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin -perm 501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/bin"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$serverCommandUsername/bin/greeting.ksh -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/bin/greeting.ksh"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /home/$monitorUsername/logs -perm 571 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$monitorUsername/logs"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /home/$backupUsername/existingConfig -perm 570 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$backupUsername/existingConfig"; fi
 
     # Common directories near root permission check
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc -perm 751 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc"; fi

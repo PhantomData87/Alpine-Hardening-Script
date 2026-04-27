@@ -1,0 +1,13 @@
+# Logrotate executed as another user
+/usr/bin/doas -u logUsername /usr/sbin/logrotate -l syslog -s /var/log/booking.state /etc/logrotate.conf
+EXITVALUE=$?
+
+# Decide if we run permission enforcement
+if [ $EXITVALUE != 0 ]; then 
+	/usr/bin/logger -i  -t logrotate_supercronic -p local1.err "Could not execute logrotate for rsyslog user!"
+	return 1
+else
+	/usr/bin/logger -i  -t logrotate_supercronic -p local1.debug "Enforcing log permissions located in /var/log"
+	/usr/bin/doas -u root /etc/supercronic/helper/logPerm
+	return 0
+fi

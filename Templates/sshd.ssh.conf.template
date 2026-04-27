@@ -1,0 +1,21 @@
+# From alpineHarden.sh
+Host *
+	AddressFamily inet
+	BatchMode no    
+	ChallengeResponseAuthentication yes
+	CheckHostIP yes
+	Compression yes	
+	CompressionLevel 9
+	ConnectTimeout 99999	
+	ForwardAgent no
+	ForwardX11 no
+	GatewayPorts no
+	HashKnownHosts yes
+	LogLevel awaitingChange
+	PasswordAuthentication no	
+	PermitLocalCommand no
+	PreferredAuthentications publickey
+	TCPKeepAlive yes
+	Tunnel no
+	UsePrivilegedPort no
+	PubkeyAuthentication yes

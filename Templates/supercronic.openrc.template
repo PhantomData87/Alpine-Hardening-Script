@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+
+name="supercronic"
+command="/usr/sbin/crond"
+command_args=""
+pidfile="/run/crond/$RC_SVCNAME.pid"
+command_background=true
+output_logger=""
+error_logger=""
+
+depend() {
+        need localmount
+        need logger
+}

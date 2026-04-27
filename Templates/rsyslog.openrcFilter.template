@@ -1,0 +1,8 @@
+# Rsyslog capturing openrc logs to show functionality
+# By: Alonzo Ortiz-Sanchez
+if ($programname == "start-stop-daemon") then {action(type="omfile" File="/var/log/daemonOPENRC.log") stop} # Openrc init.d execution
+if ($programname == "fail2ban.server") then {action(type="omfile" File="/var/log/daemonOPENRC.log")} # Openrc daemon fail2ban
+if ($programname == "sshd.pam") and re_match($msg, 'received|listening') then {action(type="omfile" File="/var/log/daemonOPENRC.log")} # Openrc daemon ssh logging
+if ($programname == "supercronic_daemon") and re_match($msg, 'read crontab|exiting') then {action(type="omfile" File="/var/log/daemonOPENRC.log")} # Openrc daemon supercronic logging
+if ($programname == "chronyd") and re_match($msg, 'exiting|starting|filter') then {action(type="omfile" File="/var/log/daemonOPENRC.log")} # Openrc daemon chrony logging
+if ($syslogfacility-text == "authPriv") and re_match($msg, 'ran command|command not permitted') then {action(type="omfile" File="/var/log/daemonOPENRC.log") stop} # Openrc daemon authpriv logging

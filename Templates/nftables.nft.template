@@ -1,4 +1,6 @@
 #!/usr/sbin/nft -f
+# From alpineHarden.sh
+# By: Alonzo Ortiz-Sanchez
 flush ruleset
 
 # ∥════════════════════════════════════════════════════════════════════════∥
@@ -147,7 +149,7 @@ table inet filter {
 		# A literal example (remove quotation mark): "192.168.0.0"
 			type ipv4_addr
 			flags constant, interval
-			# localhostAddressOnLocalNetwork
+			# lanAddressOnLocalNetwork
 		}
 		# ⟥── IPv4 protocol whitelist to prevent unknown IPv4 protocols ──⟤
 		# Source: https://en.wikipedia.org/wiki/List_of_IP_protocol_numbers

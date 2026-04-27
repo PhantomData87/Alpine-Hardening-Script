@@ -1,0 +1,8 @@
+# Rsyslog broad categorical filters
+# By: Alonzo Ortiz-Sanchez
+if ($syslogseverity-text == "emerg") then {action(type="omfile" File="/var/log/emergencySystem.log") stop} # emergency message logging
+if ($syslogfacility-text == "kern") then {action(type="omfile" File="/var/log/kernSystem.log") stop} # regular kern logging
+if ($syslogfacility-text == "local0") then {action(type="omfile" File="/var/log/localDevices.log") stop} # mdev logging
+if ($syslogfacility-text == "local1")  then {action(type="omfile" File="/var/log/localScript.log") stop} # supercronic scripting
+if ($syslogfacility-text == "auth") then {action(type="omfile" File="/var/log/authSystem.log") stop} # auth logging
+if ($syslogfacility-text == "authpriv") then {action(type="omfile" File="/var/log/authPrivSystem.log") stop} # authPriv logging

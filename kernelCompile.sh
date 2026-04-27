@@ -1,4 +1,5 @@
 #!/bin/sh
+# By: Alonzo Ortiz-Sanchez
 
 # Setting up kernel compilation on an external storage device
 

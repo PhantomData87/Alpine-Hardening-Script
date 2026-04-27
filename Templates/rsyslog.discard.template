@@ -1,0 +1,6 @@
+# Rsyslog discarding unwanted logs to show functionality
+# By: Alonzo Ortiz-Sanchez
+
+# Logrotate filtering
+if ($programname == "logrotate") and re_match($msg, 'Creating|does not need|old logs are|rotating pattern|[0123456789].* rotations|empty log files|log files >= [0123456789].* are rotated|after [0123456789].* days|Now: [01234567890].*-') then {stop} # Logrotate message filtering
+if ($programname == "logrotate") and ($msg == " ") then {stop} # Logrotate null message filtering
