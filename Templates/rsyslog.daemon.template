@@ -10,7 +10,7 @@ if ($syslogfacility-text == "syslog") or ($programname == "rsyslog") then {actio
 if ($programname == "chronyd") then {action(type="omfile" File="/var/log/daemonCHRONY.log") stop} # chrony daemon logging
 if ($programname == "sshd.pam") then {action(type="omfile" File="/var/log/daemonSSHD.log") stop} # ssh daemon logging
 if ($programname contains "fail2ban") then {action(type="omfile" File="/var/log/daemonFAIL2BAN.log") stop} # fail2ban daemon logging
-if ($programname contains "supercronic_daemon") then {action(type="omfile" File="/var/log/daemonSUPERCRONIC.log") stop} # supercronic daemon
+if ($programname contains "supercronic_daemon") then {action(type="omfile" File="/var/log/daemonSUPERCRONIC.log") stop} # supercronic daemon logging
 
 # Daemon and User activity logging
 if ($programname contains "sshd-session.pam") then {if re_match($msg, 'Connection from|Accepted key|Postponed publickey for|Accepted publickey for|User child is on pid|Changed root directory|Disconnected from user' ) then {action(type="omfile" File="/var/log/daemonSSHD.log") stop} else {action(type="omfile" File="/var/log/userSshd.log") stop}} # sshd daemon or sshd user logging

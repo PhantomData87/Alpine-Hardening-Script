@@ -1,0 +1,41 @@
+# From alpineHarden.sh
+# By: Alonzo Ortiz-Sanchez
+
+[INCLUDES]
+before = paths-debian.conf
+
+[DEFAULT]
+bantime = 1h
+findtime = 1h
+maxretry = 3
+bantime.increment = true
+bantime.maxtime = 6000
+bantime.factor = 2
+bantime.overalljails = true
+ignorecommand =
+maxmatches = %(maxretry)s
+backend = auto
+usedns = warn
+logencoding = auto
+enabled = false
+mode = normal
+filter = %(__name__)s[mode=%(mode)s]
+
+# Email
+destemail=root@localhost
+sender = root@<fq-hostname>
+mta = sendmail
+protocol = tcp
+chain = <known/chain>
+port = 0:65535
+fail2ban_agent = Fail2Ban%(fail2ban_version)s
+banaction = iptables-multiport
+banaction_allports = iptables_allports
+action_ = %(banaction)s[port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]
+action_mw = %(action)s%(mta)s-whois[sender="%(sender)", dest="%(destemail)s", protocol="%(protocol)s", chain="%(chain)s"]
+action_mwl = %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]
+action_xarf = %(action)sxarf-login-attack[service=%(__name__), logpath="%(logpath)s", port="%(port)s""]
+action_cf_mwl = cloudflare[cfuser="%(cfemail)s", cftoken="%(cfapikey)s"] %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]
+action_blocklist_de = blocklist_de[email="%(sender)s", service="%(__name__)s", apikey="%(blocklist_de_apikey)s", agent="%(fail2ban_agent)s"]
+action_abuseipdb = abuseipdb
+action = %(action_)s

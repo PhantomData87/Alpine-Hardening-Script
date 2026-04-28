@@ -58,7 +58,7 @@ table inet filter {
 		counter outboundGenericDropDestination {}								# "I suck at preventing" counter of shame
 
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	   Flood/DoS counters	   #
+		#       Flood/DoS counters     #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── How many packets from the "scanner" set were found? ────────⟤
 		counter floodReBlacklisted {}											# Match once again an IP from "scanner" set was still in timeout
@@ -75,7 +75,7 @@ table inet filter {
 		counter floodOutboundSmurf {}											# A device had sent a broadcast to ICMP or UDP flood this machine!
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	  Lo interface counters	   #
+		#     Lo interface counters    #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Existance of localhost usage counter ───────────────────────⟤
 		counter outgoingLogLoInterfaceUsage {}									# It's not expected for the LO interface to be used, so here is a counter to make sure this firewall isn't blocking any important connections on 127.0.0.0/8
@@ -86,7 +86,7 @@ table inet filter {
 # ∥ Sets for IP Layer									  
 # ∥───────────────────
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	   IPv4 blacklist sets	   #
+		#      IPv4 blacklist sets     #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── A static blacklist that contains untrusted IPv4 addresses ──⟤
 		set ipBlacklistInbound {
@@ -104,7 +104,7 @@ table inet filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	 IPv4 Static Allow sets    #
+		#    IPv4 Static Allow sets    #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Allowed combination of IPv4, port, and layer 4 protocol ────⟤
 		# Syntax example (remove quotation mark): "n.n.n.n/x? . m . tcp|udp"
@@ -189,7 +189,7 @@ table inet filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	 IPv4 Dynamic Allow sets   #
+		#    IPv4 Dynamic Allow sets   #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Tracking local ports to permit remote connection ───────────⟤
 		# When a network socket is opened from a machine. It contacts through a open port (Destination), and reserves a port on itself (Source)
@@ -202,7 +202,7 @@ table inet filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	 IPv4 Dynamic Drop sets    #
+		#    IPv4 Dynamic Drop sets    #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #	
 		# ⟥── Prevent local machine from acting as a DoS source itself ───⟤
 		set rateLimitSelf {
@@ -245,7 +245,7 @@ table inet filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	IPv4 DoS Protection Set    #
+		#   IPv4 DoS Protection Set    #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #	
 		# ⟥── Workaround implementation to detect and prevent LAND DoS ───⟤
 		# Nftables at the time of writing doesn't support "ip saddr == ip daddr" check.
@@ -270,7 +270,7 @@ table inet filter {
 # ∥ Output HOOK for IP Layer								  
 # ∥──────────────────────────
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	  Output ICMP Filtering	   #
+		#     Output ICMP Filtering    #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Is ICMP packet size of 28 bytes? If not, it's exfiltrating ─⟤
         # Only ping-pong of size 0 allowed: ping -s 0 x.x.x.x
@@ -291,7 +291,7 @@ table inet filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	   Output TCP Filtering	   #
+		#     Output TCP Filtering     #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Accepting TCP port corner ──────────────────────────────────⟤
 		chain establishNewTCPConnection {
@@ -303,7 +303,7 @@ table inet filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	   Output UDP Filtering	   #
+		#      Output UDP Filtering    #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Accepting UDP port corner ──────────────────────────────────⟤
 		chain establishNewUDPConnection {
@@ -315,7 +315,7 @@ table inet filter {
 		}
 
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#		  Output MAIN		   #
+		#         Output MAIN          #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Rate limit, accept known, Filter, and log failures ─────────⟤
         chain output {
@@ -410,7 +410,7 @@ table inet filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	  Input ICMP Filtering	   #
+		#     Input ICMP Filtering     #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Check if ICMP packet size if exactly 28 bytes ──────────────⟤
 		chain isInboundNullICMP {
@@ -434,7 +434,7 @@ table inet filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	  Input TCP Filtering	   #
+		#      Input TCP Filtering     #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Check if TCP port is open or closed ────────────────────────⟤
 		chain unrecognizeTCPService {
@@ -502,7 +502,7 @@ table inet filter {
 		}
 
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	  Input UDP Filtering	   #
+		#      Input UDP Filtering     #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Check if UDP port is open or closed ────────────────────────⟤
 		chain unrecognizeUDPService {
@@ -541,7 +541,7 @@ table inet filter {
 		}
 
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#		  Input MAIN		   #
+		#          Input MAIN          #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Rate limiting, Filters, and count when firewall fails ──────⟤
         chain inputIP {
@@ -653,8 +653,8 @@ table arp filter {
 # ∥───────────────────────────────────────────────∥
 # ∥ Sets for ARP Layer									  
 # ∥────────────────────
-        # ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	   ARP blacklist set	   #
+		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
+		#       ARP blacklist set      #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Blacklisted MAC addresses that sent a false ARP response ───⟤
 		set poisoner {
@@ -663,7 +663,7 @@ table arp filter {
 		}
 		
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	  ARP Static Allow set     #
+		#     ARP Static Allow set     #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Static set of pre-defined answers ip to mac resolutions ────⟤
 		# Syntax example (remove quotation mark): "n.n.n.n . mm:mm:mm:mm:mm:mm"
@@ -676,7 +676,7 @@ table arp filter {
 		}
 
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#	  ARP Dynamic Allow set    #
+		#     ARP Dynamic Allow set    #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Recording outbound ARP requests had indeed happened ────────⟤
 		set requestedARP {
@@ -731,7 +731,7 @@ table arp filter {
 		}
 
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#		  Input MAIN		   #
+		#          Input MAIN          #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Rate limit, filter ARP packets, and count failures ─────────⟤
         chain inputARP {
@@ -775,7 +775,7 @@ table arp filter {
         }
 
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
-		#		   Output MAIN		   #
+		#         Output MAIN          #
 		# ⟚═══⟚═══⟚═══⟚═══⟚═══⟚ #
 		# ⟥── Rate limit, filter ARP packets, and count failures ─────────⟤
         chain outputARP {

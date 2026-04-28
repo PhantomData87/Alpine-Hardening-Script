@@ -1,5 +1,6 @@
 # From alpineHarden.sh
 # By: Alonzo Ortiz-Sanchez
+
 # Default sshd_config options
 Port awaitingChange
 AddressFamily inet

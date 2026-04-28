@@ -5,6 +5,7 @@
 # Dev accepted risk notes in QA format:
 # Q: What is my threat model?
 # A: A malicious outside or inside user having the capability to access a user's permissions to find more vulnerabilities in the existing system. Thus daemons and services must be severely restricted and controlled. This means I expected a compromised user through a exploit to these services. The only service I could not make this work was form SSHD. Additionally, since am using deliberate obfuscation; I expect the attacker to generate a lot of noise to figure out the bare minimum of the system it's attacking. This should additionally mean I should be capable of capturing those misinputs while the attacker realizes. Finally, this should have a substantial affect to automated attacks, since a missing file or missing permissions could cause a cascade of noise.
+
 # Q: Why provide a doas root script to assist logrotate. Instead of enabling $loggerUsername to have busybox & coreutil group permissions to permit $loggerUsername to execute shell commands post log rotation via logrotate's in-built features?
 # A: The user responsible for rsyslog and logrotate is called $loggerUsername, and it already has a wide access of capabilities. Permitting to have "busybox" and "coreutils" group permissions would let the possibility of performing persistant attacks that lay beyond /bin/sh calling and access to problematic binary functions: nc, kill, chmod, etc. $loggerUsername must be very annoying to use to force an attacker to cause noise on the machine that is detectable. The reason why a doas root script even exist in the first place is due to logrotate's weird group behavior assumption. It assumes a non-privledge user that wishes to "CREATE perm user group" will have the "user" be equal to "group" despite group being reference as something else (logread or utmp which $loggerUsername was apart of). It prevents one to simply trust in logrotate's ability to permit other non-user groups to be present after log rotation. 
 # A: Additionally, logrotate needs the ability to perform kill -HUP on the local rsyslog daemon to re-open existing log files to continue functionality. This would mean giving $loggerUsername the ability to spawn shells (busybox:/bin/sh to execute), run internal network connections (busybox:/usr/bin/nc), and sending signals to processes (coreutils:/bin/kill). Therefore, to permit $backgroundUsername to interact with $loggerUsername via doas; a simple doas root /bin/sh script file is provided. Hopefully, due to its simplicity it will not be used for anything malicious, nor have greater access than setting a file's ownership to $loggerUsername:logread or $loggerUsername:utmp. We are trusting pgrep in performing its expected function. The file that is being reference is located @ "/etc/supercronic/helper/logPerm" that doesn't use any user input.
@@ -32,18 +33,14 @@
 # apt-show-versions for patch management, 
 # process accounting, 
 # automation tools, 
-# Network monitoring? ARP requests, DHCP requests
-# Firewall; Filter arp and other network requests
 # Develop a plan to manually perform security audits: chkrootkit, RKHunter, aide, lynis supercronics scan
 # User accounting: sysstat
 # SSH multi-factor authentication
-# Find a way to permit pings from LAN, but not WAN. Finally, let these pings contain (nearly) no data.
-# Think about ARP packets, filtering DHCP packets away, minimal DNS packets, and further restrictions on NTP packets.
 # Using linux `tc` to limit bandwidth and througput of specific packets
 # Awall? Shorewall?
 # Central or decentralized identity user account management
 # Restrict dns queires in /etc/resolv?
-# Add to ssh an option to install moduli file remotely
+# !!! Add to ssh an option to install moduli file remotely
 # Check if ACPID service missing RTNETLINK1 affects acpi functions
 # Consider if /usr/lib requires chmod and chown modifications
 # Immutable files? /var/log, configurations, /dev/log in sftp,
@@ -55,8 +52,8 @@
 # Check inittab to implace restrict shell
 # Proper /etc/limits.conf
 # set ulimit in sysctl via fs.file and alike (find if this is related to exclusively PAM or not), 
-# Password quality?,
-# Chroot exploit mitigation: https://github.com/remaskm/Chroot-Jail-Escape-Write-up
+# Password quality? (not rotation),
+# Chroot exploit mitigation test: https://github.com/remaskm/Chroot-Jail-Escape-Write-up
 # Add remaining size check when formatting and partitioning disks
 # Check that partitions are incrementally increasing
 # Other packages and commands of interest: agetty (agetty), lsof & lsfd (util-linux-misc)
@@ -64,17 +61,17 @@
 # Purge root account from having to set password?
 # Enhance security of building kernel
 # Check: HIPPA, NIST 800-171, AICPA SOC 2, ISO 9001:2015, pci DSS, csa, cybersecurity maturity model cert, eu gdpr compliant, fedRAMP, cis controls
-# Configure logrotate & https://linuxtldr.com/linux-utmp-wtmp-btmp-files/
 # Ensure mdev log levels are properely set
 # look into kafka (apache) for rsyslog for rsyslog stat monitoring
-# protocol smuggling mitigation: dns (DNSTT), ntp, etc
+# protocol smuggling mitigation: dns (DNSTT), ntp, DHCP requests, etc
 # kernel dma mitigation?
 # public dns with 9.9.9.9?
-# readjust log levels for maximum clarity and minimum verbosity
+# readjust log levels for maximum clarity and minimum verbosity (excluding nftables)
 # dmesg permanent configuration?
 # Fail2ban re-configuration with new log files
 # Monitor ARP traffic: https://www.tecmint.com/monitor-ethernet-activity-in-linux/
-# Remove self-sign error
+# Remove self-sign error in HTTPS transfer
+# Finish removing all instance of "chroot $mountPoint /bin/echo" (temp script & ssh pub key)
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -88,7 +85,7 @@
 # Expensive operations:
 export sshExpensiveOperation=false # To re-compute /etc/ssh/moduli. It requires a lot of space (~3.6Gb), and time (significantly more on embedded devices in the order of a month wait).
 
-# Alpine configuration variables (CHANGE THESE)
+# Alpine configuration variables
 export logFile="/tmp/hardeningAlpine.log"
 export logIP="127.0.0.1"
 export sshUsernameKey="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMGa/LM/SQ8SacZAeIhDp+0U/UnzMy8iItQXmNIjeDo1 testingMachine@localhost"
@@ -104,6 +101,9 @@ export tempRootPass="Core&soul!Beetle=hound"
 export localGateway="192.168.0.0"
 export localNetmask="24"
 export umask="077"
+export scriptAddress="192.168.0.230"
+export scriptPort="27036" # Outbound port from local machine when installing script
+export scriptIPProtocol="tcp"
 export systemArch="$(uname -m)" # Leave this as "$(uname -m)" to automatically find system architecture. If building on a different system, then change this into one of the many values: x86_64, x86, arm*, aarch64, riscv64, loongarch64
 export kernelVersion="$(uname -r | grep -Eo '[0123456789]{1,3}.[0123456789]{1,3}.[0123456789]{1,3}')" # Ensure this remains in the correct format of x.x.x, otherwise leave this alone as "$(uname -r | grep )"
 
@@ -126,45 +126,6 @@ export sshPort="594"
 export apkPort="443"
 export dnsPort="53"
 export ntpStandardPort="123"
-
-# For all Banners. Remove symbol: ` and add a space after symbol if at the end of the line it has: \
-export bannerIssue="###############################################################
-#                  _    _           _     _                   #
-#                 / \  | | ___ _ __| |_  | |                  #
-#                / _ \ | |/ _ \ '__| __  | |                  #
-#               / ___ \| |  __/ |  | |_  |_|                  #
-#              /_/   \_\_|\___|_|   \__  (_)                  #
-#                                                             #
-#  You are entering a secured area!                           #
-#                                                             #
-#  Your IP, Login Time and Username has been noted and        #
-#  has been sent to the server administrator!                 #
-#                                                             #
-#  This service is restricted to authorized users only.       #
-#  All activities on this system are logged.                  #
-#                                                             #
-#  Unauthorized access will be fully investigated and         #
-#  reported to the appropriate law enforcement agencies.      #
-###############################################################" # Obtained from: https://gist.github.com/hvmonteiro/7f897cd8ae3993195855040056f87dc6
-export bannerMotd="
- ____                        _                       _____ _          
-|  _ \ _   _ _ __ __ _  __ _| |_ ___  _ __ _   _ _  |_   _| |__   ___ 
-| |_) | | | | '__/ _  |/ _  | __/ _ \| '__| | | (_)   | | | '_ \ / _ \ 
-|  __/| |_| | | | (_| | (_| | || (_) | |  | |_| |_    | | | | | |  __/
-|_|    \__,_|_|  \__, |\__,_|\__\___/|_|   \__, (_)   |_| |_| |_|\___|
-                 |___/                     |___/                      
- ____                                            _          _ 
-|  _ \ _ __ ___        ___   ___ ___ _   _ _ __ (_) ___  __| |
-| |_) | '__/ _ \_____ / _ \ / __/ __| | | | '_ \| |/ _ \/ _  |
-|  __/| | |  __/_____| (_) | (_| (__| |_| | |_) | |  __/ (_| |
-|_|   |_|  \___|      \___/ \___\___|\__,_| .__/|_|\___|\__,_|
-                                          |_|             
-
-Welcome to an unspecified Alpine Linux device!
-
-System last updated: 00:00 00/00/0000 UTC
-System last health scan: 00:00 00/00/0000 UTC
-System last log sent: 00:00 00/00/0000 UTC" # Ran with figlet command, reference: https://ar.pinterest.com/pin/dante-the-divine-comedy-2-purgatory-diagrammatic-arrangement-of-mount-purgatory--10062799147380479/
 
 # Modifying behavior of $mountPoint, and actions required to ensure the $mountPoint will work as intended
 	# Automatically setting $mountPoint to equal "/" for local changes
@@ -203,7 +164,23 @@ post=false
 verify=false
 rmAlpine=false
 
-# Is the script running in a live iso? (Will be automatically found
+# Nftables (Newlines are treated as seperate entries)
+# Assume local machine is 192.168.0.2, and remote host is at 192.168.0.1. Below are examples of configurating 192.168.0.2's firewall
+	# Arp format (overrides automatic discovery): "Ipv4_address : MAC_address"
+	# Example: "192.168.0.1 . 58:02:7e:c3:27:1a"
+export nftablesARP=""
+	# Specific service format (does not override necessary ports): "Ipv4_address : port_number : tcp_or_udp"
+	# Example: "192.168.0.1 . 881 . tcp"
+	# Example: "192.168.0.0/24 . 555 . udp"
+	# Example: "duckduckgo.com . 443 . tcp"
+export nftablesSpecificInbound=""
+export nftablesSpecificOutbound="$scriptAddress . $scriptPort . $scriptIPProtocol"
+	# Broad service format (does not override necessary ports): "port_number : tcp_or_udp"
+	# Example: "881 . udp"
+export nftablesBroadInbound=""
+export nftablesBroadOutbound=""
+
+# Is the script running in a live iso? (Will be automatically found)
 export isLocalIso=false
 
 # Additional logging variables
@@ -225,6 +202,19 @@ export cronFacility="local1" # "LOCAL0", "LOCAL1", "LOCAL2", "LOCAL3", "LOCAL4",
 # %pri-text%; generic facility.severity alongside calculated pri
 # %rawmsg-after-pri%; message of the application
 # Usage of ":" to primarely seperate categories
+	# Nftables Logging:
+	# For Netdev table Output logging levels
+		# alert : Flooding or attacks
+		# err : Malformed unexpected packets
+		# warn : General Blacklisting/Dropping package
+		# notice: Accepting a TCP/UDP connection
+		# info : Accepting a ICMP/ARP
+	# For ARP table Output & Input, and Netdev table Input logging levels
+		# alert : Detecting an attack
+		# err : Malformed unexpected packets
+		# warn : General Blacklisting/Dropping package/Average Flood
+		# notice: Accepting a TCP/UDP connection
+		# info : Accepting a ICMP/ARP
 
 # Bootloader fallback name
 systemArchFallbackName=""
@@ -293,8 +283,6 @@ localGateway:		Declare the local LAN network this machine is connect to by provi
 localNetmask:		Declare the local LAN network's netmask that will be appeneded to localGateway
 sshPort:		Declare the default port for ssh servers. Will not tolerate port 22, and must be a system port (0-1023).
 umaks:			Declare the standard umask when creating a new file. Determines the default file permissions assigned to a newly created file.
-bannerIssue:		Declare the message displayed to most unauthenticated users
-bannerMotd:		Decalre the message displayed to most authenticated users
 systemArch		Declare the architecture of the system to determine kernel compiling behavior, and fallback bootloader name
 kernelVersion:	Declare the linux kernel version that one wishes to use from alpine when installing from a kernel device
 pythonVer:		Declares the python version in x.x format that is used in certain packages
@@ -391,8 +379,6 @@ interpretArgs() {
     if [ -z "$localNetmask" ]; then echo "BAD FORMAT: Must provide a IPv4 local network netmask for variable \$localNetmask!"; exit; fi
     if [ -z "$sshPort" ]; then echo "BAD FORMAT: Empty value for \$sshPort. Provide a valid port number that is in range of 1-1023, and is not 22!"; exit; fi
     if [ -z "$umask" ]; then echo "BAD FORMAT: Must provide a non-empty \$umaks value for declare default permissions when a file is created!"; exit; fi
-    if [ -z "$bannerIssue" ]; then echo "BAD FORMAT: Must provide a non-empty warning to unauthenticated users on variable $bannerIssue!"; exit; fi
-    if [ -z "$bannerMotd" ]; then echo "BAD FORMAT: Must provide a non-empty welcoming to authenticated users on variable $bannerMotd!"; exit; fi
     #if [ -z "$pythonVer" ]; then echo "BAD FORMAT: Must provide a non-empty python version in x.x format $pythonVer!"; exit; fi
 
     # Format check
@@ -841,7 +827,7 @@ defineMount() {
 		chroot $mountPoint /bin/sed -i "/#\{0,2\}disable_trigger\(.*\)/{h;s//disable_trigger=yes/};\${x;/^\$/{s//disable_trigger=yes/;H};x}" /etc/mkinitfs/mkinitfs.conf 2>/dev/null || log "UNEXPECTED: Could not ensure mkinitfs is disabled when generating kernals"
 		chroot $mountPoint /usr/bin/sbctl create-keys 2>/dev/null || log "UNEXPECTED: Could not create secureboot keys"
 		chroot $mountPoint /usr/bin/sbctl sign --save "/boot/efi/EFI/boot/boot$systemArchFallbackName.efi" 2>/dev/null || log "UNEXPECTED: Could not sign and enroll out current kernel at /boot/efi/EFI/boot/boot$systemArchFallbackName.efi for secureboot"
-	#	chroot $mountPoint /usr/bin/sbctl enroll-keys -m 2>/dev/null || log "UNEXPECTED: Could not synchronize secureboot keys. Ignore if this is not a UEFI system" # Preparing secure-boot, but not enforcing it until a clear UEFI and BIOS seperator is distinguish
+	# !!!	chroot $mountPoint /usr/bin/sbctl enroll-keys -m 2>/dev/null || log "UNEXPECTED: Could not synchronize secureboot keys. Ignore if this is not a UEFI system" # Preparing secure-boot, but not enforcing it until a clear UEFI and BIOS seperator is distinguish
 	
     	log "INFO: Modifying fstab file for secure default mounting"
     	chroot $mountPoint /bin/sed -i "s/^#\{0,2\}tmpfs\t\/tmp\ttmpfs\(.*\)/tmpfs\t\/tmp\ttmpfs\tnoatime,nodev,noexec,nosuid,size\=512m\t0\t0/g" /etc/fstab 2>/dev/null || log "UNEXPECTED: Could not harden fstab mounting on /tmp"
@@ -903,7 +889,7 @@ getRemoteFile() {
 	if [ -f "$mountPoint/$1" ]; then chroot $mountPoint rm "$1" 2>/dev/null || log "UNEXPECTED: Could not remove the original file located at $1!"; fi
 	
 	# Obtain brand new file
-	chroot $mountPoint wget --no-check-certificate -q -O "$1" "https://$scriptAddress:$scriptPort/$2" || log "CRITICAL: Could not download $2 from $scriptAddress!"
+	chroot $mountPoint wget --no-check-certificate -q -O "$1" "https://$scriptAddress:$scriptPort/$2" || (log "CRITICAL: Could not download $2 from $scriptAddress!" && return 1)
 	
 	# Enable writing permission of new file & chown (It will be correct later anyways)
 	chroot $mountPoint chown "root:root" $1 || log "UNEXPECTED: Could not ensure $1 was owner by root"
@@ -920,12 +906,13 @@ getRemoteFileAndPreserve() {
 	if [ -f "$mountPoint/$1" ] && [ "$fileName" == "$fileExtension" ]; then chroot $mountPoint mv "$1" "/home/$backupUsername/existingConfig/$fileName-$(date +'%s')" 2>/dev/null || log "UNEXPECTED: Could not ensure the prior copy was saved elsewhere!"; fi
 	
 	# Obtain file remotely
-	getRemoteFile $1 $2 || log "UNEXPECTED: Could not obtain remote file $fileName.$fileExtension from $scriptAddress"
+	getRemoteFile $1 $2 || (log "UNEXPECTED: Could not obtain remote file $fileName.$fileExtension from $scriptAddress" && return 1)
 }
 
 # !!!
 # Alpine hardening guide: https://wiki.alpinelinux.org/wiki/How_to_get_regular_stuff_working
 # Resources:
+# Issue banner & motd. Inspiration: https://linux-audit.com/the-real-purpose-of-login-banners-on-linux/
 # Creating restricted shells if missing: https://unix.stackexchange.com/questions/605646/how-do-you-install-rbash-in-centos-7
 # Configurating rc.services: https://github.com/OpenRC/openrc/blob/master/service-script-guide.md
 # Introduction to linux capabilities: https://blog.container-solutions.com/linux-capabilities-in-practice
@@ -988,6 +975,8 @@ getRemoteFileAndPreserve() {
 # IPV4 BOGONS: https://www.team-cymru.org/Services/Bogons/fullbogons-ipv4.txt
 # Attack Smurf, Fraggle, and Land: https://www.jaacostan.com/2018/04/dos-attacks-smurffraggleland.html
 # Introduction to NFtables source: https://www.youtube.com/watch?v=K8JPwbcNy_0&list=PLUF494I4KUvqwDjhOoP3IFUpgEhE1OVDO
+# Obtained from: https://gist.github.com/hvmonteiro/7f897cd8ae3993195855040056f87dc6
+# Ran with figlet command, reference: https://ar.pinterest.com/pin/dante-the-divine-comedy-2-purgatory-diagrammatic-arrangement-of-mount-purgatory--10062799147380479/
 configLocalInstallation() {
     log "INFO: Installing packages"
     chroot $mountPoint /sbin/apk add coreutils findutils dmesg logger setpriv doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional acpid nftables fail2ban openssh-server-pam util-linux-login rsyslog xz supercronic@additional || log "UNEXPECTED: Could not install service packages" # libqrencode for qr code?
@@ -1161,7 +1150,6 @@ configLocalInstallation() {
     chroot $mountPoint /bin/touch /var/log/unsorted.log 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for generic unsorted messages"
     chroot $mountPoint /bin/touch /var/log/booking.state 2>/dev/null || log "UNEXPECTED: Could not generate a log file meant for generic unsorted messages"
     chroot $mountPoint /bin/touch /var/lib/fail2ban/fail2ban.sqlite3 2>/dev/null || log "CRITICAL: Could not generate a sqlite3 database for fail2ban"
-    chroot $mountPoint /bin/touch /etc/fail2ban/jail.local 2>/dev/null || log "CRITICAL: Failed to create configuration file for fail2ban"
     for i in $previewUsername $serverCommandUsername; do
     	chroot $mountPoint /bin/touch "/home/$i/bin/rksh" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; rksh"
     	chroot $mountPoint /bin/touch "/home/$i/bin/echo" 2>/dev/null || log "CRITICAL: Failed to create mountable executable for $i; echo"
@@ -1197,7 +1185,7 @@ configLocalInstallation() {
 	if [ ! -z "$(chroot $mountPoint /bin/grep halt /etc/passwd)" ]; then chroot $mountPoint /usr/sbin/userdel halt 2>/dev/null || log "UNEXPECTED: Could not remove halt user"; fi
 
     log "INFO: Permitting root to cause changes to certain files"
-    local writablePaths="/etc/issue /etc/fstab /etc/motd /etc/inittab /etc/securetty /etc/profile /etc/mdev.conf /etc/init.d/acpid /etc/init.d/chronyd /etc/init.d/sshd /etc/init.d/fail2ban /etc/init.d/rsyslog /etc/init.d/supercronic /etc/ssh/moduli /etc/doas.d/daemon.conf /etc/doas.d/supercronic.conf /etc/ssh/ssh_config /etc/fail2ban/jail.local /etc/fail2ban/fail2ban.conf /etc/fail2ban/jail.d/alpine-ssh.conf /etc/rsyslog.conf /etc/rsyslog.d/10-discardFilters.conf /etc/rsyslog.d/30-openrcFilters.conf /etc/rsyslog.d/40-broadFilters.conf /etc/rsyslog.d/50-daemonFilters.conf /etc/rsyslog.d/99-failureFilter.conf /etc/logrotate.conf /etc/logrotate.d/logFacilities /etc/logrotate.d/logIndividual /etc/supercronic/crontab /etc/supercronic/helper/logPerm /etc/supercronic/hourly/logrotate /etc/nftables.nft"
+    local writablePaths="/etc/issue /etc/fstab /etc/motd /etc/inittab /etc/securetty /etc/profile /etc/mdev.conf /etc/init.d/acpid /etc/init.d/chronyd /etc/init.d/sshd /etc/init.d/fail2ban /etc/init.d/rsyslog /etc/ssh/moduli /etc/fail2ban/fail2ban.conf /etc/fail2ban/jail.d/alpine-ssh.conf"
     for enableWrite in $writablePaths; do
     	chroot $mountPoint /bin/chmod u+w $enableWrite 2>/dev/null || log "UNEXPECTED: Could not guarantee that $enableWrite be modified by root"
     done
@@ -1230,6 +1218,10 @@ configLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/ssh/ssh_config 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/ssh/ssh_config" "Templates/sshd.ssh.conf.template" || log "CRITICAL: Could not obtain remote sshd.ssh.conf from $scriptAddress"; else getRemoteFile "/etc/ssh/ssh_config" "Templates/sshd.ssh.conf.template" || log "CRITICAL: Could not obtain remote sshd.ssh.conf from $scriptAddress"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/ssh/sshd_config 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/ssh/sshd_config" "Templates/sshd.sshd.conf.template" || log "CRITICAL: Could not obtain remote sshd.sshd.conf from $scriptAddress"; else getRemoteFile "/etc/ssh/sshd_config" "Templates/sshd.sshd.conf.template" || log "CRITICAL: Could not obtain remote sshd.sshd.conf from $scriptAddress"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/rsyslog.conf 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/rsyslog.conf" "Templates/rsyslog.conf.template" || log "CRITICAL: Could not obtain remote rsyslog.conf from $scriptAddress"; else getRemoteFile "/etc/rsyslog.conf" "Templates/rsyslog.conf.template" || log "CRITICAL: Could not obtain remote rsyslog.conf from $scriptAddress"; fi
+	if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/fail2ban/jail.local 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/fail2ban/jail.local" "Templates/fail2ban.jail.local.template" || log "CRITICAL: Could not obtain remote jail.local from $scriptAddress"; else getRemoteFile "/etc/fail2ban/jail.local" "Templates/fail2ban.jail.local.template" || log "CRITICAL: Could not obtain remote jail.local from $scriptAddress"; fi
+	if [ -z "$(chroot $mountPoint /bin/grep "^###############################################################" /etc/issue 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/issue" "Templates/issue.template" || log "CRITICAL: Could not obtain remote file of /etc/issue from $scriptAddress!"; else getRemoteFile "/etc/issue" "Templates/issue.template" || log "CRITICAL: Could not obtain remote file of /etc/issue from $scriptAddress!"; fi
+	if [ -z "$(chroot $mountPoint /bin/grep "^# Machine customized by Alonzo Ortiz-Sanchez" /etc/motd 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/motd" "Templates/motd.template" || log "CRITICAL: Could not obtain remote file of /etc/motd from $scriptAddress!"; else getRemoteFile "/etc/motd" "Templates/motd.template" || log "CRITICAL: Could not obtain remote file of /etc/motd from $scriptAddress!"; fi
+	if [ ! -z "$(chroot $mountPoint /bin/cat /etc/securetty 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/securetty" "Templates/securetty.template" || log "CRITICAL: Could not obtain remote file of /etc/securetty from $scriptAddress!"; else getRemoteFile "/etc/securetty" "Templates/securetty.template" || log "CRITICAL: Could not obtain remote file of /etc/securetty from $scriptAddress!"; fi
 	
     log "INFO: Chroot bindings added to fstab"
 		# Modifying fstab to bind files to certain locations in home director for $previewUsername & $serverCommandUsername chroot environment (including rsyslog)
@@ -1279,16 +1271,10 @@ configLocalInstallation() {
 # no output means no pam
     log "INFO: Configurating PAM"
 
-    # Issue banner & motd. Inspiration: https://linux-audit.com/the-real-purpose-of-login-banners-on-linux/
-    log "INFO: Changing /etc/issue and /etc/motd"
-    chroot $mountPoint /bin/echo "$bannerIssue" > $mountPoint/etc/issue 2>/dev/null || log "UNEXPECTED: Could not change warning message for unauthenticated users"
-    chroot $mountPoint /bin/echo "$bannerMotd" > $mountPoint/etc/motd 2>/dev/null || log "UNEXPECTED: Could not change greeting message for authenticated users"
-
     # Disable TTY interfaces from inittab to limit entry points of root access
-    log "INFO: Disabling root login via serial consoles"
+    log "INFO: Removing unnecessary getty instances at boot"
 # !!!    chroot $mountPoint /bin/sed -i 's/^tty/#tty/g' /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not stop the creation of getty instances when computer boots up"
     chroot $mountPoint /bin/sed -i 's/^\:\:ctrlaltdel/#\:\:ctrlaltdel/g' /etc/inittab 2>/dev/null || log "UNEXPECTED: Could not remove keyboard sequence reboot command"
-# !!!    chroot $mountPoint /bin/echo > $mountPoint/etc/securetty 2>/dev/null || log "UNEXPECTED: Could not modify which interfaces a root user can login from" # Figure out how to login locally
 
 	# Modifying /etc/profile
     log "INFO: Affecting user environment variables in /etc/profile"
@@ -1333,7 +1319,7 @@ configLocalInstallation() {
     chroot $mountPoint /bin/sed -i "/#\{0,2\}permit nopass $backgroundUsername as $loggerUsername cmd \/usr\/sbin\/logrotate\(.*\) # Logrotate/{h;s//permit nopass $backgroundUsername as $loggerUsername cmd \/usr\/sbin\/logrotate args -l syslog -s \/var\/log\/booking.state \/etc\/logrotate.conf # Logrotate/};\${x;/^\$/{s//# Rsyslog\npermit nopass $backgroundUsername as $loggerUsername cmd \/usr\/sbin\/logrotate args -l syslog -s \/var\/log\/booking.state \/etc\/logrotate.conf # Logrotate/;H};x}" /etc/doas.d/supercronic.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to permit $backgroundUsername user to execute logrotate as $loggerUsername user!"
     chroot $mountPoint /bin/sed -i "/#\{0,2\}permit nopass $backgroundUsername as root cmd \/etc\/supercronic\/helper\/logPerm\(.*\) # logPerm/{h;s//permit nopass $backgroundUsername as root cmd \/etc\/supercronic\/helper\/logPerm args # logPerm/};\${x;/^\$/{s//permit nopass $backgroundUsername as root cmd \/etc\/supercronic\/helper\/logPerm args # logPerm/;H};x}" /etc/doas.d/supercronic.conf 2>/dev/null || log "UNEXPECTED: Could not modify doas configuration file to permit $backgroundUsername user to execute logPerm as root user!"
  
-		# Create temp file
+		# !!! Create temp file
     chroot $mountPoint /bin/echo "# Doas configuration for temp ssh service
 permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/tempUser.conf 2>/dev/null || log "UNEXPECTED: Could not create temp doas configuration file for $extractUsername user!"
 
@@ -1352,7 +1338,7 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 		# Adding user whitelist to sshd_config
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}AllowUsers\(.*\)/{h;s//AllowUsers $previewUsername@$localGateway\/$localNetmask $backupUsername@$localGateway\/$localNetmask $serverCommandUsername@$localGateway\/$localNetmask $monitorUsername@$localGateway\/$localNetmask $extractUsername@$localGateway\/$localNetmask/};\${x;/^\$/{s//AllowUsers $previewUsername@$localGateway\/$localNetmask $backupUsername@$localGateway\/$localNetmask $serverCommandUsername@$localGateway\/$localNetmask $monitorUsername@$localGateway\/$localNetmask $extractUsername@$localGateway\/$localNetmask/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AllowUsers"
 		# Adding user-specific commands
-	chroot $mountPoint /bin/sed -i "/^# SFTP server configuration\(.*\)/{h;s//# SFTP server configuration/};\${x;/^\$/{s//# SFTP server configuration/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not indicate the additional placement of user-restrive sshd interactions in the config file"
+	chroot $mountPoint /bin/sed -i "/^# SFTP server configuration\(.*\)/{h;s//# SFTP server configuration/};\${x;/^\$/{s//\n# SFTP server configuration/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not indicate the additional placement of user-restrive sshd interactions in the config file"
 			# $previewUsername
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}Match User $previewUsername\(.*\)/{h;s//Match User $previewUsername/};\${x;/^\$/{s//Match User $previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $previewUsername"
 	chroot $mountPoint /bin/sed -i "/^#\{0,2\}    ChrootDirectory \/home\/$previewUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$previewUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$previewUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $previewUsername"
@@ -1398,80 +1384,73 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     
     log "INFO: Configurating nftables"
     # Add static ARP table to nftables configuration
-    if [ ! -z $nftablesARP ]; then
+    chroot $mountPoint /bin/sed -i "s/\t\t\t# arpKnownOnNetwork/\t\t\telements = {\n\t\t\t\t# ARPREPLACE\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank ARP element list could be made!"
+    if [ -z "$nftablesARP" ]; then
     	# Automatic additions
     	arp -n | grep -ow "[0-9]\{1,3\}.[0-9]\{1,3\}.[0-9]\{1,3\}.[0-9]\{1,3\}.*[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}" | sed "s/)//g" | awk '{print($1" . "$3)}' | while read -r arpLine; do
-    		chroot $mountPoint /bin/sed -i "s/\t\t\t# arpKnownOnNetwork/\t\t\telements = {\n\t\t\t\t# ARPREPLACE\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank ARP element list could be made!"
-    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$arpLine\t\t\t\t\t\t\t\t\t# ARP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# ARPREPLACE/\t\t\t\t$arpLine\t\t\t\t\t\t\t\t\t# ARP automatically set\n\t\t\t\t# ARPREPLACE/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a automatic ARP entry for $arpLine was added!"; fi
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$arpLine,\{0,1\}\t# ARP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# ARPREPLACE/\t\t\t\t$arpLine,\t# ARP automatically set\n\t\t\t\t# ARPREPLACE/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a automatic ARP entry for $arpLine was added!"; fi
     	done
     else
     	# Manual additions
     	echo "$nftablesARP" | while IFS= read -r arpLine; do
-    		chroot $mountPoint /bin/sed -i "s/\t\t\t# arpKnownOnNetwork/\t\t\telements = {\n\t\t\t\t# ARPREPLACE\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank ARP element list could be made!"
-    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$arpLine\t\t\t\t\t\t\t\t\t# ARP manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# ARPREPLACE/\t\t\t\t$arpLine\t\t\t\t\t\t\t\t\t# ARP manually set\n\t\t\t\t# ARPREPLACE/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual ARP entry for $arpLine was added!"; fi
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$arpLine,\{0,1\}\t# ARP manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# ARPREPLACE/\t\t\t\t$arpLine,\t# ARP manually set\n\t\t\t\t# ARPREPLACE/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual ARP entry for $arpLine was added!"; fi
     	done
     fi
     # Add in inbound fixed addresses
     	# Ensure element list exists
     chroot $mountPoint /bin/sed -i "s/\t\t\t# inboundPortsWithFixedIP/\t\t\telements = {\n\t\t\t\t# SPECIFICINBOUND\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank Specific Inbound element list could be made!"
     	# SSH
-    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$localGateway\/$localNetmask . $sshPort . tcp\t\t\t\t\t\t\t\t\t# SSH and SFTP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICINBOUND/\t\t\t\t$localGateway\/$localNetmask . $sshPort . tcp\t\t\t\t\t\t\t\t\t# SSH and SFTP automatically set\n\t\t\t\t# SPECIFICINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Inbound entry for ssh and sftp was added!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$localGateway\/$localNetmask . $sshPort . tcp,\{0,1\}\t# SSH and SFTP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICINBOUND/\t\t\t\t$localGateway\/$localNetmask . $sshPort . tcp,\t# SSH and SFTP automatically set\n\t\t\t\t# SPECIFICINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Inbound entry for ssh and sftp was added!"; fi
 		# Manual additions
-	if [ ! -z $nftablesSpecificInbound ]; then
+	if [ ! -z "$nftablesSpecificInbound" ]; then
     	echo "$nftablesSpecificInbound" | while IFS= read -r customSpecificInbound; do
-    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customSpecificInbound\t\t\t\t\t\t\t\t\t# Specfic Inbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICINBOUND/\t\t\t\t$customSpecificInbound\t\t\t\t\t\t\t\t\t# Specfic Inbound manually set\n\t\t\t\t# SPECIFICINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Inbound entry for $customSpecificOutbound was added!"; fi
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customSpecificInbound,\{0,1\}\t# Specfic Inbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICINBOUND/\t\t\t\t$customSpecificInbound,\t# Specfic Inbound manually set\n\t\t\t\t# SPECIFICINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Inbound entry for $customSpecificOutbound was added!"; fi
     	done
 	fi
     # Add in outbound fixed addresses
     	# Ensure element list exists
     chroot $mountPoint /bin/sed -i "s/\t\t\t# outboundPortsWithFixedIP/\t\t\telements = {\n\t\t\t\t# SPECIFICOUTBOUND\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank Specific Outbound element list could be made!"
     	# APK repository
-   	echo $apkRepoList | grep -o https.* | grep -o "https://[a-zA-Z.]*/" | sed "s/https://" | sed "s/\///g" | while read -r apkLine; do
-	    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$apkLine . $apkPort . tcp\t\t\t\t\t\t\t\t\t# APK HTTPS automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$apkLine . $apkPort . tcp\t\t\t\t\t\t\t\t\t# APK HTTPS automatically set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic specific Outbound APK whitelist entry for $apkLine was added!"; fi
-    done
+   	echo "$apkRepoList" | grep -o https.* | grep -o "https://[a-zA-Z.]*/" | sed "s/https://" | sed "s/\///g" | while read -r apkLine; do
+	    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$apkLine . $apkPort . tcp,\{0,1\}\t# APK HTTPS automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$apkLine . $apkPort . tcp,\t# APK HTTPS automatically set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic specific Outbound APK whitelist entry for $apkLine was added!"; fi
+    	done
     	# DNS
    	for dnsLine in $dnsList; do
-    	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$dnsLine . $dnsPort . udp\t\t\t\t\t\t\t\t\t# DNS automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$$dnsLine . $dnsPort . udp\t\t\t\t\t\t\t\t\t# DNS automatically set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic specific Outbound DNS whitelist entry for $dnsLine was added!"; fi
-    done    	
-    	# This very script
-    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$scriptAddress . $scriptPort . $scriptIPProtocol\t\t\t\t\t\t\t\t\t# Central script location" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$scriptAddress . $scriptPort . $scriptIPProtocol\t\t\t\t\t\t\t\t\t# Central script location\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure this script could continue downloading!"; fi
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$dnsLine . $dnsPort . udp,\{0,1\}\t# DNS automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$dnsLine . $dnsPort . udp,\t# DNS automatically set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic specific Outbound DNS whitelist entry for $dnsLine was added!"; fi
+    	done    	
 		# Manual additions
-	if [ ! -z $nftablesSpecificOutbound ]; then
+	if [ ! -z "$nftablesSpecificOutbound" ]; then
     	echo "$nftablesSpecificOutbound" | while IFS= read -r customSpecificOutbound; do
-    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customSpecificOutbound\t\t\t\t\t\t\t\t\t# Specfic Outbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$customSpecificOutbound\t\t\t\t\t\t\t\t\t# Specfic Outbound manually set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Outbound entry for $customSpecificOutbound was added!"; fi
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customSpecificOutbound,\{0,1\}\t# Specfic Outbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICOUTBOUND/\t\t\t\t$customSpecificOutbound,\t# Specfic Outbound manually set\n\t\t\t\t# SPECIFICOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Specific Outbound entry for $customSpecificOutbound was added!"; fi;
     	done
 	fi
     # Add broad inbound ports
-	if [ ! -z $nftablesBroadInbound ]; then
+	if [ ! -z "$nftablesBroadInbound" ]; then
     	# Ensure element list exists
     	chroot $mountPoint /bin/sed -i "s/\t\t\t# inboundPortsDueToNoFixedIP/\t\t\telements = {\n\t\t\t\t# BROADINBOUND\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank Broad Inbound element list could be made!"
     	# Manual additions
     	echo "$nftablesBroadInbound" | while IFS= read -r customBroadInbound; do
-    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customBroadInbound\t\t\t\t\t\t\t\t\t# Broad Inbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADINBOUND/\t\t\t\t$customBroadInbound\t\t\t\t\t\t\t\t\t# Broad Inbound manually set\n\t\t\t\t# BROADINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Broad Inbound entry for $customBroadInbound was added!"; fi
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customBroadInbound,\{0,1\}\t# Broad Inbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADINBOUND/\t\t\t\t$customBroadInbound,\t# Broad Inbound manually set\n\t\t\t\t# BROADINBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Broad Inbound entry for $customBroadInbound was added!"; fi
     	done
 	fi
     # Add broad outbound ports
 		# Ensure element list exists
     chroot $mountPoint /bin/sed -i "s/\t\t\t# outboundPortsDueToNoFixedIP/\t\t\telements = {\n\t\t\t\t# BROADOUTBOUND\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank Broad Outbound element list could be made!"
     	# NTP
-    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$ntpStandardPort . udp\t\t\t\t\t\t\t\t\t# NTP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADOUTBOUND/\t\t\t\t$ntpStandardPort . udp\t\t\t\t\t\t\t\t\t# NTP automatically set\n\t\t\t\t# BROADOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic outbound entry for NTP could be added!"; fi
-    if [ ! -z $nftablesBroadOutbound ]; then
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$ntpStandardPort . udp,\{0,1\}\t# NTP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADOUTBOUND/\t\t\t\t$ntpStandardPort . udp,\t# NTP automatically set\n\t\t\t\t# BROADOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure an automatic outbound entry for NTP could be added!"; fi
     	# Manual additions
+    if [ ! -z "$nftablesBroadOutbound" ]; then
     	echo "$nftablesBroadOutbound" | while IFS= read -r customBroadOutbound; do
-    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customBroadOutbound\t\t\t\t\t\t\t\t\t# Broad Outbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADOUTBOUND/\t\t\t\t$customBroadOutbound\t\t\t\t\t\t\t\t\t# Broad Outbound manually set\n\t\t\t\t# BROADOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Broad Outbound entry for $customBroadOutbound was added!"; fi
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customBroadOutbound,\{0,1\}\t# Broad Outbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# BROADOUTBOUND/\t\t\t\t$customBroadOutbound,\t# Broad Outbound manually set\n\t\t\t\t# BROADOUTBOUND/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual Broad Outbound entry for $customBroadOutbound was added!"; fi
     	done
 	fi
     # Add LAN address for local packet manipulation
     	# Ensure element list exists
     chroot $mountPoint /bin/sed -i "s/\t\t\t# lanAddressOnLocalNetwork/\t\t\telements = {\n\t\t\t\t# SPECIFICLAN\n\t\t\t}/g;" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a blank LAN element list could be made!"
 		# Add local LAN entry
-	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$localGateway\/$localNetmask\t\t\t\t\t\t\t\t\t# LAN defined" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICLAN/\t\t\t\t$localGateway\/$localNetmask\t\t\t\t\t\t\t\t\t# LAN defined\n\t\t\t\t# SPECIFICLAN/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual LAN entry for manipulating packets was added!"; fi
+	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$localGateway\/$localNetmask\t# LAN defined" /etc/nftables.nft 2>/dev/null)" ]; then chroot $mountPoint /bin/sed -i "s/\t\t\t\t# SPECIFICLAN/\t\t\t\t$localGateway\/$localNetmask,\t# LAN defined\n\t\t\t\t# SPECIFICLAN/g" /etc/nftables.nft 2>/dev/null || log "UNEXPECTED: Could not ensure a manual LAN entry for manipulating packets was added!"; fi
 
     log "INFO: Configurating fail2ban"
-		# Fail2ban file creation   # !!! Fail2ban future configuration
-    chroot $mountPoint /bin/echo -e '[INCLUDES]\nbefore = paths-debian.conf\n' > $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to include other relevant standard jail settings"
-    chroot $mountPoint /bin/echo -e '[DEFAULT]\nbantime = 1h\nfindtime = 1h\nmaxretry = 3\nbantime.increment = true\nbantime.maxtime = 6000\nbantime.factor = 2\nbantime.overalljails = true\nignorecommand =\nmaxmatches = %(maxretry)s\nbackend = auto\nusedns = warn\nlogencoding = auto\nenabled = false\nmode = normal\nfilter = %(__name__)s[mode=%(mode)s]\n' >> $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Fail to declare default jail settings"
-    chroot $mountPoint /bin/echo -e 'destemail=root@localhost\nsender = root@<fq-hostname>\nmta = sendmail\nprotocol = tcp\nchain = <known/chain>\nport = 0:65535\nfail2ban_agent = Fail2Ban%(fail2ban_version)s\nbanaction = iptables-multiport\nbanaction_allports = iptables_allports\naction_ = %(banaction)s[port="%(port)s", protocol="%(protocol)s", chain="%(chain)s"]\naction_mw = %(action)s%(mta)s-whois[sender="%(sender)", dest="%(destemail)s", protocol="%(protocol)s", chain="%(chain)s"]\naction_mwl = %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]\naction_xarf = %(action)sxarf-login-attack[service=%(__name__), logpath="%(logpath)s", port="%(port)s""]\naction_cf_mwl = cloudflare[cfuser="%(cfemail)s", cftoken="%(cfapikey)s"] %(mta)s-whois-lines[sender="%(sender)", dest="%(destemail)s", logpath="%(logpath)s", chain="%(chain)s"]\naction_blocklist_de = blocklist_de[email="%(sender)s", service="%(__name__)s", apikey="%(blocklist_de_apikey)s", agent="%(fail2ban_agent)s"]\naction_abuseipdb = abuseipdb\naction = %(action_)s' >> $mountPoint/etc/fail2ban/jail.local || log "UNEXPECTED: Mostly failed to declare email and management settings for jail"
 		# Fail2ban default behavior for fail2ban.conf
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}allowipv6\(.*\)=\(.*\)/allowipv6 = no/g" /etc/fail2ban/fail2ban.conf || log "UNEXPECTED: Could not disable IPv6 configuration on fail2ban.conf"
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}loglevel\(.*\)=\(.*\)/loglevel = $fail2banLogging/g" /etc/fail2ban/fail2ban.conf || log "UNEXPECTED: Could not change logging level on fail2ban.conf"
@@ -1488,20 +1467,8 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     chroot $mountPoint /bin/sed -i "s/^#\{0,2\}\tTemplate\(.*\)/\tTemplate=\"$localhostName.format\"/g" /etc/rsyslog.conf || log "UNEXPECTED: Could not change default template used for log messages"
     
     log "INFO: Configurating logrotate!"
-    	# logIndividual (All values must be unique, otherwise it will conflict)
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 10k/{h;s//\tmaxsize 10k/};\${x;/^\$/{s//\/var\/log\/emergencySystem.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 10k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of emergency logs in /etc/logrotate.d/logIndividual"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 11k/{h;s//\tmaxsize 11k/};\${x;/^\$/{s//\/var\/log\/apk.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 11k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of apk logs in /etc/logrotate.d/logIndividual"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 12k/{h;s//\tmaxsize 12k/};\${x;/^\$/{s//\/var\/log\/kernSystem.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 12k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of kernal logs in /etc/logrotate.d/logIndividual"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 500M/{h;s//\tmaxsize 500M/};\${x;/^\$/{s//\/var\/log\/kernFirewall.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 500M\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of firewall logs in /etc/logrotate.d/logIndividual"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 13k/{h;s//\tmaxsize 13k/};\${x;/^\$/{s//\/var\/log\/unsorted.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 13k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of unfiltered logs in /etc/logrotate.d/logIndividual"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 500k/{h;s//\tmaxsize 500k/};\${x;/^\$/{s//\/var\/run\/utmp {\n\tcreate 0660 $loggerUsername $loggerUsername\n\tmaxsize 500k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of utmp logs in /etc/logrotate.d/logIndividual"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 501k/{h;s//\tmaxsize 501k/};\${x;/^\$/{s//\/var\/log\/wtmp {\n\tcreate 0660 $loggerUsername $loggerUsername\n\tmaxsize 501k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of wtmp logs in /etc/logrotate.d/logIndividual"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 502k/{h;s//\tmaxsize 502k/};\${x;/^\$/{s//\/var\/log\/btmp {\n\tcreate 0660 $loggerUsername $loggerUsername\n\tmaxsize 502k\n}/;H};x}" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of btmp logs in /etc/logrotate.d/logIndividual"
-    	# logFacilities (All values must be unique, otherwise it will conflict)
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 500k/{h;s//\tmaxsize 500k/};\${x;/^\$/{s//\/var\/log\/auth\*.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 500k\n}/;H};x}" /etc/logrotate.d/logFacilities 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of auth facility logs in /etc/logrotate.d/logFacilities"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 501k/{h;s//\tmaxsize 501k/};\${x;/^\$/{s//\/var\/log\/user\*.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 501k\n}/;H};x}" /etc/logrotate.d/logFacilities 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of user facility logs in /etc/logrotate.d/logFacilities"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 502k/{h;s//\tmaxsize 502k/};\${x;/^\$/{s//\/var\/log\/daemon\*.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 502k\n}/;H};x}" /etc/logrotate.d/logFacilities 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of daemon facility logs in /etc/logrotate.d/logFacilities"
-    chroot $mountPoint /bin/sed -i "/^\tmaxsize 503k/{h;s//\tmaxsize 503k/};\${x;/^\$/{s//\/var\/log\/local\*.log {\n\tcreate 0640 $loggerUsername $loggerUsername\n\tmaxsize 503k\n}/;H};x}" /etc/logrotate.d/logFacilities 2>/dev/null || log "UNEXPECTED: Could not include log rotation rule for maxsize of local facility logs in /etc/logrotate.d/logFacilities"
+    chroot $mountPoint /bin/sed -i "s/logUsername/$loggerUsername/g" /etc/logrotate.d/logIndividual 2>/dev/null || log "UNEXPECTED: Could not make $loggerUsername as the default user and group for /etc/logrotate.d/logIndividual"
+    chroot $mountPoint /bin/sed -i "s/logUsername/$loggerUsername/g" /etc/logrotate.d/logFacilities 2>/dev/null || log "UNEXPECTED: Could not make $loggerUsername as the default user and group for /etc/logrotate.d/logFacilities"
 
 # A function that enables proper logging and monitoring of a variety of different concerns
 # File system health monitoring: e2scrub.conf (lvm monitor)
@@ -1523,8 +1490,8 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 # Make configAutostart() function to add in the following scripts: set kernel.modules_disabled = 1, turning on and off firewall for timed ntp, dns, or apk updates, DNS check and validation, kernel update notifications, file integrity monitor, malware scanning, ...
     log "INFO: Configurating supercronic scripts!"
 		# Adding appropriate users to script
-	chroot $mountPoint /bin/sed -i 's/logUsername/$loggerUsername/g' /etc/supercronic/hourly/logrotate 2>/dev/null || log "UNEXPECTED: Could not replace template placeholder name with $loggerUsername user for /etc/supercronic/hourly/logrotate"
-	chroot $mountPoint /bin/sed -i 's/logUsername/$loggerUsername/g' /etc/supercronic/helper/logPerm 2>/dev/null || log "UNEXPECTED: Could not replace template placeholder name with $loggerUsername user for /etc/supercronic/helper/logPerm"
+	chroot $mountPoint /bin/sed -i "s/logUsername/$loggerUsername/g" /etc/supercronic/hourly/logrotate 2>/dev/null || log "UNEXPECTED: Could not replace template placeholder name with $loggerUsername user for /etc/supercronic/hourly/logrotate"
+	chroot $mountPoint /bin/sed -i "s/logUsername/$loggerUsername/g" /etc/supercronic/helper/logPerm 2>/dev/null || log "UNEXPECTED: Could not replace template placeholder name with $loggerUsername user for /etc/supercronic/helper/logPerm"
 	
     log "INFO: Adding logging capabilities and modifying permissions inside of mdev.conf"
     		# Only changing permissions and ownership
@@ -2392,10 +2359,15 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 
     log "INFO: Recognizing rc service files"
     chroot $mountPoint /sbin/rc-update add rsyslog boot 2>/dev/null || log "UNEXPECTED: Could not add rsyslog to boot with rc-update"
+    chroot $mountPoint /sbin/rc-update add nftables boot 2>/dev/null || log "UNEXPECTED: Could not add nftables to boot with rc-update"
     chroot $mountPoint /sbin/rc-update add supercronic default 2>/dev/null || log "UNEXPECTED: Could not add supercronic to default with rc-update"
     chroot $mountPoint /sbin/rc-update add sshd default 2>/dev/null || log "UNEXPECTED: Could not add sshd to default with rc-update"
     chroot $mountPoint /sbin/rc-update add fail2ban default 2>/dev/null || log "INFO: Could not add fail2ban to default with rc-update"
-
+	
+	log "INFO: Preemptively check if certain services were already running"
+	if [ "$(chroot $mountPoint /sbin/rc-service supercronic status)" == ' * status: stopped' ]; then chroot $mountPoint /sbin/rc-service supercronic start 2>/dev/null || log "UNEXPECTED: Could not restart supercronic daemon"; fi
+	if [ "$(chroot $mountPoint /sbin/rc-service fail2ban status)" == ' * status: stopped' ]; then chroot $mountPoint /sbin/rc-service fail2ban start || log "UNEXPECTED: Could not restart fail2ban daemon"; fi
+    
 	log "INFO: Removing certain services"
     if [ ! -z "$(chroot $mountPoint /sbin/rc-update | grep " syslog" 2>/dev/null)" ]; then chroot $mountPoint /sbin/rc-update --quiet del syslog boot 2>/dev/null || log "UNEXPECTED: Could not remove busybox syslog from booting"; fi
     if [ ! -z "$(chroot $mountPoint /sbin/rc-update | grep " crond" 2>/dev/null)" ]; then chroot $mountPoint /sbin/rc-update --quiet del crond default 2>/dev/null || log "UNEXPECTED: Could not remove busybox crond from booting"; fi
@@ -2403,10 +2375,11 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     log "INFO: Restarting services and mounts"
     chroot $mountPoint /sbin/mdev -s || "UNEXPECTED: Could not properely ensure mdev.conf has been executed"
     chroot $mountPoint /bin/mount -a 2>/dev/null || log "UNEXPECTED: Could not properly ensure everything has been mounted accordingly"
-    chroot $mountPoint /sbin/rc-service rsyslog restart 2>/dev/null || log "UNEXPECTED: Could not restart rsyslog daemon alongside fail2ban and supercronic!" # Restarting rsyslog automatically restarts fail2ban and supercronic due to dependency
-    chroot $mountPoint /sbin/rc-service acpid restart || log "UNEXPECTED: Could not restart acpid daemon"
-    chroot $mountPoint /sbin/rc-service chronyd restart || log "UNEXPECTED: Could not restart chronyd daemon"
-    chroot $mountPoint /sbin/rc-service sshd restart || log "UNEXPECTED: Could not restart sshd daemon"
+    chroot $mountPoint /sbin/rc-service nftables restart 2>/dev/null || log "UNEXPECTED: Could not restart nftables daemon"
+    chroot $mountPoint /sbin/rc-service rsyslog restart 2>/dev/null || log "UNEXPECTED: Could not restart rsyslog daemon which included fail2ban and supercronic"
+    chroot $mountPoint /sbin/rc-service acpid restart 2>/dev/null || log "UNEXPECTED: Could not restart acpid daemon"
+    chroot $mountPoint /sbin/rc-service chronyd restart 2>/dev/null || log "UNEXPECTED: Could not restart chronyd daemon"
+    chroot $mountPoint /sbin/rc-service sshd restart 2>/dev/null || log "UNEXPECTED: Could not restart sshd daemon"
 
     log "INFO: Successfully reached end of configurating users!"
 
@@ -2833,14 +2806,14 @@ verifyLocalInstallation() {
 	
 	# Issue banner and motd banner
 	if [ ! -r "$mountPoint/etc/issue" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: The issue banner cannot be read!"; fi
+	if [ -z "$(chroot $mountPoint /bin/grep "^###############################################################" /etc/issue 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Doesn't seem we are using the same /etc/issue given from alpineHarden.sh"; fi
 	if [ ! -r "$mountPoint/etc/motd" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: The motd banner cannot be read!"; fi
+	if [ -z "$(chroot $mountPoint /bin/grep "^# Machine customized by Alonzo Ortiz-Sanchez" /etc/motd 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Doesn't seem we are using the same /etc/motd given from alpineHarden.sh"; fi
 
     # TTY interfaces disablement
     if [ ! -z "$(chroot $mountPoint /bin/grep "^tty" /etc/inittab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There is atleast one tty interface enabled in /etc/inittab"; fi
     if [ ! -z "$(chroot $mountPoint /bin/grep "^\:\:ctrlaltdel" /etc/inittab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Keyboard sequence can still shutdown the device!"; fi
     if [ ! -z "$(chroot $mountPoint /bin/cat /etc/securetty 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There is atleast a tty interface enabled for login in /etc/securetty"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/inittab -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/inittab"; fi
-    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/securetty -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/securetty"; fi
 
     # /etc/profile global environment variables
     if [ -z "$(chroot $mountPoint /bin/grep "^umask $umask" /etc/profile 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH:The umask has not been set to $umask in /etc/profile"; fi
@@ -2889,6 +2862,7 @@ verifyLocalInstallation() {
 	if [ -z "$(chroot $mountPoint /bin/grep "^permit nopass $backgroundUsername as root cmd \/etc\/supercronic\/helper\/logPerm args \# logPerm$" /etc/doas.d/supercronic.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Doas is misconfigured for; executing logPerm helper script!"; fi
 	
     # Check sshd_config configuration
+    	# Defined
     if [ -z "$(chroot $mountPoint /bin/grep "^AddressFamily inet" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AddressFamily!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^RekeyLimit 256M 1h" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; RekeyLimit!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^SyslogFacility $sshFacility" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; SyslogFacility!"; fi
@@ -2933,35 +2907,127 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "^Subsystem sftp internal-sftp" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for Subsystenm; Missing internal-sftp!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read \# For" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for internal-sftp; sftp is not read only and incorrect logging level!"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "ForceCommand greeting.ksh \# For" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured for chroot script; currently not executing greeting.ksh!"; fi
+    	# Commented out
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is not using standard alpineHarden.sh configuration!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#ListenAddress" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; ListenAddress!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#AuthorizedPrincipalsIsFile" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedPrincipalsIsFile!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#AuthorizedKeysCommand" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedKeysCommand!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#AuthorizedKeysCommandUser" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedKeysCommandUser!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#KbdInteractiveAuthentication" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KbdInteractiveAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#KerberosAuthentication" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KerberosAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#KerberosOrLocalPasswd" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KerberosOrLocalPasswd!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#KerberosTicketCleanup" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KerberosTicketCleanup!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#KerberosGetAFSToken" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KerberosGetAFSToken!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#GSSAPIAuthentication" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; GSSAPIAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#GSSAPICleanupCredentials" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; GSSAPICleanupCredentials!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#AllowAgentForwarding" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AllowAgentForwarding!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#X11DisplayOffset" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; X11DisplayOffset!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#X11UseLocalhost" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; X11UseLocalhost!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#PrintLastLog" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; PrintLastLog!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#MaxStartups" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; MaxStartups!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^#VersionAddendum" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; VersionAddendum!"; fi
 
     # Check ssh_config configuration
-    if [ -z "$(chroot $mountPoint /bin/grep "^    AddressFamily inet" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; AddressFamily!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    BatchMode no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; BatchMode!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    ChallengeResponseAuthentication yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ChallengeResponseAuthentication!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    CheckHostIP yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; CheckHostIP!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    Compression yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; Compression!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    CompressionLevel 9" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; CompressionLevel!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    ConnectTimeout 99999" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ConnectTimeout!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    ForwardAgent no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ForwardAgent!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    ForwardX11 no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ForwardX11!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    GatewayPorts no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; GatewayPorts!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    HashKnownHosts yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; HashKnownHosts!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    LogLevel $sshLogging" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; LogLevel!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    PasswordAuthentication no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PasswordAuthentication!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    PermitLocalCommand no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PermitLocalCommand!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    PreferredAuthentications publickey" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PreferredAuthentications!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    TCPKeepAlive yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; TCPKeepAlive!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    Tunnel no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; Tunnel!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    UsePrivilegedPort no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; UsePrivilegedPort!"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "^    PubkeyAuthentication yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PubkeyAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is not using standard alpineHarden.sh configuration!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tAddressFamily inet" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; AddressFamily!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tBatchMode no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; BatchMode!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tChallengeResponseAuthentication yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ChallengeResponseAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tCheckHostIP yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; CheckHostIP!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tCompression yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; Compression!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tCompressionLevel 9" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; CompressionLevel!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tConnectTimeout 99999" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ConnectTimeout!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tForwardAgent no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ForwardAgent!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tForwardX11 no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; ForwardX11!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tGatewayPorts no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; GatewayPorts!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tHashKnownHosts yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; HashKnownHosts!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tLogLevel $sshLogging" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; LogLevel!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tPasswordAuthentication no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PasswordAuthentication!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tPermitLocalCommand no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PermitLocalCommand!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tPreferredAuthentications publickey" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PreferredAuthentications!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tTCPKeepAlive yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; TCPKeepAlive!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tTunnel no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; Tunnel!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tUsePrivilegedPort no" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; UsePrivilegedPort!"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "^\tPubkeyAuthentication yes" /etc/ssh/ssh_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for; PubkeyAuthentication!"; fi
 
     # Check if sshd moduli file is common moduli file
     if [ "$(chroot $mountPoint /usr/bin/md5sum /etc/ssh/moduli 2>/dev/null)" == "122e215edb179637f7506c53898e8d03" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSH is misconfigured for moduli; Relying on default moduli file! This will not be solved by the script unless \$sshExpensiveOperation is enabled!"; fi
 
     # Check if sshd moduli file contains unsafe bits
     if [ ! -z "$(chroot $mountPoint /usr/bin/awk '$5 < 3071' /etc/ssh/moduli)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: There are still unsafe bits in /etc/ssh/moduli!"; fi
+    
+    # Nftables
+    	# Ruleset existance check
+    if [ -z "$(nft list ruleset)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables ruleset is currently empty!"; fi;
+    	# ARP
+    		# Element set existance
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t# ARPREPLACE" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables does not have an element list for ARP entries listed at /etc/nftables.nft!"; fi;
+    		# Automatic
+    if [ -z "$nftablesARP" ]; then 
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t[0-9]\{1,3\}.[0-9]\{1,3\}.[0-9]\{1,3\}.[0-9]\{1,3\} . [0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\}:[0-9A-Fa-f]\{2\},\{0,1\}" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables does not appear to have any ARP entries listed at /etc/nftables.nft!"; fi
+    fi
+    		# Manual
+    if [ ! -z "$nftablesARP" ]; then 
+    	echo "$nftablesARP" | while IFS= read -r arpLine; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$arpLine,\{0,1\}\t# ARP manually set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing $arpLine ARP entry at /etc/nftables.nft!"; fi
+    	done
+    fi
+    	# Inbound specific service entries
+    		# Element set existance
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t# SPECIFICINBOUND" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables does not have an element list for Specific Inbound entries listed at /etc/nftables.nft!"; fi;
+    		# SSH
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$localGateway\/$localNetmask . $sshPort . tcp,\{0,1\}\t# SSH and SFTP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing SSH Inbound specific entry at /etc/nftables.nft!"; fi;
+    		# Manual
+    if [ ! -z "$nftablesSpecificInbound" ]; then 
+    	echo "$nftablesSpecificInbound" | while IFS= read -r customSpecificInbound; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customSpecificInbound,\{0,1\}\t# Specfic Inbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing $customSpecificInbound Inbound specific entry at /etc/nftables.nft!"; fi
+    	done
+    fi
+    	# Outbound specific service entries
+    		# Element set existance
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t# SPECIFICOUTBOUND" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables does not have an element list for Specific Outbound entries listed at /etc/nftables.nft!"; fi;
+    		# APK package manager
+    echo "$apkRepoList" | grep -o https.* | grep -o "https://[a-zA-Z.]*/" | sed "s/https://" | sed "s/\///g" | while read -r apkLine; do
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$apkLine . $apkPort . tcp,\{0,1\}\t# APK HTTPS automatically set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing APK package manager Outbound specific entry at /etc/nftables.nft!"; fi;
+    done
+    		# DNS
+    for dnsLine in $dnsList; do
+    	if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$dnsLine . $dnsPort . udp,\{0,1\}\t# DNS automatically set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing DNS Outbound specific entry at /etc/nftables.nft!"; fi;
+    done
+        	# Manual
+    if [ ! -z "$nftablesSpecificOutbound" ]; then 
+    	echo "$nftablesSpecificOutbound" | while IFS= read -r customSpecificOutbound; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customSpecificOutbound,\{0,1\}\t# Specfic Outbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing $customSpecificOutbound Outbound specific entry at /etc/nftables.nft!"; fi
+    	done
+    fi
+    	# Inbound broad service entries
+    		# Element set existance
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t# BROADINBOUND" /etc/nftables.nft 2>/dev/null)" ] && [ ! -z "$nftablesBroadInbound" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables does not have an element list for Broad Inbound entries listed at /etc/nftables.nft!"; fi;
+        	# Manual
+    if [ ! -z "$nftablesBroadInbound" ]; then 
+    	echo "$nftablesBroadInbound" | while IFS= read -r customBroadInbound; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customBroadInbound,\{0,1\}\t# Broad Inbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing $customBroadInbound Inbound broad entry at /etc/nftables.nft!"; fi
+    	done
+    fi
+    	# Outbound broad service entries
+    		# Element set existance
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t# BROADOUTBOUND" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables does not have an element list for Broad Outbound entries listed at /etc/nftables.nft!"; fi;
+    		# NTP
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$ntpStandardPort . udp,\{0,1\}\t# NTP automatically set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing NTP Broad Outbound entry at /etc/nftables.nft!"; fi
+        	# Manual
+    if [ ! -z "$nftablesBroadOutbound" ]; then 
+    	echo "$nftablesBroadOutbound" | while IFS= read -r customBroadOutbound; do
+    		if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$customBroadOutbound,\{0,1\}\t# Broad Outbound manually set" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing $customBroadOutbound Outbound broad entry at /etc/nftables.nft!"; fi
+    	done
+    fi
+    	# Packet manipulation for localhost
+    		# Element set existance
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t# SPECIFICLAN" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables does not have an element list for TCP packet manipulation at /etc/nftables.nft!"; fi;
+    		# Lan Network Address and Subnet
+    if [ -z "$(chroot $mountPoint /bin/grep "^\t\t\t\t$localGateway\/$localNetmask,\{0,1\}\t# LAN defined" /etc/nftables.nft 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables is missing Lan entry entry at /etc/nftables.nft!"; fi
+    
     # Fail2ban configuration
     	# jail.local
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/fail2ban/jail.local 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban is not using standard alpineHarden.sh configuration"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^bantime = 1h" /etc/fail2ban/jail.local 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban bantime does not match"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^findtime = 1h" /etc/fail2ban/jail.local 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban findtime does not match"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "^maxretry = 3" /etc/fail2ban/jail.local 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: fail2ban maxretry does not match"; fi
@@ -2981,6 +3047,7 @@ verifyLocalInstallation() {
     
 	# RSYSLOG (Logging)
 		# rsyslog.conf
+    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Rsyslog is not using standard alpineHarden.sh configuration"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tumask=\"0$umask\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: umask is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "\tname=\"$localhostName.format\"" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: name is misconfigured for rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "# Example: 1776138141 @ 03:42:21.164112 on 2026-04-14:localhost\[:127.0.0.1::\]:user.notice\[13\]:someService\[localhost,31686\]: This is a test" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: string example is misconfigured for rsyslog.conf"; fi
@@ -2996,7 +3063,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /bin/grep "include(file=\"\/etc\/rsyslog.d\/40-broadFilters.conf\" mode=\"abort-if-missing\")" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: include is misconfigured for adding 40-broadFilters.conf to be read by rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "include(file=\"\/etc\/rsyslog.d\/50-daemonFilters.conf\" mode=\"abort-if-missing\")" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: include is misconfigured for adding 50-daemonFilters.conf to be read by rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint /bin/grep "include(file=\"\/etc\/rsyslog.d\/99-failureFilter.conf\" mode=\"abort-if-missing\")" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: include is misconfigured for adding 99-failureFilter.conf to be read by rsyslog.conf"; fi
-    if [ -z "$(chroot $mountPoint /bin/grep "stop \# Replaced inclusive include" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: stop is not included for rsyslog.conf"; fi
+    if [ -z "$(chroot $mountPoint /bin/grep "stop" /etc/rsyslog.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: stop is not included for rsyslog.conf"; fi
     
     	# 10-discardFilters.conf
     if [ -z "$(chroot $mountPoint /bin/grep "if (\$programname == \"logrotate\") and re_match(\$msg, 'Creating|does not need|old logs are|rotating pattern|\[0123456789\].\* rotations|empty log files|log files >= \[0123456789\].\* are rotated|after \[0123456789\].\* days|Now: \[01234567890\].\*-') then {stop} \# Logrotate message filtering" /etc/rsyslog.d/10-discardFilters.conf)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Could not install filter to remove verbose logrotate messages"; fi
@@ -3036,6 +3103,7 @@ verifyLocalInstallation() {
 	# Logrotate
 		# logrotate.conf
 	if [ ! -z "$(chroot $mountPoint /bin/grep "^# see \"man logrotate\" for details" /etc/logrotate.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Still dependent on default /etc/logrotate.conf configuration!"; fi
+	if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/logrotate.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Likely using non-standard alpineHarden /etc/logrotate.conf configuration!"; fi
 	if [ -z "$(chroot $mountPoint /bin/grep "^daily" /etc/logrotate.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.conf is misconfigured; daily"; fi
 	if [ -z "$(chroot $mountPoint /bin/grep "^rotate 2" /etc/logrotate.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.conf is misconfigured; rotate"; fi
 	if [ -z "$(chroot $mountPoint /bin/grep "^maxage 90" /etc/logrotate.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.conf is misconfigured; maxage"; fi
@@ -3055,30 +3123,22 @@ verifyLocalInstallation() {
 	if [ -z "$(chroot $mountPoint /bin/grep "^include \/etc\/logrotate.d\/logIndividual" /etc/logrotate.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.conf is misconfigured; Include for logIndividual"; fi
 	if [ -z "$(chroot $mountPoint /bin/grep "^include \/etc\/logrotate.d\/logFacilities" /etc/logrotate.conf 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.conf is misconfigured; Include for logFacilities"; fi
 		# logIndividual
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 10k" /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; maxsize for Emergency logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 11k" /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; maxsize for Apk logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 12k" /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; maxsize for Kernel logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 500M" /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; maxsize for Firewall logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 13k" /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; maxsize for unfiltered logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 500k" /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; maxsize for utmp logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 501k" /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; maxsize for wtmp logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 502k" /etc/logrotate.d/logIndividual 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; maxsize for btmp logs"; fi
+	if [ "$(chroot $mountPoint /bin/grep "$loggerUsername" /etc/logrotate.d/logIndividual 2>/dev/null | wc -l)" != "8" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logIndividual is misconfigured; There is a mismatch is the number of times $loggerUsername user should have appeared!"; fi
 		# logFacilities
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 500k" /etc/logrotate.d/logFacilities 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logFacilities is misconfigured; maxsize for auth facility logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 501k" /etc/logrotate.d/logFacilities 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logFacilities is misconfigured; maxsize for user facility logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 502k" /etc/logrotate.d/logFacilities 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logFacilities is misconfigured; maxsize for daemon facility logs"; fi
-	if [ -z "$(chroot $mountPoint /bin/grep "^\tmaxsize 503k" /etc/logrotate.d/logFacilities 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logFacilities is misconfigured; maxsize for local facility logs"; fi
+	if [ "$(chroot $mountPoint /bin/grep "$loggerUsername" /etc/logrotate.d/logFacilities 2>/dev/null | wc -l)" != "4" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Logrotate logrotate.d/logFacilities is misconfigured; There is a mismatch is the number of times $loggerUsername user should have appeared!"; fi
 
 	# Supercronic
-		# Crontab execution
+		# Crontab specification
     if [ -z "$(chroot $mountPoint /bin/grep "^0\t\*\t\*\t\*\t\*\t\/bin\/sh \/etc\/supercronic\/hourly\/logrotate \# For logrotate, helper: logPerm" /etc/supercronic/crontab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Crontab of $backgroundUsername user is misconfigured; Cannot start logrotate"; fi
-		# Check for specific file's existance having some date (impossible to verify script without finalizing hash)
-	if [ -z "$(chroot $mountPoint /bin/cat /etc/supercronic/hourly/logrotate 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic doesn't have any data for /etc/supercronic/hourly/logrotate"; fi
 		# Check if expected file can be executed
-	if [ ! -x "$mountPoint/etc/supercronic/hourly/logrotate" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic can't execute /etc/supercronic/hourly/logrotate"; fi
-	if [ -z "$(chroot $mountPoint /bin/cat /etc/supercronic/helper/logPerm 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic doesn't have any data for /etc/supercronic/helper/logPerm"; fi
-		# Check if expected file can be executed
-	if [ ! -x "$mountPoint/etc/supercronic/helper/logPerm" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic can't execute /etc/supercronic/helper/logPerm"; fi
+	if [ ! -x "$mountPoint/etc/supercronic/hourly/logrotate" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Supercronic can't execute /etc/supercronic/hourly/logrotate"; fi
+	if [ ! -x "$mountPoint/etc/supercronic/helper/logPerm" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Supercronic can't execute /etc/supercronic/helper/logPerm"; fi
+		# Check if $loggerUsername is present in specific spots
+			# logrotate
+	if [ -z "$(chroot $mountPoint /bin/grep "^\/usr\/bin\/doas -u $loggerUsername" /etc/supercronic/hourly/logrotate 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing $loggerUsername user for doas command at /etc/supercronic/hourly/logrotate"; fi
+			# logPerm
+	if [ "$(chroot $mountPoint /bin/grep "$loggerUsername:utmp" /etc/supercronic/helper/logPerm 2>/dev/null | wc -l)" != "3" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing $loggerUsername:utmp permission for chown command at /etc/supercronic/helper/logPerm"; fi
+	if [ "$(chroot $mountPoint /bin/grep "$loggerUsername:logread" /etc/supercronic/helper/logPerm 2>/dev/null | wc -l)" != "2" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing $loggerUsername:logread permission for chown command at /etc/supercronic/helper/logPerm"; fi
 
 	# mdev.conf logging and permissions
     	# Only perm changes
@@ -3490,6 +3550,8 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /usr/bin/find /usr/sbin/efibootdump -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/efibootdump"; fi
 
     # Checking /etc permissions
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/inittab -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/inittab"; fi
+    if [ -z "$(chroot $mountPoint /usr/bin/find /etc/securetty -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/securetty"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/moduli -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/moduli"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_config"; fi
     if [ -z "$(chroot $mountPoint /usr/bin/find /etc/ssh/ssh_config.d -perm 0000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/ssh/ssh_config.d"; fi
@@ -3912,6 +3974,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l | grep -i fail2ban 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Fail2ban is yet to be added to rc list"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep rsyslog)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Rsyslog service is not managed currently by OpenRC"; fi
     if [ -z "$(chroot $mountPoint /sbin/rc-service -l 2>/dev/null | grep supercronic)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Supercronic service is not managed currently by OpenRC"; fi
+	if [ -z "$(chroot $mountPoint /sbin/rc-update | grep " nftables | boot" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Nftables service is not managed currently by OpenRC"; fi
 	if [ -z "$(chroot $mountPoint /sbin/rc-update | grep " rsyslog | boot" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Rsyslog service is not managed currently by OpenRC"; fi
 	if [ -z "$(chroot $mountPoint /sbin/rc-update | grep " supercronic" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Supercronic service is not managed currently by OpenRC"; fi
 	if [ ! -z "$(chroot $mountPoint /sbin/rc-update | grep " syslog" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Syslog service is managed currently by OpenRC which should no longer be possible!"; fi

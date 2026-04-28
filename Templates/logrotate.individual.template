@@ -1,1 +1,33 @@
 # Log rotations for individual log files
+/var/log/emergencySystem.log {
+	create 0640 logUsername logUsername
+	maxsize 10k
+}
+/var/log/apk.log {
+	create 0640 logUsername logUsername
+	maxsize 10k
+}
+/var/log/kernSystem.log {
+	create 0640 logUsername logUsername
+	maxsize 10k
+}
+/var/log/kernFirewall.log {
+	create 0640 logUsername logUsername
+	maxsize 500M
+}
+/var/log/unsorted.log {
+	create 0640 logUsername logUsername
+	maxsize 10k
+}
+/var/run/utmp {
+	create 0660 logUsername logUsername
+	maxsize 500k
+}
+/var/log/wtmp {
+	create 0660 logUsername logUsername
+	maxsize 500k
+}
+/var/log/btmp {
+	create 0660 logUsername logUsername
+	maxsize 500k
+}

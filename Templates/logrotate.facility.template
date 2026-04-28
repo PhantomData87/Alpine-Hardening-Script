@@ -1,1 +1,17 @@
 # Log rotations for facility based log files
+/var/log/auth*.log {
+	create 0640 logUsername logUsername
+	maxsize 500k
+}
+/var/log/user*.log {
+	create 0640 logUsername logUsername
+	maxsize 500k
+}
+/var/log/daemon*.log {
+	create 0640 logUsername logUsername
+	maxsize 500k
+}
+/var/log/local*.log {
+	create 0640 logUsername logUsername
+	maxsize 500k
+}
