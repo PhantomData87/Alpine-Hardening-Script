@@ -66,8 +66,8 @@ table inet filter {
 		counter floodScannerSignature {}										# Match to a known attack found in common scanners: Nmap and Hping3
 		# ⟥── How many packets resulted in spam? ─────────────────────────⟤
 		counter floodIncomingNew {}												# Too many packets from new connections with Syn flag
-		counter floodIncomingEstablished {}										# Too many packets from existing connections
-		counter floodOutgoing {}												# Too many packets coming out of the device
+		counter floodIncomingEstablished {}										# Too many known packets from existing connections
+		counter floodOutgoingNew {}												# Too many new packets coming out of the device
 		# ⟥── Possibly a DoS attack counter ──────────────────────────────⟤
 		counter floodInboundLand {}												# Received a packet destined to arrive to itself!
 		counter floodInboundSmurf {}											# A device had sent a broadcast to ICMP or UDP flood this machine!
@@ -321,9 +321,9 @@ table inet filter {
         chain output {
 			type filter hook output priority filter; policy drop;
 			
-			# Rate limit output
-			update @rateLimitSelf { ip saddr limit rate over 600/second burst 50 packets } limit rate 1/hour log prefix "[FLOOD:OUT:All packets] " level alert flags all;
-			update @rateLimitSelf { ip saddr limit rate over 600/second burst 50 packets } counter name floodOutgoing drop;
+			# Rate limit new connections output
+			ct state { new, invalid } update @rateLimitSelf { ip saddr limit rate over 60/second burst 5 packets } limit rate 1/hour log prefix "[FLOOD:OUT:All packets] " level alert flags all;
+			ct state { new, invalid } update @rateLimitSelf { ip saddr limit rate over 60/second burst 5 packets } counter name floodOutgoingNew drop;
 			
 			# Is connection established? Than accept
 			ct state { established, related } accept;

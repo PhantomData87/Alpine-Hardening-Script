@@ -7,19 +7,11 @@
 - Update kernel configuration: https://linuxvox.com/blog/config-linux-kernel/#using-make-oldconfig
 - Live patch: https://wiki.alpinelinux.org/wiki/Kernel_live_patching
 
-fix sshd script execution
-networking: caught SIGINIT, aborting????
-rsyslog filter check: FLOOD, ACCEPT, DROP
-rsyslog filter for userLogrotate spam???
-chrony permission errors
+write a better discard messages filter
 
 # Apply:  nft -f /etc/nftables.conf
 # Check:  nft -c -f /etc/nftables.conf  (dry-run, syntax check only)
 # List:   nft list ruleset
 # Flush:  nft flush ruleset
 
-# Revisit:
-- /etc/fail2ban/fail2ban.conf?
-
-		# System files that could have had user interaction prior
-    if [ -z "$(chroot $mountPoint /bin/grep "^# From alpineHarden.sh" /etc/nftables.nft 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/nftables.nft" "Templates/nftables.nft.template" || log "CRITICAL: Could not obtain remote file to replace /etc/nftables.nft!"; else getRemoteFile "/etc/nftables.nft" "Templates/nftables.nft.template" || log "CRITICAL: Could not obtain remote file to replace /etc/nftables.nft!"; fi
+- learn about POSIX acl!

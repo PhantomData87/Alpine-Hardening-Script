@@ -1,0 +1,9 @@
+# Call for safe storage of current nftable counters
+doas -u root /sbin/rc-service nftables save
+
+# Reset nftable counters
+doas -u root /sbin/rc-service nftables reset
+
+# Ensure the newly generated file is compatible
+doas -u root /bin/chown logUsername:logread /var/log/nftablesCounters
+doas -u root /bin/chmod 0640 /var/log/nftablesCounters

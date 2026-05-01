@@ -19,6 +19,11 @@
 	create 0640 logUsername logUsername
 	maxsize 10k
 }
+/var/log/nftablesCounters {
+	create 0640 logUsername logUsername
+	rotate 5
+	maxsize 2k
+}
 /var/run/utmp {
 	create 0660 logUsername logUsername
 	maxsize 500k
