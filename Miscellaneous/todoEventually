@@ -6,12 +6,15 @@
 - Remove root password?  
 - Update kernel configuration: https://linuxvox.com/blog/config-linux-kernel/#using-make-oldconfig
 - Live patch: https://wiki.alpinelinux.org/wiki/Kernel_live_patching
-
-write a better discard messages filter
-
-# Apply:  nft -f /etc/nftables.conf
-# Check:  nft -c -f /etc/nftables.conf  (dry-run, syntax check only)
-# List:   nft list ruleset
-# Flush:  nft flush ruleset
-
 - learn about POSIX acl!
+- rsyslog: write a better discard messages filter
+
+# Future pam packages to not forget
+opensmtpd-pam : ssh email
+pan_mount : dynamic home directory mounting
+openvpn-auth-pam : openvpn
+pam-u2f : U2F and FIDO2
+yubico-pam : Yubico keys
+openrc-user-pam : Have openrc communicate with pam compatibility to start or stop services
+nss-pam-ldapd : authentication on local devices through another device via ldap
+pam-krb5@se : kerberos5

@@ -1,0 +1,8 @@
+# From alpineHarden.sh
+
+# Field 1: Use TOTP (time-based One Time Password) with 30 second intervals (lowest interval) with 8 digit OTP 
+# Field 2: User is applied for root
+# Field 3: No pin is requested from root "indicated with -"
+# Field 4: Secret key (Based on RFC 4226?)
+# Field 5-9: Stores information but not required initially for new users, but can be defined for existing users
+HOTP/rfcCodeType/rfcDigitLength	replaceUser	-	replaceKEY

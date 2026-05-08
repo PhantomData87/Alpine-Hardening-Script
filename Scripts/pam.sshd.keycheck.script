@@ -1,0 +1,20 @@
+#!/bin/sh
+
+# Exposed PAM variables when using SSH. For example:
+# PAM_USER=witness
+# PAM_RHOST=192.168.0.x
+# PAM_TYPE=auth
+# SSH_AUTH_INFO_0=[public key of accepted key and any other methods used in authentication]
+# PAM_SERVICE=sshd
+# PAM_TTY=ssh
+# SSH_CONNECTION=192.168.0.x 21455 192.168.0.y 594
+
+# Check if authenticated key matches to known user public key
+if [ ! -z "$(echo $SSH_AUTH_INFO_0 | grep "publickey $(cat /home/.keys/$PAM_USER/authorized_keys | awk '{print($1" "$2)}')")" ]; then
+	# Key matches with authenticated key for specific user
+	return 0;
+else
+	# Must be a invalid match
+	#logger "Authentication info did not match! Here is what it currently evaluated :$SSH_AUTH_INFO_0:!=:publickey $(cat /home/.keys/$PAM_USER/authorized_keys | awk '{print($1" "$2)}'):"
+	return 1;
+fi

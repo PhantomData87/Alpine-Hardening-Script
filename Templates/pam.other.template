@@ -1,0 +1,16 @@
+# Default deny
+auth optional pam_echo.so file=/etc/security/warning.auth.conf
+auth required pam_warn.so
+auth requisite pam_deny.so
+
+account optional pam_echo.so file=/etc/security/warning.account.conf
+account required pam_warn.so
+account requisite pam_deny.so
+
+password optional pam_echo.so file=/etc/security/warning.password.conf
+password required pam_warn.so
+password requisite pam_deny.so
+
+session optional pam_echo.so file=/etc/security/warning.session.conf
+session required pam_warn.so
+session requisite pam_deny.so

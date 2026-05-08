@@ -10,6 +10,9 @@
 # A: The user responsible for rsyslog and logrotate is called $loggerUsername, and it already has a wide access of capabilities. Permitting to have "busybox" and "coreutils" group permissions would let the possibility of performing persistant attacks that lay beyond /bin/sh calling and access to problematic binary functions: nc, kill, chmod, etc. $loggerUsername must be very annoying to use to force an attacker to cause noise on the machine that is detectable. The reason why a doas root script even exist in the first place is due to logrotate's weird group behavior assumption. It assumes a non-privledge user that wishes to "CREATE perm user group" will have the "user" be equal to "group" despite group being reference as something else (logread or utmp which $loggerUsername was apart of). It prevents one to simply trust in logrotate's ability to permit other non-user groups to be present after log rotation. 
 # A: Additionally, logrotate needs the ability to perform kill -HUP on the local rsyslog daemon to re-open existing log files to continue functionality. This would mean giving $loggerUsername the ability to spawn shells (busybox:/bin/sh to execute), run internal network connections (busybox:/usr/bin/nc), and sending signals to processes (coreutils:/bin/kill). Therefore, to permit $backgroundUsername to interact with $loggerUsername via doas; a simple doas root /bin/sh script file is provided. Hopefully, due to its simplicity it will not be used for anything malicious, nor have greater access than setting a file's ownership to $loggerUsername:logread or $loggerUsername:utmp. We are trusting pgrep in performing its expected function. The file that is being reference is located @ "/etc/supercronic/helper/logPerm" that doesn't use any user input.
 
+# Q: Why the usage of SHA1 hash in Multi-Factor Authentication when using certain programs connected to PAM?
+# A: It's not by choice. Unless I want to compile myself the entire pam_oath library, then I am forced to wait for the maintainer/creator of it to decide to use it. While it's not standard to the typical RFC to use SHA256 or SHA512. It's quite a pain knowing their are MFA authentifcators that do support it, but cannot be configured. Thus, for the time being this is a compromised until I find a better pam library authenticator (thats not google-authenticator).
+
 # Helpful patterns
 # sed -i "s/condition_1/result_1/; s/failsafe/result_2/g;" file
 # sed -i "/^#\{0,2\}pattern\(.*\)/{h;s//update_pattern/};\${x;/^\$/{s//append_pattern/;H};x}" file
@@ -21,7 +24,10 @@
 # netmask: 24
 # gateway: 192.168.0.1
 
-# Alpine standard aarch64 version: 3.23.2
+# Default download command:
+# rm .sh; wget --no-check-certificate https://192.168.0.x:port/alpineHarden.sh; chmod +x alpineHarden.sh
+
+# Alpine standard aarch64 version: 3.23.4
 
 # !!! Missing features:
 # fail2ban: Configure it more once all services are ready
@@ -36,7 +42,6 @@
 # automation tools, 
 # Develop a plan to manually perform security audits: chkrootkit, RKHunter, aide, lynis supercronics scan
 # User accounting: sysstat
-# SSH multi-factor authentication
 # Using linux `tc` to limit bandwidth and througput of specific packets
 # Awall? Shorewall?
 # Central or decentralized identity user account management
@@ -73,6 +78,8 @@
 # Remove self-sign error in HTTPS transfer
 # Finish removing all instance of "chroot $mountPoint echo" (temp script & ssh pub key)
 # Use more of POSIX ACL!
+# Pam password quality check on: su, passwd.
+# Pam time-boxing login check (pam_time.so) on: su, passwd
 # !!! = TODO remidner
 
 # Log meanings in this script:
@@ -216,6 +223,18 @@ export cronFacility="local1" # "LOCAL0", "LOCAL1", "LOCAL2", "LOCAL3", "LOCAL4",
 		# warn : General Blacklisting/Dropping package/Average Flood
 		# notice: Accepting a TCP/UDP connection
 		# info : Accepting a ICMP/ARP
+
+# Pam configuration
+	# Internal PAM configuration logic
+export pamUmask="0$umask" # Replaces umaskReplace; Set default session umask value
+export pamTimeoutDelay="5000000" # Replaces microsecondErrorDelay; To prevent brute force application on PAM enable services: Add a random timeout to prevent blind brute force attacks
+export pamFailureLimit="4" # Replaces denyTotal; If a consecutive amount of failure attempts are reached before $pamFailureWindow expires. Than lock the account when using PAM
+export pamFailureWindow="7200" # Replaces denySecondWait; Represents how many seconds it takes before a failure attempt is discarded
+export pamFailureUnlock="14400" # Replaces unlockSecondWait; Represents how many seconds it takes before a locked account is automatically unlocked after failed login attempts
+	# Multi-factor authentication (In respect to RFC 4226)
+export pamRFCType="T30" # E : Event-based authentication (No time limit), T : Time-based authentication (Specifyc a integer value for a timeout in seconds, pam_oath accepted values: 30 and 60) (Replaces rfcCodeType)
+export pamRFCDigit="8" # The length of the MFA code. pam_oath only accepts digits from 6-8. (Replaces rfcDigitLength)
+export pamRFCWindow="30" # Specify search depth (Replaces rfcWindowLength)
 
 # Bootloader fallback name
 systemArchFallbackName=""
@@ -437,7 +456,7 @@ removeAlpine() {
     		if [ ! -z "$(chroot $mountPoint mount | grep "/home/$i/dev/pts " 2>/dev/null)" ]; then chroot $mountPoint umount "/home/$i/dev/pts" 2>/dev/null|| log "UNEXPECTED: Could not umount dev/pts for $i user"; fi
     		if [ ! -z "$(chroot $mountPoint mount | grep "/home/$i/dev " 2>/dev/null)" ]; then chroot $mountPoint umount "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not umount dev for $i user"; fi
     	done
-    		#     
+    		# Unmount dev directory from home directories
     	if [ ! -z "$(chroot $mountPoint mount | grep "/home/$backupUsername/dev " 2>/dev/null)" ]; then chroot $mountPoint umount "/home/$backupUsername/dev" 2>/dev/null || log "UNEXPECTED: Could not umount dev for $backupUsername user"; fi
     	if [ ! -z "$(chroot $mountPoint mount | grep "/home/$monitorUsername/dev " 2>/dev/null)" ]; then chroot $mountPoint umount "/home/$monitorUsername/dev" 2>/dev/null || log "UNEXPECTED: Could not umount dev for $monitorUsername user"; fi
     	if [ ! -z "$(chroot $mountPoint mount | grep "/home/$extractUsername/dev " 2>/dev/null)" ]; then chroot $mountPoint umount "/home/$extractUsername/dev" 2>/dev/null || log "UNEXPECTED: Could not umount dev for $extractUsername user"; fi
@@ -817,6 +836,7 @@ defineMount() {
 	chroot $mountPoint sed -i "s/^#\{0,2\}cmdline\(.*\)/cmdline=\"modules=sd-mod,usb-storage,ext4,nvme,mmc,lvm rd.lvm.conf=0 rd.lvm.vg=$lvmName rd.lvm.lv=$lvmName\/$localhostName.root rd.lvm.lv=$lvmName\/$localhostName.home rd.lvm.lv=$lvmName\/$localhostName.var rd.lvm.lv=$lvmName\/$localhostName.var.tmp rd.lvm.lv=$lvmName\/$localhostName.var.log root=\/dev\/$lvmName\/$localhostName.root quiet rootfstype=ext4 hardened_usercopy=1 init_on_alloc=1 init_on_free=1 randomize_kstack_offset=on page_alloc.shuffle=1 slab_nomerge pti=on nosmt hash_pointers=always slub_debug=ZF slub_debug=P page_poison=1 iommu.passthrough=0 iommu.strict=1 mitigations=auto,nosmt kfence.sample_interval=100\"/g" /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not implement kernel parameters that enforce security and compatibility"
 	chroot $mountPoint sed -i "s/^#\{0,2\}output_dir\(.*\)/output_dir=\"\/boot\/efi\/EFI\/boot\"/g" /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not indicate output directory from creating unified kernel image"
 	chroot $mountPoint sed -i "s/^#\{0,2\}output_name\(.*\)/output_name=\"boot$systemArchFallbackName.efi\"/g" /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not indicate output name of unified kernel image as boot$systemArchFallbackName.efi"
+    chroot $mountPoint chmod u-w /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not remove owner write permission on /etc/kernel-hooks.d/secureboot.conf"
 	if [ -z "$(ls -A $mountPoint/etc/uefi-keys 2>/dev/null)" ]; then chroot $mountPoint apk add efi-mkkeys 2>/dev/null || log "CRITICAL: Could not install efi-mkkeys package for generating UEFI keys"; chroot $mountPoint efi-mkkeys -s "$lvmName.$localhost" -o /etc/uefi-keys 2>/dev/null || log "CRITICAL: Could not generate UEFI keys for signing kernal"; chroot $mountPoint apk del efi-mkkeys 2>/dev/null || log "CRITICAL: Could not remove obsolete efi-mkkeys package"; fi
 
 	if ! $isLocalIso; then
@@ -881,6 +901,7 @@ setupAlpine() {
 	rc-update --quiet add lvm 2>/dev/null || log "UNEXPECTED: Did not add lvm services with rc-update"
 	setup-apkcache /var/apk/cache 2>/dev/null || log "UNEXPECTED: Could not setup apk cache to be pointed towards /var/apk/cache"
     apk update 2>/dev/null || log "UNEXPECTED: Could not download or create cache files"
+	apk upgrade || log "UNEXPECTED: Could not upgrade existing service packages"
     log "INFO: Finished pre-setup for default alpine installation!"
 }
 
@@ -912,6 +933,9 @@ getRemoteFileAndPreserve() {
 
 # !!!
 # Alpine hardening guide: https://wiki.alpinelinux.org/wiki/How_to_get_regular_stuff_working
+# GDPR compliance tools inspiration: https://www.linuxteck.com/gdpr-compliance-linux-server-uk/
+# Weird attack vectors: https://github.com/8evz0/OperatingSystems
+# Masterclass list of more resources: https://github.com/paulveillard/cybersecurity-pam#escape-restricted-shells
 # Resources:
 # Issue banner & motd. Inspiration: https://linux-audit.com/the-real-purpose-of-login-banners-on-linux/
 # Creating restricted shells if missing: https://unix.stackexchange.com/questions/605646/how-do-you-install-rbash-in-centos-7
@@ -970,6 +994,11 @@ getRemoteFileAndPreserve() {
 # logrotate does not support in-line comments: https://github.com/logrotate/logrotate/issues/390
 # Openrc supports redirecting stdout to file or program: https://unix.stackexchange.com/questions/445427/how-to-view-daemon-stdout-in-openrc
 # Manpage with a lot of useful information: https://netfilter.org/projects/nftables/manpage.html#lbCH
+# Simple visualization of nftable's hooks and tables: https://wiki.nftables.org/wiki-nftables/index.php/Netfilter_hooks
+# Nftable's importance of filters: https://www.digitalocean.com/community/tutorials/a-deep-dive-into-iptables-and-netfilter-architecture#which-tables-are-available
+# An explanation of why /etc/init.d/nftables is written that way: https://sanjuroe.dev/nft-safe-reload
+# Nftables filter's values and some important context of each level: https://wiki.nftables.org/wiki-nftables/index.php/Netfilter_hooks#Priority_within_hook
+# Nftables routing visualized: https://upload.wikimedia.org/wikipedia/commons/3/37/Netfilter-packet-flow.svg
 # Some pointers in designing the firewall & inspired me to block Nmap scans https://samuel.forestier.app/blog/security/nftables-hardening-rules-and-good-practices
 # BOGONS awareness source: https://thecybersecguru.com/glossary/what-is-a-bogon-ip-guide/
 # IPV6 BOGONS: https://www.team-cymru.org/Services/Bogons/fullbogons-ipv6.
@@ -979,9 +1008,76 @@ getRemoteFileAndPreserve() {
 # Obtained from: https://gist.github.com/hvmonteiro/7f897cd8ae3993195855040056f87dc6
 # Ran with figlet command, reference: https://ar.pinterest.com/pin/dante-the-divine-comedy-2-purgatory-diagrammatic-arrangement-of-mount-purgatory--10062799147380479/
 # Iterating bash lines that have newline characters: https://superuser.com/questions/284187/how-to-iterate-over-lines-in-a-variable-in-bash
+# PAM does not supported by default in Alpine busybox: https://chromic.org/blog/alpine-busybox-login-pam/
+# oath-toolkit not supporting non-standard SHA2 library hash functions (SHA256 and SHA512): https://codeberg.org/oath-toolkit/oath-toolkit/issues/8, https://codeberg.org/oath-toolkit/oath-toolkit/issues/10
+# Pam Google authenticator: https://www.pc-freak.net/blog/set-ssh-twofactor-authentication-2fa-linux-google-authenticator/
+# Pam liboath: https://www.clearhat.org/post/configure-one-time-password-2famfa-ssh-using-libpam-oath-freeotp
+# Pam UsersFile configuration: https://code.google.com/archive/p/mod-authn-otp/wikis/UsersFile.wiki
+# pam_oath configuration and manpage and tutorial: https://oath-toolkit.codeberg.page/pam_oath.html
+# The only way to use Pam, Password, Publickey, and Totp check: https://serverfault.com/questions/1010831/how-to-configure-pam-to-authenticate-ssh-logins-with-password-otp-or-public
+# SSHD and Pam interaction via SSH_AUTH_INFO_0 & SSH_CONNECTION: https://www.openssh.org/txt/release-9.8 & https://www.man7.org/linux/man-pages/man1/ssh.1.html
+# PAM values when writing custom rules: https://www.man7.org/linux/man-pages/man5/pam.d.5.html 
+# Non-exhaustive list of PAM modules to install: https://gist.github.com/assimilat/6162f73df47ae1a32562786b256a627e
+# Main difference between /dev/random and /dev/urandom: https://unix.stackexchange.com/questions/324209/when-to-use-dev-random-vs-dev-urandom
+# Low entropy upon boot in urandom is not a serious concern when compared to /dev/random blocking: https://www.2uo.de/myths-about-urandom/
+# Low entropy of /dev/urandom upon boot is blown out of proportion https://stackoverflow.com/questions/5635277/is-dev-random-considered-truly-random
+# Importance of guarding /usr/lib/pam.d and /usr/lib/security: https://dev.to/rosesecurity/crafting-malicious-pluggable-authentication-modules-for-persistence-privilege-escalation-and-lateral-movement-183i
+# Pam's hidden default config when it cannot find a configuration file: https://askubuntu.com/questions/1524826/what-is-etc-pam-d-other-actually-do
+# The point of using pam_loginuid: https://linuxvox.com/blog/some-uid-s-in-proc-pid-loginuid-are-strange/#how-to-interpret-loginuids-values
+# PAM introduction and how to write rules video: https://www.youtube.com/watch?v=Mc2p6sx2s7k
+# PAM flowchart on PAM Stacking: https://docs.oracle.com/cd/E19253-01/816-4557/pam-15/index.html
+# Pam links to modules used:
+#/usr/lib/security/pam_access.so https://linux.die.net/man/8/pam_access : Access control on a few characteristics
+#/usr/lib/security/pam_canonicalize_user.so https://linuxman7.org/linux/man-pages/man8/pam_canonicalize_user.8.html : Standardize username
+#/usr/lib/security/pam_cgroup.so https://github.com/libcgroup/libcgroup/blob/main/README : Autoset cgroup based on username
+#/usr/lib/security/pam_debug.so https://linux.die.net/man/8/pam_debug : If/Else statement check
+#/usr/lib/security/pam_deny.so https://linux.die.net/man/8/pam_deny : Always deny
+#/usr/lib/security/pam_echo.so https://linux.die.net/man/8/pam_echo : Set additional text when authentication to be displayed to user
+#/usr/lib/security/pam_env.so https://linux.die.net/man/8/pam_env : Set environment variables
+#/usr/lib/security/pam_exec.so https://linux.die.net/man/8/pam_exec : Execute commands
+#/usr/lib/security/pam_faildelay.so https://www.mankier.com/3/pam_fail_delay : Delay deny request by randomized n micro-seconds
+#/usr/lib/security/pam_faillock.so https://linux.die.net/man/8/pam_faillock : Count authentitcation failures
+#/usr/lib/security/pam_group.so https://linux.die.net/man/8/pam_group : Grant access to group membership
+#/usr/lib/security/pam_keyinit.so https://linux.die.net/man/8/pam_keyinit : Set session key ring due to new login
+#/usr/lib/security/pam_lastlog2.so https://www.man7.org/linux/man-pages/man8/pam_lastlog2.8.html : Show last login
+#/usr/lib/security/pam_limits.so https://linux.die.net/man/8/pam_limits : Set resource usage
+#/usr/lib/security/pam_listfile.so https://linux.die.net/man/8/pam_listfile : Is tty|user|rhost|ruser|group|shell in arbitrary file?
+#/usr/lib/security/pam_localuser.so https://linux.die.net/man/8/pam_localuser : in /etc/passwd?
+#/usr/lib/security/pam_loginuid.so https://linux.die.net/man/8/pam_loginuid : Record parent process id in /proc/pid/loginuid field for auditing
+#/usr/lib/security/pam_namespace.so https://linux.die.net/man/8/pam_namespace : Set namespace and SELinux context
+#/usr/lib/security/pam_nologin.so https://linux.die.net/man/8/pam_nologin : Does /etc/nologin exist?
+#/usr/lib/security/pam_oath.so https://github.com/malept/oath-toolkit/blob/master/pam_oath/README : Check One-time-password
+#/usr/lib/security/pam_permit.so https://linux.die.net/man/8/pam_permit : Always succeed
+#/usr/lib/security/pam_pkcs11.so https://linux.die.net/man/8/pam_pkcs11 : Certificates auth
+#/usr/lib/security/pam_rootok.so https://linux.die.net/man/8/pam_rootok :Is user UID 0?
+#/usr/lib/security/pam_securetty.so https://linux.die.net/man/8/pam_securetty : Is root in secure tty?
+#/usr/lib/security/pam_shells.so https://linux.die.net/man/8/pam_shells : in /etc/shells?
+#/usr/lib/security/pam_stress.so https://manpages.debian.org/testing/libpam-modules/pam_stress.8.en.html : Return specific PAM failure conditions
+#/usr/lib/security/pam_succeed_if.so https://linux.die.net/man/8/pam_succeed_if : account characteristic check
+#/usr/lib/security/pam_time.so https://linux.die.net/man/8/pam_time : time range
+#/usr/lib/security/pam_timestamp.so https://linux.die.net/man/8/pam_timestamp : cache success
+#/usr/lib/security/pam_umask.so https://linux.die.net/man/8/pam_umask : set umask
+#/usr/lib/security/pam_unix.so https://linux.die.net/man/8/pam_unix : password check
+#/usr/lib/security/pam_usertype.so https://www.man7.org/linux/man-pages/man8/pam_usertype.8.html : Is system or normal user?
+#/usr/lib/security/pam_warn.so https://linux.die.net/man/8/pam_warn : Rsyslog
+
+#Useless for now:
+#/usr/lib/security/pam_wheel.so https://linux.die.net/man/8/pam_wheel : Is user in wheel group?
+#/usr/lib/security/pam_xauth.so https://linux.die.net/man/8/pam_xauth : Display server
+#/usr/lib/security/pam_pwhistory.so https://linux.die.net/man/8/pam_pwhistory : Reused password detect
+#/usr/lib/security/pam_mkhomedir.so https://linux.die.net/man/8/pam_mkhomedir : Create home directory (LDAP, kerberos, etc)
+#/usr/lib/security/pam_mail.so https://linux.die.net/man/8/pam_mail : Display "you have mail"
+#/usr/lib/security/pam_issue.so https://linux.die.net/man/8/pam_issue : Set issue file and context
+#/usr/lib/security/pam_motd.so https://linux.die.net/man/8/pam_motd : Display MOTD
+#/usr/lib/security/pam_ftp.so https://linux.die.net/man/8/pam_ftp : Uselsss ftp username
+#/usr/lib/security/pam_filter.so https://linux.die.net/man/8/pam_filter : Change displayment of characters to user
+#/usr/lib/security/pam_filter/upperLOWER : Set all characters to uppercase if lower, and vice versa
+#/usr/lib/security/pam_setquota.so https://www.man7.org/linux/man-pages/man8/pam_setquota.8.html : Set/Modify quota in database
+
 configLocalInstallation() {
     log "INFO: Installing packages"
-    chroot $mountPoint apk add coreutils findutils dmesg logger setpriv doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional acpid nftables fail2ban openssh-server-pam util-linux-login rsyslog xz supercronic@additional acl || log "UNEXPECTED: Could not install service packages" # libqrencode for qr code?
+    chroot $mountPoint apk add coreutils findutils dmesg logger setpriv doas doas-doc libcap-getcap libcap-setcap shadow@additional loksh@additional at@additional acpid nftables fail2ban openssh-server-pam util-linux-login rsyslog xz supercronic@additional acl libcgroup-pam@additional oath-toolkit-pam_oath@additional oath-toolkit-oathtool@additional pam-pkcs11@se libqrencode-tools@additional || log "UNEXPECTED: Could not install service packages" # libqrencode for qr code?
+	chroot $mountPoint apk upgrade || log "UNEXPECTED: Could not upgrade existing service packages"
 
     #log "Removing unncessary default packages"
     # Why is alpine-conf hooked to alpine-base..., and why does update-kernel and update-conf exist?
@@ -1104,7 +1200,8 @@ configLocalInstallation() {
     chroot $mountPoint mkdir -p /var/run/supercronic 2>/dev/null || log "UNEXPECTED: Could not create directory for supercronic pid file"
     chroot $mountPoint mkdir -p /var/lib/chrony 2>/dev/null || log "UNEXPECTED: Could not create directory for chrony temp files"
     chroot $mountPoint mkdir -p /var/lib/fail2ban 2>/dev/null || log "UNEXPECTED: Could not create directory for fail2ban database files"
-    chroot $mountPoint mkdir -p "/home/.keys" 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd key storage"
+    chroot $mountPoint mkdir -p /home/.keys 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd key storage"
+    chroot $mountPoint mkdir -p /home/.oath 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd oath bookkeeping"
     chroot $mountPoint mkdir -p /etc/rsyslog.d/sshdSocket/pts 2>/dev/null || log "UNEXPECTED: Could not create directory for sshd dev mount"
     chroot $mountPoint mkdir -p /etc/rsyslog.d/sftpSocket/pts 2>/dev/null || log "UNEXPECTED: Could not create directory for sftp dev mount"
     chroot $mountPoint mkdir -p /home/$monitorUsername/logs 2>/dev/null || log "UNEXPECTED: Could not create directory for mounting logs to $monitorUsername"
@@ -1167,6 +1264,16 @@ configLocalInstallation() {
     done
 
 	log "INFO: Removing useless default installation files, directories, and users"
+		# PAM
+	if [ -f "$mountPoint/usr/lib/pam.d/base-account" ]; then chroot $mountPoint rm /usr/lib/pam.d/base-account 2>/dev/null || log "UNEXPECTED: Could not removed /usr/lib/pam.d/base-account file"; fi
+	if [ -f "$mountPoint/usr/lib/pam.d/base-auth" ]; then chroot $mountPoint rm /usr/lib/pam.d/base-auth 2>/dev/null || log "UNEXPECTED: Could not removed /usr/lib/pam.d/base-auth file"; fi
+	if [ -f "$mountPoint/usr/lib/pam.d/base-password" ]; then chroot $mountPoint rm /usr/lib/pam.d/base-password 2>/dev/null || log "UNEXPECTED: Could not removed /usr/lib/pam.d/base-password file"; fi
+	if [ -f "$mountPoint/usr/lib/pam.d/base-session" ]; then chroot $mountPoint rm /usr/lib/pam.d/base-session 2>/dev/null || log "UNEXPECTED: Could not removed /usr/lib/pam.d/base-session file"; fi
+	if [ -f "$mountPoint/usr/lib/pam.d/base-session-noninteractive" ]; then chroot $mountPoint rm /usr/lib/pam.d/base-session-noninteractive 2>/dev/null || log "UNEXPECTED: Could not removed /usr/lib/pam.d/base-session-noninteractive file"; fi
+	if [ -f "$mountPoint/usr/lib/pam.d/login" ]; then chroot $mountPoint rm /usr/lib/pam.d/login 2>/dev/null || log "UNEXPECTED: Could not removed /usr/lib/pam.d/login file"; fi
+	if [ -f "$mountPoint/usr/lib/pam.d/su" ]; then chroot $mountPoint rm /usr/lib/pam.d/su 2>/dev/null || log "UNEXPECTED: Could not removed /usr/lib/pam.d/su file"; fi
+	if [ -f "$mountPoint/usr/lib/pam.d/other" ]; then chroot $mountPoint rm /usr/lib/pam.d/other 2>/dev/null || log "UNEXPECTED: Could not removed /usr/lib/pam.d/other file"; fi
+	if [ ! -L "$mountPoint/etc/pam.d/su-l" ]; then chroot $mountPoint rm /etc/pam.d/su-l 2>/dev/null || log "UNEXPECTED: Could not removed /etc/pam.d/su-l file"; fi
 		# Busybox
     if [ -d "$mountPoint/etc/busybox-paths.d" ]; then chroot $mountPoint rm -R /etc/busybox-paths.d || log "UNEXPECTED: Could not removed post-build busybox directory"; fi
 		# Logrotate
@@ -1196,6 +1303,23 @@ configLocalInstallation() {
     
     log "INFO: Downloading prepared files"
     	# Files originally made by me
+    		# Pam
+    getRemoteFile "/etc/security/keyCheck.sh" "Scripts/pam.sshd.keycheck.script" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/security/keyCheck.sh from $scriptAddress!"
+    getRemoteFile "/etc/pam.d/login" "Templates/pam.login.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/pam.d/login from $scriptAddress!"
+    getRemoteFile "/etc/pam.d/runuser" "Templates/pam.runuser.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace //etc/pam.d/runuser from $scriptAddress!"
+    getRemoteFile "/etc/pam.d/su" "Templates/pam.su.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/pam.d/su from $scriptAddress!"
+    getRemoteFile "/etc/pam.d/passwd" "Templates/pam.passwd.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/pam.d/passwd from $scriptAddress!"
+    getRemoteFile "/etc/pam.d/sshd" "Templates/pam.sshd.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/pam.d/sshd from $scriptAddress!"
+    getRemoteFile "/etc/pam.d/other" "Templates/pam.other.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/pam.d/other from $scriptAddress!"
+    getRemoteFile "/etc/security/warning.auth.conf" "Templates/pam.warning.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/security/warning.auth.conf from $scriptAddress!"
+    getRemoteFile "/etc/security/warning.account.conf" "Templates/pam.warning.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/security/warning.account.conf from $scriptAddress!"
+    getRemoteFile "/etc/security/warning.password.conf" "Templates/pam.warning.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/security/warning.password.conf from $scriptAddress!"
+    getRemoteFile "/etc/security/warning.session.conf" "Templates/pam.warning.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/security/warning.session.conf from $scriptAddress!"
+    if [ ! -f "$mountPoint/root/su.oath" ]; then getRemoteFile "/root/su.oath" "Templates/pam.oath.users.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /root/su.oath from $scriptAddress!"; fi
+    if [ ! -f "$mountPoint/home/.oath/$previewUsername.oath" ]; then getRemoteFile "/home/.oath/$previewUsername.oath" "Templates/pam.oath.users.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /home/.oath/$previewUsername.oath from $scriptAddress!"; fi
+    if [ ! -f "$mountPoint/home/.oath/$serverCommandUsername.oath" ]; then getRemoteFile "/home/.oath/$serverCommandUsername.oath" "Templates/pam.oath.users.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /home/.oath/$serverCommandUsername.oath from $scriptAddress!"; fi
+    if [ ! -f "$mountPoint/home/.oath/$backupUsername.oath" ]; then getRemoteFile "/home/.oath/$backupUsername.oath" "Templates/pam.oath.users.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /home/.oath/$backupUsername.oath from $scriptAddress!"; fi
+    if [ ! -f "$mountPoint/home/.oath/$monitorUsername.oath" ]; then getRemoteFile "/home/.oath/$monitorUsername.oath" "Templates/pam.oath.users.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /home/.oath/$monitorUsername.oath from $scriptAddress!"; fi
 	    	# doas
     getRemoteFile "/etc/doas.d/daemon.conf" "Templates/doas.daemon.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/doas.d/daemon.conf from $scriptAddress!"
     getRemoteFile "/etc/doas.d/supercronic.conf" "Templates/doas.supercronic.template" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace /etc/doas.d/supercronic.conf from $scriptAddress!"
@@ -1218,6 +1342,7 @@ configLocalInstallation() {
 	getRemoteFile "/home/$previewUsername/bin/greeting.ksh" "Scripts/sshd.previewUsername.script" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace existing /home/$previewUsername/bin/greeting.ksh from $scriptAddress!"
 	getRemoteFile "/home/$serverCommandUsername/bin/greeting.ksh" "Scripts/sshd.serverCommandUsername.script" || log "CRITICAL: Could not obtain remote file to ensure sed works and replace existing /home/$serverCommandUsername/bin/greeting.ksh from $scriptAddress!"
 		# System files that could have had user interaction prior
+    if [ -z "$(chroot $mountPoint grep "^# From alpineHarden.sh" /etc/pam.d/shadow-utils 2>/dev/null)" ]; then getRemoteFileAndPreserve /etc/pam.d/shadow-utils "Templates/pam.shadow-utils.template" || log "CRITICAL: Could not obtain remote file to replace /etc/pam.d/shadow-utils!"; else getRemoteFile /etc/pam.d/shadow-utils "Templates/pam.shadow-utils.template" || log "CRITICAL: Could not obtain remote file to replace /etc/pam.d/shadow-utils!"; fi
     if [ -z "$(chroot $mountPoint grep "^# From alpineHarden.sh" /etc/nftables.nft 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/nftables.nft" "Templates/nftables.nft.template" || log "CRITICAL: Could not obtain remote file to replace /etc/nftables.nft!"; else getRemoteFile "/etc/nftables.nft" "Templates/nftables.nft.template" || log "CRITICAL: Could not obtain remote file to replace /etc/nftables.nft!"; fi
     if [ -z "$(chroot $mountPoint grep "^# From alpineHarden.sh" /etc/logrotate.conf 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/logrotate.conf" "Templates/logrotate.conf.template" || log "CRITICAL: Could not obtain remote logrotate.conf from $scriptAddress"; else getRemoteFile "/etc/logrotate.conf" "Templates/logrotate.conf.template" || log "CRITICAL: Could not obtain remote logrotate.conf from $scriptAddress"; fi
     if [ -z "$(chroot $mountPoint grep "^# From alpineHarden.sh" /etc/ssh/ssh_config 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/ssh/ssh_config" "Templates/sshd.ssh.conf.template" || log "CRITICAL: Could not obtain remote sshd.ssh.conf from $scriptAddress"; else getRemoteFile "/etc/ssh/ssh_config" "Templates/sshd.ssh.conf.template" || log "CRITICAL: Could not obtain remote sshd.ssh.conf from $scriptAddress"; fi
@@ -1227,6 +1352,8 @@ configLocalInstallation() {
 	if [ -z "$(chroot $mountPoint grep "^###############################################################" /etc/issue 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/issue" "Templates/issue.template" || log "CRITICAL: Could not obtain remote file of /etc/issue from $scriptAddress!"; else getRemoteFile "/etc/issue" "Templates/issue.template" || log "CRITICAL: Could not obtain remote file of /etc/issue from $scriptAddress!"; fi
 	if [ -z "$(chroot $mountPoint grep "^# Machine customized by Alonzo Ortiz-Sanchez" /etc/motd 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/motd" "Templates/motd.template" || log "CRITICAL: Could not obtain remote file of /etc/motd from $scriptAddress!"; else getRemoteFile "/etc/motd" "Templates/motd.template" || log "CRITICAL: Could not obtain remote file of /etc/motd from $scriptAddress!"; fi
 	if [ ! -z "$(chroot $mountPoint cat /etc/securetty 2>/dev/null)" ]; then getRemoteFileAndPreserve "/etc/securetty" "Templates/securetty.template" || log "CRITICAL: Could not obtain remote file of /etc/securetty from $scriptAddress!"; else getRemoteFile "/etc/securetty" "Templates/securetty.template" || log "CRITICAL: Could not obtain remote file of /etc/securetty from $scriptAddress!"; fi
+		# Create symbolic links
+	chroot $mountPoint ln -sf /etc/pam.d/su /etc/pam.d/su-l 2>/dev/null || log "UNEXPECTED: Could not create a symbolic link from /etc/pam.d/su-l to /etc/pam.d/su"
 	
     log "INFO: Chroot bindings added to fstab"
 		# Modifying fstab to bind files to certain locations in home director for $previewUsername & $serverCommandUsername chroot environment (including rsyslog)
@@ -1254,27 +1381,89 @@ configLocalInstallation() {
 # Resource: https://www.ibm.com/docs/en/aix/7.2.0?topic=shell-restricted-korn
 # Fix sftp issue form using rksh
 
-# !!! PAM
-# Reading: 
-# https://docs.oracle.com/cd/E19253-01/816-4557/pam-15/index.html
-# https://linux.die.net/man/8/pam_shells
-# https://linux.die.net/man/8/pam_permit
-# https://linux.die.net/man/8/pam_rootok
-# https://linux.die.net/man/5/pam.d
-# auth (identity), account (access permission), password (credentials), session (user session)
-# 
-# requisite: fail, exit, result fail
-# required; fail, continue, result fail
-# optional; pass/fail ignored, but can execute some things
-# include; add configuration from another file
-# sufficient; suceed, enough, result pass (nothing else is called)
-# 
-# action: pick from PAM modules, read what each pam module does for arguments
-# 
-# 
-# Check for pam: ldd /bin/login,
-# no output means no pam
     log "INFO: Configurating PAM"
+    # Affecting pam.warning.template files
+    	# Change warning text
+    chroot $mountPoint sed -i "s/pamTypeReplace/auth/g" /etc/security/warning.auth.conf || log "UNEXPECTED: Could not correct text for /etc/security/warning.auth.conf"
+    chroot $mountPoint sed -i "s/pamTypeReplace/account/g" /etc/security/warning.account.conf || log "UNEXPECTED: Could not correct text for /etc/security/warning.account.conf"
+    chroot $mountPoint sed -i "s/pamTypeReplace/password/g" /etc/security/warning.password.conf || log "UNEXPECTED: Could not correct text for /etc/security/warning.password.conf"
+    chroot $mountPoint sed -i "s/pamTypeReplace/session/g" /etc/security/warning.session.conf || log "UNEXPECTED: Could not correct text for /etc/security/warning.session.conf"
+    # Affecting pam.oath.users.template files
+    	# Set OTP RFC implementation type
+    chroot $mountPoint sed -i "s/rfcCodeType/$pamRFCType/g" "/home/.oath/$previewUsername.oath" || log "CRITICAL: Could not set OTP implementation type for ssh $previewUsername user at /home/.oath/$previewUsername.oath"
+    chroot $mountPoint sed -i "s/rfcCodeType/$pamRFCType/g" "/home/.oath/$serverCommandUsername.oath" || log "CRITICAL: Could not set OTP implementation type for ssh $serverCommandUsername user at /home/.oath/$serverCommandUsername.oath"
+    chroot $mountPoint sed -i "s/rfcCodeType/$pamRFCType/g" "/home/.oath/$backupUsername.oath" || log "CRITICAL: Could not set OTP implementation type for ssh $backupUsername user at /home/.oath/$backupUsername.oath"
+    chroot $mountPoint sed -i "s/rfcCodeType/$pamRFCType/g" "/home/.oath/$monitorUsername.oath" || log "CRITICAL: Could not set OTP implementation type for ssh $monitorUsername user at /home/.oath/$monitorUsername.oath"
+    chroot $mountPoint sed -i "s/rfcCodeType/$pamRFCType/g" /root/su.oath || log "CRITICAL: Could not set OTP implementation type for su binary at /root/su.oath"
+    	# Set OTP Digit length
+    chroot $mountPoint sed -i "s/rfcDigitLength/$pamRFCDigit/g" "/home/.oath/$previewUsername.oath" || log "CRITICAL: Could not set OTP digit length for ssh $previewUsername user at /home/.oath/$previewUsername.oath"
+    chroot $mountPoint sed -i "s/rfcDigitLength/$pamRFCDigit/g" "/home/.oath/$serverCommandUsername.oath" || log "CRITICAL: Could not set OTP digit length for ssh $serverCommandUsername user at /home/.oath/$serverCommandUsername.oath"
+    chroot $mountPoint sed -i "s/rfcDigitLength/$pamRFCDigit/g" "/home/.oath/$backupUsername.oath" || log "CRITICAL: Could not set OTP digit length for ssh $backupUsername user at /home/.oath/$backupUsername.oath"
+    chroot $mountPoint sed -i "s/rfcDigitLength/$pamRFCDigit/g" "/home/.oath/$monitorUsername.oath" || log "CRITICAL: Could not set OTP digit length for ssh $monitorUsername user at /home/.oath/$monitorUsername.oath"
+    chroot $mountPoint sed -i "s/rfcDigitLength/$pamRFCDigit/g" /root/su.oath || log "CRITICAL: Could not set OTP digit length for su binary at /root/su.oath"
+    	# Set OTP user
+    chroot $mountPoint sed -i "s/replaceUser/$previewUsername/g" "/home/.oath/$previewUsername.oath" || log "CRITICAL: Could not set user OTP for ssh $previewUsername user at /home/.oath/$previewUsername.oath"
+    chroot $mountPoint sed -i "s/replaceUser/$serverCommandUsername/g" "/home/.oath/$serverCommandUsername.oath" || log "CRITICAL: Could not set user OTP for ssh $serverCommandUsername user at /home/.oath/$serverCommandUsername.oath"
+    chroot $mountPoint sed -i "s/replaceUser/$backupUsername/g" "/home/.oath/$backupUsername.oath" || log "CRITICAL: Could not set user OTP for ssh $backupUsername user at /home/.oath/$backupUsername.oath"
+    chroot $mountPoint sed -i "s/replaceUser/$monitorUsername/g" "/home/.oath/$monitorUsername.oath" || log "CRITICAL: Could not set user OTP for ssh $monitorUsername user at /home/.oath/$monitorUsername.oath"
+    chroot $mountPoint sed -i "s/replaceUser/root/g" /root/su.oath || log "CRITICAL: Could not set user OTP for su binary at /root/su.oath"
+    	# Set OTP randomized seed
+    chroot $mountPoint sed -i "s/replaceKEY/$(head -512 /dev/urandom | sha1sum | cut -c 1-40)/g" "/home/.oath/$previewUsername.oath" || log "CRITICAL: Could not set OTP for ssh $previewUsername user at /home/.oath/$previewUsername.oath"
+    chroot $mountPoint sed -i "s/replaceKEY/$(head -512 /dev/urandom | sha1sum | cut -c 1-40)/g" "/home/.oath/$serverCommandUsername.oath" || log "CRITICAL: Could not set OTP for ssh $serverCommandUsername user at /home/.oath/$serverCommandUsername.oath"
+    chroot $mountPoint sed -i "s/replaceKEY/$(head -512 /dev/urandom | sha1sum | cut -c 1-40)/g" "/home/.oath/$backupUsername.oath" || log "CRITICAL: Could not set OTP for ssh $backupUsername user at /home/.oath/$backupUsername.oath"
+    chroot $mountPoint sed -i "s/replaceKEY/$(head -512 /dev/urandom | sha1sum | cut -c 1-40)/g" "/home/.oath/$monitorUsername.oath" || log "CRITICAL: Could not set OTP for ssh $monitorUsername user at /home/.oath/$monitorUsername.oath"
+    chroot $mountPoint sed -i "s/replaceKEY/$(head -512 /dev/urandom | sha1sum | cut -c 1-40)/g" /root/su.oath || log "CRITICAL: Could not set OTP for su binary at /root/su.oath"
+		# Generate QR Code
+	chroot $mountPoint qrencode --type=ANSIUTF8 "otpauth://totp/$previewUsername user?secret=$(cat /home/.oath/$previewUsername.oath | grep -o "[0-9a-fA-F]\{40\}" | xxd -r -p | base32)&digits=8&issuer=$localhostName@$localGateway/$localNetmask&period=30&algorithm=sha1" -o "/home/$extractUsername/$localhostName.user.$previewUsername-mfa.qrcode" || log "CRITICAL: Could not redirect QR code for $previewUsername user at /home/$extractUsername/$localhostName.user.$previewUsername-mfa.qrcode"
+	chroot $mountPoint qrencode --type=ANSIUTF8 "otpauth://totp/$serverCommandUsername user?secret=$(cat /home/.oath/$serverCommandUsername.oath | grep -o "[0-9a-fA-F]\{40\}" | xxd -r -p | base32)&digits=8&issuer=$localhostName@$localGateway/$localNetmask&period=30&algorithm=sha1" -o "/home/$extractUsername/$localhostName.user.$serverCommandUsername-mfa.qrcode" || log "CRITICAL: Could not redirect QR code for $serverCommandUsername user at /home/$extractUsername/$localhostName.user.$serverCommandUsername-mfa.qrcode"
+	chroot $mountPoint qrencode --type=ANSIUTF8 "otpauth://totp/$backupUsername user?secret=$(cat /home/.oath/$backupUsername.oath | grep -o "[0-9a-fA-F]\{40\}" | xxd -r -p | base32)&digits=8&issuer=$localhostName@$localGateway/$localNetmask&period=30&algorithm=sha1" -o "/home/$extractUsername/$localhostName.user.$backupUsername-mfa.qrcode" || log "CRITICAL: Could not redirect QR code for $backupUsername user at /home/$extractUsername/$localhostName.user.$backupUsername-mfa.qrcode"
+	chroot $mountPoint qrencode --type=ANSIUTF8 "otpauth://totp/$monitorUsername user?secret=$(cat /home/.oath/$monitorUsername.oath | grep -o "[0-9a-fA-F]\{40\}" | xxd -r -p | base32)&digits=8&issuer=$localhostName@$localGateway/$localNetmask&period=30&algorithm=sha1" -o "/home/$extractUsername/$localhostName.user.$monitorUsername-mfa.qrcode" || log "CRITICAL: Could not redirect QR code for $monitorUsername user at /home/$extractUsername/$localhostName.user.$monitorUsername-mfa.qrcode"
+	chroot $mountPoint qrencode --type=ANSIUTF8 "otpauth://totp/Local su program?secret=$(cat /root/su.oath | grep -o "[0-9a-fA-F]\{40\}" | xxd -r -p | base32)&digits=8&issuer=$localhostName@$localGateway/$localNetmask&period=30&algorithm=sha1" -o "/home/$extractUsername/$localhostName.program.su-mfa.qrcode" || log "CRITICAL: Could not redirect QR code for SU binary at /home/$extractUsername/$localhostName.program.su-mfa.qrcode"
+	# Affecting pam.su.template
+    	# Set OTP Digit length
+    chroot $mountPoint sed -i "s/rfcDigitLength/$pamRFCDigit/g" "/etc/pam.d/su" || log "CRITICAL: Could not set OTP digit length for su pam config file at /etc/pam.d/su"
+    	# Set OTP Window size
+    chroot $mountPoint sed -i "s/rfcWindowLength/$pamRFCWindow/g" "/etc/pam.d/su" || log "CRITICAL: Could not set OTP window length for su pam config file at /etc/pam.d/su"
+    	# Set Delay on failed authentication attempts
+    chroot $mountPoint sed -i "s/denyTotal/$pamFailureLimit/g" "/etc/pam.d/su" || log "CRITICAL: Could not set lockout threshold upon failed login for su pam config file at /etc/pam.d/su"
+    	# Set lockout threshold
+    chroot $mountPoint sed -i "s/denySecondWait/$pamFailureWindow/g" "/etc/pam.d/su" || log "CRITICAL: Could not set deny window range for su pam config file at /etc/pam.d/su"
+    	# Set lockout window
+    chroot $mountPoint sed -i "s/unlockSecondWait/$pamFailureUnlock/g" "/etc/pam.d/su" || log "CRITICAL: Could not set unlock account timeout for su pam config file at /etc/pam.d/su"
+    	# Set lockout unlock timeout
+    chroot $mountPoint sed -i "s/microsecondErrorDelay/$pamTimeoutDelay/g" "/etc/pam.d/su" || log "CRITICAL: Could not set delay for failed login attempts for su pam config file at /etc/pam.d/su"
+    	# Set Umask upon successful login
+    chroot $mountPoint sed -i "s/umaskReplace/$pamUmask/g" "/etc/pam.d/su" || log "CRITICAL: Could not enforce umask on authenticated users for su pam config file at /etc/pam.d/su"
+	# Affecting pam.sshd.template
+    	# Set OTP Digit length
+    chroot $mountPoint sed -i "s/rfcDigitLength/$pamRFCDigit/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set OTP digit length for sshd pam config file at /etc/pam.d/sshd"
+    	# Set OTP Window size
+    chroot $mountPoint sed -i "s/rfcWindowLength/$pamRFCWindow/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set OTP window length for sshd pam config file at /etc/pam.d/sshd"
+    	# Set Delay on failed authentication attempts
+    chroot $mountPoint sed -i "s/denyTotal/$pamFailureLimit/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set lockout threshold upon failed login for sshd pam config file at /etc/pam.d/sshd"
+    	# Set lockout threshold
+    chroot $mountPoint sed -i "s/denySecondWait/$pamFailureWindow/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set deny window range for sshd pam config file at /etc/pam.d/sshd"
+    	# Set lockout window
+    chroot $mountPoint sed -i "s/unlockSecondWait/$pamFailureUnlock/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set unlock account timeout for sshd pam config file at /etc/pam.d/sshd"
+    	# Set lockout unlock timeout
+    chroot $mountPoint sed -i "s/microsecondErrorDelay/$pamTimeoutDelay/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set delay for failed login attempts for sshd pam config file at /etc/pam.d/sshd"
+    	# Set Umask upon successful login
+    chroot $mountPoint sed -i "s/umaskReplace/$pamUmask/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not enforce umask on authenticated users for sshd pam config file at /etc/pam.d/sshd"
+    	# Add user's oath file
+    chroot $mountPoint sed -i "s/previewUsernameOATH/$previewUsername/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $previewUsername's OTP file in /etc/pam.d/sshd"
+    chroot $mountPoint sed -i "s/serverCommandUsernameOATH/$serverCommandUsername/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $serverCommandUsername's OTP file in /etc/pam.d/sshd"
+    chroot $mountPoint sed -i "s/backupUsernameOATH/$backupUsername/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $backupUsername's OTP file in /etc/pam.d/sshd"
+    chroot $mountPoint sed -i "s/monitorUsernameOATH/$monitorUsername/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $monitorUsername's OTP file in /etc/pam.d/sshd"
+    	# Set user UID for proper comparison
+    chroot $mountPoint sed -i "s/extractUsernameUID/$(id -u $extractUsername)/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $extractUsername's UID for OTP redirection in /etc/pam.d/sshd"
+    chroot $mountPoint sed -i "s/previewUsernameUID/$(id -u $previewUsername)/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $previewUsername's UID for OTP redirection in /etc/pam.d/sshd"
+    chroot $mountPoint sed -i "s/serverCommandUsernameUID/$(id -u $serverCommandUsername)/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $serverCommandUsername's UID for OTP redirection in /etc/pam.d/sshd"
+    chroot $mountPoint sed -i "s/backupUsernameUID/$(id -u $backupUsername)/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $backupUsername's UID for OTP redirection in /etc/pam.d/sshd"
+    chroot $mountPoint sed -i "s/monitorUsernameUID/$(id -u $monitorUsername)/g" "/etc/pam.d/sshd" || log "CRITICAL: Could not set $monitorUsername's UID for OTP redirection in /etc/pam.d/sshd"
+	# Affecting pam.passwd.template
+    chroot $mountPoint sed -i "s/microsecondErrorDelay/$pamTimeoutDelay/g" "/etc/pam.d/passwd" || log "CRITICAL: Could not set delay for failed login attempts for passwd pam config file at /etc/pam.d/passwd"
+	# Affectubg pam.shadow-utils.template
+    chroot $mountPoint sed -i "s/microsecondErrorDelay/$pamTimeoutDelay/g" "/etc/pam.d/shadow-utils" || log "CRITICAL: Could not set delay for failed login attempts for shadow-utils pam config file at /etc/pam.d/shadow-utils"
 
     # Disable TTY interfaces from inittab to limit entry points of root access
     log "INFO: Removing unnecessary getty instances at boot"
@@ -1391,6 +1580,7 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 			# $extractUsername
 	chroot $mountPoint sed -i "/^#\{0,2\}Match User $extractUsername\(.*\)/{h;s//Match User $extractUsername/};\${x;/^\$/{s//Match User $extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's Match block for $extractUsername"
 	chroot $mountPoint sed -i "/^#\{0,2\}    ChrootDirectory \/home\/$extractUsername\(.*\)/{h;s//    ChrootDirectory \/home\/$extractUsername/};\${x;/^\$/{s//    ChrootDirectory \/home\/$extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ChrootDirectory for $extractUsername"
+	chroot $mountPoint sed -i "/^#\{0,2\}    AuthenticationMethods\(.*\)/{h;s//    AuthenticationMethods publickey/};\${x;/^\$/{s//    AuthenticationMethods publickey/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's AuthenticationMethods for $extractUsername"
 	chroot $mountPoint sed -i "/^#\{0,2\}    ForceCommand internal-sftp \(.*\) # For $extractUsername\(.*\)/{h;s//    ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $extractUsername/};\${x;/^\$/{s//    ForceCommand internal-sftp -R -l $sftpLogging -f $sftpFacility -p limits,realpath,stat,opendir,readdir,users-groups-by-id,fstatvfs,lstatvfs,statvfs,fstat,lstat,open,close,read # For $extractUsername/;H};x}" /etc/ssh/sshd_config 2>/dev/null || log "UNEXPECTED: Could not update sshd_config profile's ForceCommand for $extractUsername"
 		# Modify ssh_config
 	chroot $mountPoint sed -i "/#\{0,2\}\tLogLevel \(.*\)\(.*\)/{h;s//\tLogLevel $sshLogging/};\${x;/^\$/{s//\tLogLevel $sshLogging/;H};x}" /etc/ssh/ssh_config 2>/dev/null || log "UNEXPECTED: Could not harden /etc/ssh/ssh_config file; LogLevel"
@@ -1575,6 +1765,7 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
 
 # !!! DELETE USER SCRIPT
 # remove fstab entry
+# remove sshd and /etc/pam.d/sshd entries
 #rc-service atd start
 #echo -e "#!/bin/sh\nuserdel -f $extractUsername\nrm -rF /home/$extractUsername\nrm -rF /home/.keys/$extractUsername\nrc-service atd stop\nrm /etc/doas.d/tempUser.conf" > /etc/removal.sh
 #chmod 700 /tmp/removal.sh
@@ -1716,10 +1907,12 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
         chroot $mountPoint chown "$i:$i" "/home/.keys/$i/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/.keys/$i/authorized_keys"
         chroot $mountPoint chown "root:writeDev" "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/dev"
     done
-		# SSH private key ownership for each user
+		# Make sensitive info visibiel to $extractUsername
     for i in $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
         chroot $mountPoint chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$extractUsername/$localhostName.$i-key"
+        chroot $mountPoint chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.user.$i-mfa.qrcode" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$extractUsername/$localhostName.user.$i-mfa.qrcode"
     done
+    chroot $mountPoint chown "$extractUsername:$extractUsername" "/home/$extractUsername/$localhostName.program.su-mfa.qrcode" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$extractUsername/$localhostName.program.su-mfa.qrcode"
 		# SSH chroot environment with shell
     for i in $previewUsername $serverCommandUsername; do
         chroot $mountPoint chown root:root "/home/$i/usr" 2>/dev/null || log "UNEXPECTED: Could not change ownership for; /home/$i/usr"
@@ -1869,6 +2062,15 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     chroot $mountPoint chmod 0500 /usr/bin/getfacl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; getfacl"
     chroot $mountPoint chmod 0500 /usr/bin/setfacl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; setfacl"
     chroot $mountPoint chmod 0500 /usr/bin/chacl 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chacl"
+    chroot $mountPoint chmod 0500 /usr/bin/oathtool 2>/dev/null || log "UNEXPECTED: Could not change permissions for; oathtool"
+    chroot $mountPoint chmod 0500 /usr/bin/pklogin_finder 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pklogin_finder"
+    chroot $mountPoint chmod 0500 /usr/bin/pkcs11_setup 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pkcs11_setup"
+    chroot $mountPoint chmod 0500 /usr/bin/pkcs11_make_hash_link 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pkcs11_make_hash_link"
+    chroot $mountPoint chmod 0500 /usr/bin/pkcs11_listcerts 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pkcs11_listcerts"
+    chroot $mountPoint chmod 0500 /usr/bin/pkcs11_inspect 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pkcs11_inspect"
+    chroot $mountPoint chmod 0500 /usr/bin/pkcs11_eventmgr 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pkcs11_eventmgr"
+    chroot $mountPoint chmod 0500 /usr/bin/card_eventmgr 2>/dev/null || log "UNEXPECTED: Could not change permissions for; card_eventmgr"
+    chroot $mountPoint chmod 0500 /usr/bin/qrencode 2>/dev/null || log "UNEXPECTED: Could not change permissions for; qrencode"
 
     log "INFO: Setting permissions on /usr/sbin executables"
     chroot $mountPoint chmod 0500 /usr/sbin/partprobe 2>/dev/null || log "UNEXPECTED: Could not change permissions for; partprobe"
@@ -1948,8 +2150,6 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     chroot $mountPoint chmod 0400 /etc/security/pam_env.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; permissions for; pam_env.conf"
     chroot $mountPoint chmod 0400 /etc/security/pwhistory.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; permissions for; pwhistory.conf"
     chroot $mountPoint chmod 0400 /etc/security/time.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; time.conf"
-    chroot $mountPoint chmod 0400 /etc/pam.d/chsh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chsh"
-    chroot $mountPoint chmod 0400 /etc/pam.d/shadow-utils 2>/dev/null || log "UNEXPECTED: Could not change permissions for; shadow-utils"
     chroot $mountPoint chmod 0440 /etc/doas.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; doas.conf"
     chroot $mountPoint chmod 0510 /etc/acpi/handler.sh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; handler.sh"
     chroot $mountPoint chmod 0440 /etc/acpi/events/anything 2>/dev/null || log "UNEXPECTED: Could not change permissions for; anything"
@@ -2145,10 +2345,19 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     chroot $mountPoint chmod 0500 /etc/mkinitfs/features.d/zfs.modules 2>/dev/null || log "UNEXPECTED: Could not change permissions for; zfs.modules"
     chroot $mountPoint chmod 0500 /etc/kernel-hooks.d/README 2>/dev/null || log "UNEXPECTED: Could not change permissions for; README"
     chroot $mountPoint chmod 0500 /etc/kernel-hooks.d/secureboot.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; secureboot.conf"
+    chroot $mountPoint chmod 0400 /etc/pam.d/login 2>/dev/null || log "UNEXPECTED: Could not change permissions for; login"
+    chroot $mountPoint chmod 0400 /etc/pam.d/runuser 2>/dev/null || log "UNEXPECTED: Could not change permissions for; runuser"
     chroot $mountPoint chmod 0400 /etc/pam.d/chsh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; chsh"
     chroot $mountPoint chmod 0400 /etc/pam.d/shadow-utils 2>/dev/null || log "UNEXPECTED: Could not change permissions for; shadow-utils"
     chroot $mountPoint chmod 0400 /etc/pam.d/sshd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd"
-    chroot $mountPoint chmod 0400 /etc/pam.d/su-l 2>/dev/null || log "UNEXPECTED: Could not change permissions for; su-l"
+    chroot $mountPoint chmod 0400 /etc/pam.d/passwd 2>/dev/null || log "UNEXPECTED: Could not change permissions for; passwd"
+    chroot $mountPoint chmod 0400 /etc/pam.d/su 2>/dev/null || log "UNEXPECTED: Could not change permissions for; su"
+    chroot $mountPoint chmod 0400 /etc/pam.d/other 2>/dev/null || log "UNEXPECTED: Could not change permissions for; other"
+    chroot $mountPoint chmod 0500 /etc/security/keyCheck.sh 2>/dev/null || log "UNEXPECTED: Could not change permissions for; keyCheck.sh"
+    chroot $mountPoint chmod 0400 /etc/security/warning.auth.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; warning.auth.conf"
+    chroot $mountPoint chmod 0400 /etc/security/warning.account.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; warning.account.conf"
+    chroot $mountPoint chmod 0400 /etc/security/warning.password.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; warning.password.conf"
+    chroot $mountPoint chmod 0400 /etc/security/warning.session.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; warning.session.conf"
     chroot $mountPoint chmod 0400 /etc/security/access.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; access.conf"
     chroot $mountPoint chmod 0400 /etc/security/faillock.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; faillock.conf"
     chroot $mountPoint chmod 0400 /etc/security/group.conf 2>/dev/null || log "UNEXPECTED: Could not change permissions for; group.conf"
@@ -2259,62 +2468,61 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     chroot $mountPoint chmod 00000 /etc/pkcs11 2>/dev/null || log "UNEXPECTED: Could not change permissions for; pkcs11"
 
     log "INFO: Changing anything else remaining in /usr"
-# /usr/lib/pam.d/base-account
-# /usr/lib/pam.d/base-auth
-# /usr/lib/pam.d/base-password
-# /usr/lib/pam.d/base-session
-# /usr/lib/pam.d/base-session-noninteractive
-# /usr/lib/pam.d/login
-# /usr/lib/pam.d/other
-# /usr/lib/pam.d/su
-# /usr/lib/security/pam_access.so
-# /usr/lib/security/pam_canonicalize_user.so
-# /usr/lib/security/pam_debug.so
-# /usr/lib/security/pam_deny.so
-# /usr/lib/security/pam_echo.so
-# /usr/lib/security/pam_env.so
-# /usr/lib/security/pam_exec.so
-# /usr/lib/security/pam_faildelay.so
-# /usr/lib/security/pam_faillock.so
-# /usr/lib/security/pam_filter
-# /usr/lib/security/pam_filter.so
-# /usr/lib/security/pam_ftp.so
-# /usr/lib/security/pam_group.so
-# /usr/lib/security/pam_issue.so
-# /usr/lib/security/pam_keyinit.so
-# /usr/lib/security/pam_limits.so
-# /usr/lib/security/pam_listfile.so
-# /usr/lib/security/pam_localuser.so
-# /usr/lib/security/pam_loginuid.so
-# /usr/lib/security/pam_mail.so
-# /usr/lib/security/pam_mkhomedir.so
-# /usr/lib/security/pam_motd.so
-# /usr/lib/security/pam_namespace.so
-# /usr/lib/security/pam_nologin.so
-# /usr/lib/security/pam_permit.so
-# /usr/lib/security/pam_pwhistory.so
-# /usr/lib/security/pam_rootok.so
-# /usr/lib/security/pam_securetty.so
-# /usr/lib/security/pam_setquota.so
-# /usr/lib/security/pam_shells.so
-# /usr/lib/security/pam_stress.so
-# /usr/lib/security/pam_succeed_if.so
-# /usr/lib/security/pam_time.so
-# /usr/lib/security/pam_timestamp.so
-# /usr/lib/security/pam_umask.so
-# /usr/lib/security/pam_unix.so
-# /usr/lib/security/pam_usertype.so
-# /usr/lib/security/pam_warn.so
-# /usr/lib/security/pam_wheel.so
-# /usr/lib/security/pam_xauth.so
+    chroot $mountPoint chmod 0500 /usr/share/kernel-hooks.d/secureboot.hook 2>/dev/null || log "UNEXPECTED: Could not change permissions for; secureboot.hook file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
     chroot $mountPoint chmod 0640 /usr/lib/os-release 2>/dev/null || log "UNEXPECTED: Could not change permissions for; os-release file permissions for /etc/os-release"
     chroot $mountPoint chmod 0510 /usr/lib/ssh/sftp-server 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sftp-server"
     chroot $mountPoint chmod 0510 /usr/lib/ssh/ssh-pkcs11-helper 2>/dev/null || log "UNEXPECTED: Could not change permissions for; ssh-pkcs11-helper"
     chroot $mountPoint chmod 0510 /usr/lib/ssh/sshd-auth 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd-auth"
     chroot $mountPoint chmod 0510 /usr/lib/ssh/sshd-session 2>/dev/null || log "UNEXPECTED: Could not change permissions for; sshd-session"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_access.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_access.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_canonicalize_user.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_canonicalize_user.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_cgroup.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_cgroup.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_debug.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_debug.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_deny.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_deny.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_echo.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_echo.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_env.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_env.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_exec.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_exec.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_faildelay.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_faildelay.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_faillock.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_faillock.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_filter/upperLOWER 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_filter/upperLOWER"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_filter.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_filter.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_ftp.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_ftp.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_group.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_group.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_issue.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_issue.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_keyinit.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_keyinit.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_lastlog2.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_lastlog2.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_limits.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_limits.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_listfile.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_listfile.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_localuser.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_localuser.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_loginuid.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_loginuid.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_mail.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_mail.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_mkhomedir.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_mkhomedir.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_motd.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_motd.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_namespace.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_namespace.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_nologin.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_nologin.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_oath.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_oath.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_permit.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_permit.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_pkcs11.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_pkcs11.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_pwhistory.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_pwhistory.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_rootok.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_rootok.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_securetty.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_securetty.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_setquota.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_setquota.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_shells.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_shells.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_stress.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_stress.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_succeed_if.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_succeed_if.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_time.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_time.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_timestamp.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_timestamp.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_umask.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_umask.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_unix.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_unix.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_usertype.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_usertype.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_warn.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_warn.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_wheel.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_wheel.so"
+    chroot $mountPoint chmod 0500 /usr/lib/security/pam_xauth.so 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_xauth.so"
     chroot $mountPoint chmod 0444 "/usr/share/zoneinfo/$timezone" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/share/zoneinfo/$timezone file permissions for /etc/localtime"
-    chroot $mountPoint chmod 500 /usr/share/kernel-hooks.d/secureboot.hook 2>/dev/null || log "UNEXPECTED: Could not change permissions for; secureboot.hook file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
+    chroot $mountPoint chmod 00500 /usr/lib/security 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security"
     chroot $mountPoint chmod 00500 /usr/share/kernel-hooks.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; kernel-hooks.d file permissions for /etc/kernel-hooks.d/50-secureboot.hook"
+    chroot $mountPoint chmod 00500 /usr/lib/security/pam_filter 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/security/pam_filter"
+    chroot $mountPoint chmod 00500 /usr/lib/pam.d 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /usr/lib/pam.d"
 
     log "INFO: Changing anything else remaining in /var"
     	# /var/log
@@ -2361,6 +2569,7 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
     chroot $mountPoint chmod 00550 /home/.keys 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/.keys/"
     chroot $mountPoint chmod 00570 "/home/$monitorUsername/logs" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$monitorUsername/logs"
     chroot $mountPoint chmod 00570 "/home/$backupUsername/existingConfig" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$backupUsername/existingConfig"
+    chroot $mountPoint chmod 00500 "/home/.oath" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/.oath"
         # Permissions of: SSH authorization directories, SSH authorization file
     for i in $extractUsername $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
         chroot $mountPoint chmod 00550 "/home/$i" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$i"
@@ -2368,10 +2577,13 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
         chroot $mountPoint chmod 0404 "/home/.keys/$i/authorized_keys" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/.keys/$i/authorized_keys"
         chroot $mountPoint chmod 00531 "/home/$i/dev" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$i/dev"
     done
-		# SSH private key permissions for each user
+		# SSH private key permissions for each user, qr-code for mfa, & oath config file
     for i in $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do # For each user, ensure the following is owned by them
-        chroot $mountPoint chmod 0400 "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change permissions for;  /home/$extractUsername/$localhostName.$i-key"
+        chroot $mountPoint chmod 0400 "/home/$extractUsername/$localhostName.$i-key" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$extractUsername/$localhostName.$i-key"
+        chroot $mountPoint chmod 0400 "/home/$extractUsername/$localhostName.user.$i-mfa.qrcode" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$extractUsername/$localhostName.user.$i-mfa.qrcode"
+    	chroot $mountPoint chmod 0600 "/home/.oath/$i.oath" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/.oath/$i.oath"
     done
+    chroot $mountPoint chmod 0400 "/home/$extractUsername/$localhostName.program.su-mfa.qrcode" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$extractUsername/$localhostName.program.su-mfa.qrcode"
 		# SSH chroot environment with shell
     for i in $previewUsername $serverCommandUsername; do
         chroot $mountPoint chmod 00501 "/home/$i/usr" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$i/usr"
@@ -2389,6 +2601,8 @@ permit nopass root as $extractUsername cmd id args -u" > $mountPoint/etc/doas.d/
         chroot $mountPoint chmod 0000 "/home/$i/usr/lib/libutmps.so.0.1" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$i/usr/lib/libutmps.so.0.1"
         chroot $mountPoint chmod 0000 "/home/$i/usr/lib/libskarnet.so.2.14" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /home/$i/usr/lib/libskarnet.so.2.14"
     done
+    	# Root directory, since it's the home of root user
+    chroot $mountPoint chmod 0600 "/root/su.oath" 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /root/su.oath"
 
     log "INFO: Finalalizing directory permissions"
     chroot $mountPoint chmod 00701 /bin 2>/dev/null || log "UNEXPECTED: Could not change permissions for; /bin"
@@ -2574,6 +2788,11 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint apk list -I 2>/dev/null | grep xz)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find xz package"; fi
     if [ -z "$(chroot $mountPoint apk list -I 2>/dev/null | grep supercronic)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find supercronic package"; fi
     if [ -z "$(chroot $mountPoint apk list -I 2>/dev/null | grep acl)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find acl package"; fi
+    if [ -z "$(chroot $mountPoint apk list -I 2>/dev/null | grep libcgroup-pam)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find libcgroup-pam package"; fi
+    if [ -z "$(chroot $mountPoint apk list -I 2>/dev/null | grep oath-toolkit-pam_oath)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find oath-toolkit-pam_oath package"; fi
+    if [ -z "$(chroot $mountPoint apk list -I 2>/dev/null | grep oath-toolkit-oathtool)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find oath-toolkit-oathtool package"; fi
+    if [ -z "$(chroot $mountPoint apk list -I 2>/dev/null | grep pam-pkcs11)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find pam-pkcs11 package"; fi
+    if [ -z "$(chroot $mountPoint apk list -I 2>/dev/null | grep libqrencode-tools)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Did not find libqrencode-tools package"; fi
 
     # User existance checks
     if [ -z "$(chroot $mountPoint grep at /etc/passwd)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: User at was not found"; fi
@@ -2689,6 +2908,23 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint grep $backupUsername /etc/shadow | grep \*)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: $backupUsername user may still have a valid login!"; fi
 
 	# File, socket, character and directory existance check
+		# PAM
+    if [ ! -f "$mountPoint/etc/pam.d/login" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/pam.d/login file should exist!"; fi
+    if [ ! -f "$mountPoint/etc/pam.d/runuser" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/pam.d/runuser file should exist!"; fi
+    if [ ! -f "$mountPoint/etc/pam.d/su" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/pam.d/su file should exist!"; fi
+    if [ ! -L "$mountPoint/etc/pam.d/su-l" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/pam.d/su-l symlink should exist!"; fi
+    if [ ! -f "$mountPoint/etc/pam.d/passwd" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/pam.d/passwd file should exist!"; fi
+    if [ ! -f "$mountPoint/etc/pam.d/other" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/pam.d/other file should exist!"; fi
+    if [ ! -x "$mountPoint/etc/security/keyCheck.sh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/security/keyCheck.sh file should exist and be executable!"; fi
+    if [ ! -f "$mountPoint/etc/security/warning.auth.conf" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/security/warning.auth.conf file should exist!"; fi
+    if [ ! -f "$mountPoint/etc/security/warning.account.conf" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/security/warning.account.conf file should exist!"; fi
+    if [ ! -f "$mountPoint/etc/security/warning.password.conf" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/security/warning.password.conf file should exist!"; fi
+    if [ ! -f "$mountPoint/etc/security/warning.session.conf" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /etc/security/warning.session.conf file should exist!"; fi
+    if [ ! -f "$mountPoint/home/.oath/$previewUsername.oath" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /home/.oath/$previewUsername.oath file should exist!"; fi
+    if [ ! -f "$mountPoint/home/.oath/$serverCommandUsername.oath" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /home/.oath/$serverCommandUsername.oath file should exist!"; fi
+    if [ ! -f "$mountPoint/home/.oath/$backupUsername.oath" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /home/.oath/$backupUsername.oath file should exist!"; fi
+    if [ ! -f "$mountPoint/home/.oath/$monitorUsername.oath" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /home/.oath/$monitorUsername.oath file should exist!"; fi
+    if [ ! -f "$mountPoint/root/su.oath" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /root/su.oath file should exist!"; fi
 		# Chrony
     if [ ! -d "$mountPoint/var/lib/chrony" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Chrony is misconfigured; /var/lib/chrony directory should exist!"; fi
     	# Fail2ban
@@ -2788,6 +3024,7 @@ verifyLocalInstallation() {
     if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libutmps.so.0.1" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libutmps.so.0.1 file should exist!"; fi
     if [ ! -f "$mountPoint/home/$serverCommandUsername/usr/lib/libskarnet.so.2.14" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$serverCommandUsername/usr/lib/libskarnet.so.2.14 file should exist!"; fi
     if [ ! -d "$mountPoint/home/.keys" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys directory should exist!"; fi
+    if [ ! -d "$mountPoint/home/.oath" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.oath directory should exist!"; fi
     if [ ! -d "$mountPoint/home/.keys/$monitorUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$monitorUsername directory should exist!"; fi
     if [ ! -d "$mountPoint/home/.keys/$previewUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$previewUsername directory should exist!"; fi
     if [ ! -d "$mountPoint/home/.keys/$serverCommandUsername" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/.keys/$serverCommandUsername directory should exist!"; fi
@@ -2814,8 +3051,17 @@ verifyLocalInstallation() {
     if [ ! -d "$mountPoint/home/$backupUsername/existingConfig" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; /home/$backupUsername/existingConfig directory should exist!"; fi
 
     # File removal check
+    	# PAM
+    if [ -d "$mountPoint/usr/lib/pam.d/base-account" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /usr/lib/pam.d/base-account directory should not exist!"; fi
+    if [ -d "$mountPoint/usr/lib/pam.d/base-auth" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /usr/lib/pam.d/base-auth directory should not exist!"; fi
+    if [ -d "$mountPoint/usr/lib/pam.d/base-password" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /usr/lib/pam.d/base-password directory should not exist!"; fi
+    if [ -d "$mountPoint/usr/lib/pam.d/base-session" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /usr/lib/pam.d/base-session directory should not exist!"; fi
+    if [ -d "$mountPoint/usr/lib/pam.d/base-session-noninteractive" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /usr/lib/pam.d/base-session-noninteractive directory should not exist!"; fi
+    if [ -d "$mountPoint/usr/lib/pam.d/login" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /usr/lib/pam.d/login directory should not exist!"; fi
+    if [ -d "$mountPoint/usr/lib/pam.d/su" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /usr/lib/pam.d/su directory should not exist!"; fi
+    if [ -d "$mountPoint/usr/lib/pam.d/other" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam is misconfigured; /usr/lib/pam.d/other directory should not exist!"; fi
     	# Busybox
-    if [ -d "$mountPoint/etc/busybox-paths.d" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic is misconfigured; /etc/busybox-paths.d directory should not exist!"; fi
+    if [ -d "$mountPoint/etc/busybox-paths.d" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Busybox is misconfigured; /etc/busybox-paths.d directory should not exist!"; fi
     	# Logrotate
     if [ -f "$mountPoint/etc/logrotate.d/acpid" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Rsyslog is misconfigured; /etc/logrotate.d/acpid file should not exist!"; fi
     if [ -f "$mountPoint/etc/logrotate.d/chrony" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Rsyslog is misconfigured; /etc/logrotate.d/chrony file should not exist!"; fi
@@ -2826,7 +3072,7 @@ verifyLocalInstallation() {
     if [ -d "$mountPoint/etc/crontabs" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic is misconfigured; /etc/crontabs directory should not exist!"; fi
     if [ -d "$mountPoint/etc/periodic" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic is misconfigured; /etc/periodic directory should not exist!"; fi
     	# Chrony
-    if [ -d "$mountPoint/var/log/chrony" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: supercronic is misconfigured; /var/log/chrony directory should not exist!"; fi
+    if [ -d "$mountPoint/var/log/chrony" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Chrony is misconfigured; /var/log/chrony directory should not exist!"; fi
     
     # Fstab check
     if [ -z "$(chroot $mountPoint grep "^\/bin\/ksh\t\/home\/$previewUsername\/bin\/rksh\tnone\tauto,nodev,nosuid,relatime,ro,nouser,bind\t0\t0$" /etc/fstab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Missing fstab entry for /bin/ksh to /home/$previewUsername/bin/rksh"; fi
@@ -2859,7 +3105,49 @@ verifyLocalInstallation() {
     if [ ! -f "$mountPoint/home/$previewUsername/bin/greeting.ksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: No sshd login for $previewUsername available due to missing greeter script!"; fi
     if [ ! -f "$mountPoint/home/$serverCommandUsername/bin/greeting.ksh" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: No sshd login for $serverCommandUsername available due to missing greeter script!"; fi
 
-	# !!! PAM
+	# PAM configuration files
+		# sshd
+	if [ -z "$(chroot $mountPoint grep "^session optional pam_umask.so umask=$pamUmask$" "/etc/pam.d/sshd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd config has incorrect pam_umask.so configuration for umask within /etc/pam.d/sshd"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth optional pam_faildelay.so delay=$pamTimeoutDelay$" "/etc/pam.d/sshd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd config has incorrect pam_faildelay.so random timeout configured within /etc/pam.d/sshd"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth requisite pam_faillock.so preauth audit deny=$pamFailureLimit fail_interval=$pamFailureWindow even_deny_root unlock_time=$pamFailureUnlock$" "/etc/pam.d/sshd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd config has incorrect pam_faillock.so preauth in /etc/pam.d/sshd"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth \[default=ignore\] pam_faillock.so authfail audit deny=$pamFailureLimit fail_interval=$pamFailureWindow even_deny_root unlock_time=$pamFailureUnlock$" "/etc/pam.d/sshd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd config has incorrect pam_faillock.so authfail in /etc/pam.d/sshd"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth required pam_faillock.so authsucc audit deny=$pamFailureLimit fail_interval=$pamFailureWindow even_deny_root unlock_time=$pamFailureUnlock$" "/etc/pam.d/sshd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd config has incorrect pam_faillock.so authsucc in /etc/pam.d/sshd"; fi
+	for i in $monitorUsername $previewUsername $serverCommandUsername $backupUsername; do
+		if [ -z "$(chroot $mountPoint grep "^auth \[success=[0-9]\{1,2\} default=ignore\] pam_succeed_if.so quiet uid eq $(id -u $i)$" "/etc/pam.d/sshd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd has wrong user $i PID set for /etc/pam.d/sshd"; fi
+		if [ -z "$(chroot $mountPoint grep "^auth \[success=[0-9]\{1,2\} ignore=ignore default=bad\] pam_oath.so usersfile=/home/.oath/$i.oath try_first_pass window=$pamRFCWindow digits=$pamRFCDigit$" "/etc/pam.d/sshd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd has wrong user $i OATH set for /etc/pam.d/sshd"; fi
+	done
+	if [ -z "$(chroot $mountPoint grep "^auth \[success=[0-9]\{1,2\} default=ignore\] pam_succeed_if.so quiet uid eq $(id -u $extractUsername)$" "/etc/pam.d/sshd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd has wrong user $extractUsername PID set for /etc/pam.d/sshd"; fi
+		# su
+	if [ -z "$(chroot $mountPoint grep "^session optional pam_umask.so umask=$pamUmask$" "/etc/pam.d/su" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam su config has incorrect pam_umask.so configuration for umask within /etc/pam.d/su"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth optional pam_faildelay.so delay=$pamTimeoutDelay$" "/etc/pam.d/su" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam su config has incorrect pam_faildelay.so random timeout configured within /etc/pam.d/su"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth requisite pam_faillock.so preauth audit deny=$pamFailureLimit fail_interval=$pamFailureWindow even_deny_root unlock_time=$pamFailureUnlock$" "/etc/pam.d/su" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam su config has incorrect pam_faillock.so preauth in /etc/pam.d/su"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth \[default=ignore\] pam_faillock.so authfail audit deny=$pamFailureLimit fail_interval=$pamFailureWindow even_deny_root unlock_time=$pamFailureUnlock$" "/etc/pam.d/su" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam su config has incorrect pam_faillock.so authfail in /etc/pam.d/su"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth required pam_faillock.so authsucc audit deny=$pamFailureLimit fail_interval=$pamFailureWindow even_deny_root unlock_time=$pamFailureUnlock$" "/etc/pam.d/su" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam su config has incorrect pam_faillock.so authsucc in /etc/pam.d/su"; fi
+	if [ -z "$(chroot $mountPoint grep "^auth \[success=3 ignore=ignore default=bad\] pam_oath.so usersfile=/root/su.oath try_first_pass window=$pamRFCWindow digits=$pamRFCDigit$" "/etc/pam.d/su" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam su config has incorrect pam_oath.so OTP configuration within /etc/pam.d/su"; fi
+		# passwd
+	if [ -z "$(chroot $mountPoint grep "^auth optional pam_faildelay.so delay=$pamTimeoutDelay$" "/etc/pam.d/passwd" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam passwd config has incorrect pam_faildelay.so random timeout configured within /etc/pam.d/passwd"; fi
+		# shadow-utils
+	if [ -z "$(chroot $mountPoint grep "^auth optional pam_faildelay.so delay=$pamTimeoutDelay$" "/etc/pam.d/shadow-utils" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam shadow-utils config has incorrect pam_faildelay.so random timeout configured within /etc/pam.d/su"; fi
+		# other
+	local allPamTypes="auth account password session"
+	for pamType in $allPamTypes; do
+		if [ -z "$(chroot $mountPoint grep "^$pamType optional pam_echo.so file=\/etc\/security\/warning.$pamType.conf$" "/etc/pam.d/other" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam default config has incorrect $pamType for pam_echo at /etc/pam.d/other"; fi
+		if [ -z "$(chroot $mountPoint grep "^$pamType required pam_warn.so$" "/etc/pam.d/other" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam default config has incorrect $pamType for pam_warn at /etc/pam.d/other"; fi
+		if [ -z "$(chroot $mountPoint grep "^$pamType requisite pam_deny.so$" "/etc/pam.d/other" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam default config has incorrect $pamType for pam_deny at /etc/pam.d/other"; fi
+	done
+		# Warnings
+	for pamType in $allPamTypes; do
+		if [ -z "$(chroot $mountPoint grep "^This service has been disabled as a safety precaution due to unrecognized $pamType pam request$" "/etc/security/warning.$pamType.conf" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: The Pam warning message is incorrect for /etc/security/warning.$pamType.conf"; fi
+	done
+	# PAM OTP files with pam_oath
+		# otp/oath
+	if [ -z "$(chroot $mountPoint grep "^HOTP\/$pamRFCType\/$pamRFCDigit\t$previewUsername\t-\t[0-9a-fA-F]\{40\}" "/home/.oath/$previewUsername.oath" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam secret OTP key is missing or OTP file is misconfigured in /home/.oath/$previewUsername.oath"; fi
+	if [ -z "$(chroot $mountPoint grep "^HOTP\/$pamRFCType\/$pamRFCDigit\t$serverCommandUsername\t-\t[0-9a-fA-F]\{40\}" "/home/.oath/$serverCommandUsername.oath" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam secret OTP key is missing or OTP file is misconfigured in /home/.oath/$serverCommandUsername.oath"; fi
+	if [ -z "$(chroot $mountPoint grep "^HOTP\/$pamRFCType\/$pamRFCDigit\t$backupUsername\t-\t[0-9a-fA-F]\{40\}" "/home/.oath/$backupUsername.oath" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam secret OTP key is missing or OTP file is misconfigured in /home/.oath/$backupUsername.oath"; fi
+	if [ -z "$(chroot $mountPoint grep "^HOTP\/$pamRFCType\/$pamRFCDigit\t$monitorUsername\t-\t[0-9a-fA-F]\{40\}" "/home/.oath/$monitorUsername.oath" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam secret OTP key is missing or OTP file is misconfigured in /home/.oath/$monitorUsername.oath"; fi
+	if [ -z "$(chroot $mountPoint grep "^HOTP\/$pamRFCType\/$pamRFCDigit\troot\t-\t[0-9a-fA-F]\{40\}" "/root/su.oath" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam secret OTP key is missing or OTP file is misconfigured in /root/su.oath"; fi
+	# PAM scripts
+	if [ -z "$(chroot $mountPoint grep "^if \[ ! -z \"\$(echo \$SSH_AUTH_INFO_0 | grep \"publickey \$(cat \/home\/.keys\/\$PAM_USER\/authorized_keys \| awk '{print(\$1\" \"\$2)}')\")\" ]; then$" "/etc/security/keyCheck.sh" 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Pam sshd key check currently returns a null response in /etc/security/keyCheck.sh"; fi
 	
 	# Issue banner and motd banner
 	if [ ! -r "$mountPoint/etc/issue" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: The issue banner cannot be read!"; fi
@@ -2955,6 +3243,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint grep "^IgnoreRhosts yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; IgnoreRhosts!"; fi
     if [ -z "$(chroot $mountPoint grep "^PasswordAuthentication no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; PasswordAuthentication!"; fi
     if [ -z "$(chroot $mountPoint grep "^PermitEmptyPasswords no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; PermitEmptyPasswords!"; fi
+    if [ -z "$(chroot $mountPoint grep "^KbdInteractiveAuthentication yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KbdInteractiveAuthentication!"; fi
     if [ -z "$(chroot $mountPoint grep "^UsePAM yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; UsePAM!"; fi
     if [ -z "$(chroot $mountPoint grep "^AllowTcpForwarding no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AllowTcpForwarding!"; fi
     if [ -z "$(chroot $mountPoint grep "^GatewayPorts no" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; GatewayPorts!"; fi
@@ -2972,6 +3261,7 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint grep "^DisableForwarding yes" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; DisableForwarding!"; fi
     if [ -z "$(chroot $mountPoint grep "^FingerprintHash sha256" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; FingerprintHash!"; fi
     if [ -z "$(chroot $mountPoint grep "^ChannelTimeout session=20m" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; ChannelTimeout!"; fi
+    if [ -z "$(chroot $mountPoint grep "^AuthenticationMethods publickey,keyboard-interactive:pam" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthenticationMethods!"; fi
     if [ -z "$(chroot $mountPoint grep "^Ciphers aes256-gcm@openssh.com,aes256-ctr" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; Ciphers!"; fi
     if [ -z "$(chroot $mountPoint grep "^KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KexAlgorithms!"; fi
     if [ -z "$(chroot $mountPoint grep "^MACs hmac-sha2-512-etm@openssh.com" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; MACs!"; fi
@@ -2990,7 +3280,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint grep "^#AuthorizedPrincipalsIsFile" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedPrincipalsIsFile!"; fi
     if [ -z "$(chroot $mountPoint grep "^#AuthorizedKeysCommand" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedKeysCommand!"; fi
     if [ -z "$(chroot $mountPoint grep "^#AuthorizedKeysCommandUser" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; AuthorizedKeysCommandUser!"; fi
-    if [ -z "$(chroot $mountPoint grep "^#KbdInteractiveAuthentication" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KbdInteractiveAuthentication!"; fi
     if [ -z "$(chroot $mountPoint grep "^#KerberosAuthentication" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KerberosAuthentication!"; fi
     if [ -z "$(chroot $mountPoint grep "^#KerberosOrLocalPasswd" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KerberosOrLocalPasswd!"; fi
     if [ -z "$(chroot $mountPoint grep "^#KerberosTicketCleanup" /etc/ssh/sshd_config 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: SSHD is misconfigured; KerberosTicketCleanup!"; fi
@@ -3205,7 +3494,7 @@ verifyLocalInstallation() {
 	# Supercronic
 		# Crontab specification
     if [ -z "$(chroot $mountPoint grep "^0\t\*\t\*\t\*\t\*\t\/bin\/sh \/etc\/supercronic\/hourly\/logrotate \# For logrotate, helper: logPerm" /etc/supercronic/crontab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Crontab of $backgroundUsername user is misconfigured; Cannot start logrotate"; fi
-    if [ -z "$(chroot $mountPoint grep "^15\t\*\/3\t\*\t\*\t\*\t\/bin\/sh \/etc\/supercronic\/unique\/logFirewallCounter \# For logFirewallCounter" /etc/supercronic/crontab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Crontab of $backgroundUsername user is misconfigured; Cannot start logFirewallCounter"; fi
+    if [ -z "$(chroot $mountPoint grep "^15\t\*\/6\t\*\t\*\t\*\t\/bin\/sh \/etc\/supercronic\/unique\/logFirewallCounter \# For logFirewallCounter" /etc/supercronic/crontab 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Crontab of $backgroundUsername user is misconfigured; Cannot start logFirewallCounter"; fi
 		# Check if expected file can be executed
 	if [ ! -x "$mountPoint/etc/supercronic/hourly/logrotate" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Supercronic can't execute /etc/supercronic/hourly/logrotate"; fi
 	if [ ! -x "$mountPoint/etc/supercronic/helper/logPerm" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Supercronic can't execute /etc/supercronic/helper/logPerm"; fi
@@ -3573,6 +3862,15 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /usr/bin/getfacl -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/getfacl"; fi
     if [ -z "$(chroot $mountPoint find /usr/bin/setfacl -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/setfacl"; fi
     if [ -z "$(chroot $mountPoint find /usr/bin/chacl -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/chacl"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/oathtool -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/oathtool"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/pklogin_finder -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/pklogin_finder"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/pkcs11_setup -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/pkcs11_setup"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/pkcs11_make_hash_link -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/pkcs11_make_hash_link"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/pkcs11_listcerts -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/pkcs11_listcerts"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/pkcs11_inspect -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/pkcs11_inspect"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/pkcs11_eventmgr -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/pkcs11_eventmgr"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/card_eventmgr -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/card_eventmgr"; fi
+    if [ -z "$(chroot $mountPoint find /usr/bin/qrencode -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/bin/qrencode"; fi
 
     # Checking /usr/sbin/ permissions
     if [ -z "$(chroot $mountPoint find /usr/sbin/partprobe -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/sbin/partprobe"; fi
@@ -3778,8 +4076,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /etc/security/pam_env.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/pam_env.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/pwhistory.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/pwhistory.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/time.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/time.conf"; fi
-    if [ -z "$(chroot $mountPoint find /etc/pam.d/chsh -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/chsh"; fi
-    if [ -z "$(chroot $mountPoint find /etc/pam.d/shadow-utils -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/shadow-utils"; fi
     if [ -z "$(chroot $mountPoint find /etc/doas.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/doas.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/doas.d/daemon.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/doas.d/daemon.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/doas.d/supercronic.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/doas.d/supercronic.conf"; fi
@@ -3790,10 +4086,10 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /etc/rsyslog.d/99-failureFilter.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/rsyslog.d/99-failureFilter.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/doas.d -perm 510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/doas.d"; fi
     if [ -z "$(chroot $mountPoint find /etc/security -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security"; fi
-    if [ -z "$(chroot $mountPoint find /etc/pam.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/limits.d -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/limits.d"; fi
-    if [ -z "$(chroot $mountPoint find /etc/at.allow -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/at.allow"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/namespace.d -perm 000 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/namespace.d"; fi
+    if [ -z "$(chroot $mountPoint find /etc/pam.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d"; fi
+    if [ -z "$(chroot $mountPoint find /etc/at.allow -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/at.allow"; fi
     if [ -z "$(chroot $mountPoint find /etc/acpi/events -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/acpi/events"; fi
     if [ -z "$(chroot $mountPoint find /etc/acpi/events/anything -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/acpi/events/anything"; fi
     if [ -z "$(chroot $mountPoint find /etc/acpi -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/acpi"; fi
@@ -3938,10 +4234,20 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /etc/kernel-hooks.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/kernel-hooks.d"; fi
     if [ -z "$(chroot $mountPoint find /etc/kernel-hooks.d/README -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/kernel-hooks.d/README"; fi
     if [ -z "$(chroot $mountPoint find /etc/kernel-hooks.d/secureboot.conf -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/kernel-hooks.d/secureboot.conf"; fi
+    if [ -z "$(chroot $mountPoint find /etc/rsyslog.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/pam.d/chsh -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/chsh"; fi
     if [ -z "$(chroot $mountPoint find /etc/pam.d/shadow-utils -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/shadow-utils"; fi
     if [ -z "$(chroot $mountPoint find /etc/pam.d/sshd -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/sshd"; fi
-    if [ -z "$(chroot $mountPoint find /etc/pam.d/su-l -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/su-l"; fi
+    if [ -z "$(chroot $mountPoint find /etc/pam.d/login -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/login"; fi
+    if [ -z "$(chroot $mountPoint find /etc/pam.d/runuser -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/runuser"; fi
+    if [ -z "$(chroot $mountPoint find /etc/pam.d/passwd -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/passwd"; fi
+    if [ -z "$(chroot $mountPoint find /etc/pam.d/su -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/su"; fi
+    if [ -z "$(chroot $mountPoint find /etc/pam.d/other -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/pam.d/other"; fi
+    if [ -z "$(chroot $mountPoint find /etc/security/keyCheck.sh -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/keyCheck.sh"; fi
+    if [ -z "$(chroot $mountPoint find /etc/security/warning.auth.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/warning.auth.conf"; fi
+    if [ -z "$(chroot $mountPoint find /etc/security/warning.account.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/warning.account.conf"; fi
+    if [ -z "$(chroot $mountPoint find /etc/security/warning.password.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/warning.password.conf"; fi
+    if [ -z "$(chroot $mountPoint find /etc/security/warning.session.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/warning.session.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/access.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/access.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/faillock.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/faillock.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/group.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/group.conf"; fi
@@ -3951,7 +4257,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /etc/security/pam_env.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/pam_env.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/pwhistory.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/pwhistory.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/security/time.conf -perm 0400 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/security/time.conf"; fi
-    if [ -z "$(chroot $mountPoint find /etc/rsyslog.conf -perm 0440 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/rsyslog.conf"; fi
     if [ -z "$(chroot $mountPoint find /etc/rsyslog.d -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/rsyslog.d"; fi
     if [ -z "$(chroot $mountPoint find /etc/rsyslog.d/sshdSocket -perm 531 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/rsyslog.d/sshdSocket"; fi
     if [ -z "$(chroot $mountPoint find /etc/rsyslog.d/sftpSocket -perm 531 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc/rsyslog.d/sftpSocket"; fi
@@ -3959,6 +4264,57 @@ verifyLocalInstallation() {
 
     # Checking /usr/lib permissions
     if [ -z "$(chroot $mountPoint find /usr/lib/os-release -perm 0640 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc//usr/lib/os-release for /etc/os-release"; fi
+    if [ -z "$(chroot $mountPoint find /usr/lib/ssh/sftp-server -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ssh/sftp-server"; fi
+    if [ -z "$(chroot $mountPoint find /usr/lib/ssh/ssh-pkcs11-helper -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ssh/ssh-pkcs11-helper"; fi
+    if [ -z "$(chroot $mountPoint find /usr/lib/ssh/sshd-auth -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ssh/sshd-auth"; fi
+    if [ -z "$(chroot $mountPoint find /usr/lib/ssh/sshd-session -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ssh/sshd-session"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_access.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_access.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_canonicalize_user.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_canonicalize_user.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_cgroup.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_cgroup.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_debug.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_debug.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_deny.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_deny.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_echo.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_echo.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_env.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_env.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_exec.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_exec.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_faildelay.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_faildelay.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_faillock.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_faillock.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_filter/upperLOWER -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_filter/upperLOWER"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_filter.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_filter.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_ftp.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_ftp.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_group.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_group.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_issue.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_issue.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_keyinit.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_keyinit.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_lastlog2.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_lastlog2.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_limits.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_limits.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_listfile.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_listfile.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_localuser.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_localuser.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_loginuid.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_loginuid.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_mail.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_mail.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_mkhomedir.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_mkhomedir.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_motd.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_motd.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_namespace.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_namespace.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_nologin.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_nologin.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_oath.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_oath.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_permit.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_permit.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_pkcs11.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_pkcs11.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_pwhistory.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_pwhistory.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_rootok.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_rootok.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_securetty.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_securetty.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_setquota.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_setquota.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_shells.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_shells.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_stress.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_stress.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_succeed_if.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_succeed_if.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_time.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_time.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_timestamp.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_timestamp.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_umask.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_umask.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_unix.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_unix.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_usertype.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_usertype.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_warn.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_warn.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_wheel.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_wheel.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_xauth.so -perm 0500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_xauth.so"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/security/pam_filter -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/security/pam_filter"; fi
+	if [ -z "$(chroot $mountPoint find /usr/lib/pam.d -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/pam.d"; fi
 
     # Checking /usr/share permissions
     if [ -z "$(chroot $mountPoint find /usr/share/zoneinfo/$timezone -perm 0444 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/share/zoneinfo/$timezone for /etc/localtime"; fi
@@ -3974,10 +4330,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /var/run/utmp -perm 0660 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/run/utmp"; fi
 
     # /var/lib
-    if [ -z "$(chroot $mountPoint find /usr/lib/ssh/sftp-server -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ssh/sftp-server"; fi
-    if [ -z "$(chroot $mountPoint find /usr/lib/ssh/ssh-pkcs11-helper -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ssh/ssh-pkcs11-helper"; fi
-    if [ -z "$(chroot $mountPoint find /usr/lib/ssh/sshd-auth -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ssh/sshd-auth"; fi
-    if [ -z "$(chroot $mountPoint find /usr/lib/ssh/sshd-session -perm 0510 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /usr/lib/ssh/sshd-session"; fi
     if [ -z "$(chroot $mountPoint find /var/lib/fail2ban/fail2ban.sqlite3 -perm 0460 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/lib/fail2ban/fail2ban.sqlite3"; fi
     if [ -z "$(chroot $mountPoint find /var/lib/fail2ban -perm 00550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/lib/fail2ban"; fi
     if [ -z "$(chroot $mountPoint find /var/lib/chrony -perm 00570 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /var/lib/chrony"; fi
@@ -4020,7 +4372,6 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /home/$previewUsername -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername"; fi
     if [ -z "$(chroot $mountPoint find /home/$serverCommandUsername -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername"; fi
     if [ -z "$(chroot $mountPoint find /home/$backupUsername -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$backupUsername"; fi
-    if [ -z "$(chroot $mountPoint find /home/.keys -perm 0550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys"; fi
     if [ -z "$(chroot $mountPoint find /home/.keys/$monitorUsername -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$monitorUsername"; fi
     if [ -z "$(chroot $mountPoint find /home/.keys/$previewUsername -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$previewUsername"; fi
     if [ -z "$(chroot $mountPoint find /home/.keys/$serverCommandUsername -perm 0501 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$serverCommandUsername"; fi
@@ -4029,6 +4380,8 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /home/.keys/$previewUsername/authorized_keys -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$previewUsername/authorized_keys"; fi
     if [ -z "$(chroot $mountPoint find /home/.keys/$serverCommandUsername/authorized_keys -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$serverCommandUsername/authorized_keys"; fi
     if [ -z "$(chroot $mountPoint find /home/.keys/$backupUsername/authorized_keys -perm 0404 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys/$backupUsername/authorized_keys"; fi
+    if [ -z "$(chroot $mountPoint find /home/.keys -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.keys"; fi
+    if [ -z "$(chroot $mountPoint find /home/.oath -perm 500 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.oath"; fi
     if [ -z "$(chroot $mountPoint find /home/$monitorUsername/dev -perm 531 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$monitorUsername/dev"; fi
     if [ -z "$(chroot $mountPoint find /home/$previewUsername/dev -perm 531 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$previewUsername/dev"; fi
     if [ -z "$(chroot $mountPoint find /home/$serverCommandUsername/dev -perm 531 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/dev"; fi
@@ -4047,6 +4400,13 @@ verifyLocalInstallation() {
     if [ -z "$(chroot $mountPoint find /home/$serverCommandUsername/bin/greeting.ksh -perm 550 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$serverCommandUsername/bin/greeting.ksh"; fi
     if [ -z "$(chroot $mountPoint find /home/$monitorUsername/logs -perm 570 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$monitorUsername/logs"; fi
     if [ -z "$(chroot $mountPoint find /home/$backupUsername/existingConfig -perm 570 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/$backupUsername/existingConfig"; fi
+    if [ -z "$(chroot $mountPoint find /home/.oath/$previewUsername.oath -perm 0600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.oath/$previewUsername.oath"; fi
+    if [ -z "$(chroot $mountPoint find /home/.oath/$serverCommandUsername.oath -perm 0600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.oath/$serverCommandUsername.oath"; fi
+    if [ -z "$(chroot $mountPoint find /home/.oath/$backupUsername.oath -perm 0600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.oath/$backupUsername.oath"; fi
+    if [ -z "$(chroot $mountPoint find /home/.oath/$monitorUsername.oath -perm 0600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /home/.oath/$monitorUsername.oath"; fi
+    
+    # Root
+    if [ -z "$(chroot $mountPoint find /root/su.oath -perm 0600 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /root/su.oath"; fi
 
     # Common directories near root permission check
     if [ -z "$(chroot $mountPoint find /etc -perm 751 2>/dev/null)" ]; then missing=$((missing+1)); log "SYSTEM TEST MISMATCH: Wrong permissions for /etc"; fi
@@ -4194,7 +4554,7 @@ main() {
     if $rmAlpine; then log "INFO: Started execution to remove alpine from mount point"; removeAlpine; fi
     log "INFO: Finished executing script!"
     
-    echo "To obtain generated ssh keys and other authentication files. Proceed with the following command: sftp -P $sshPort -i /path/to/private/key $extractUsername@[machineIP]"
+    echo "To obtain generated ssh keys, mfa qr code, and other authentication files. Proceed with the following command: sftp -P $sshPort -i /path/to/private/key $extractUsername@[machineIP]"
 }
 
 main "$@"

@@ -1,0 +1,79 @@
+# From alpineHarden.sh
+
+# Check for basic auth requirements
+        # Is environment file available?
+auth requisite pam_env.so
+        # Login to a user account?
+auth requisite pam_succeed_if.so quiet_success uid > 999
+        # Login from a system account?
+auth requisite pam_succeed_if.so quiet_success use_uid uid < 1000
+        # Is user logging in through valid interface?
+auth requisite pam_securetty.so
+
+# Check for basic account characteristics
+        # Local user?
+account requisite pam_localuser.so
+        # Account still valid?
+account requisite pam_unix.so
+
+# Make user aware the account has been temporarely locked
+        # Deny 4 bad consecutive attempts in the last 7200 (2 hours) seconds, and wait 14400 (4 hours) seconds
+auth requisite pam_faillock.so preauth audit deny=denyTotal fail_interval=denySecondWait even_deny_root unlock_time=unlockSecondWait
+
+# Start a new session keyring
+session optional pam_keyinit.so force revoke
+
+# Set the loginuid process attribute
+session required pam_loginuid.so
+
+# !!! SELinux needs to intervene at login time to ensure that the process starts
+# in the proper default security context.  Only sessions which are intended
+# to run in the user's context should be run after this.
+#session [success=ok ignore=ignore module_unknown=ignore default=bad]        pam_selinux.so open
+
+# Check if publickey has already been accepted from SSHD
+auth [success=ok ignore=ignore default=die] pam_exec.so seteuid quiet /etc/security/keyCheck.sh
+
+# !!! TEMP USER MFA BYPASS!!!
+auth [success=15 default=ignore] pam_succeed_if.so quiet uid eq extractUsernameUID
+
+# Check if different user uids, then jump accordingly
+auth [success=3 default=ignore] pam_succeed_if.so quiet uid eq previewUsernameUID
+auth [success=4 default=ignore] pam_succeed_if.so quiet uid eq serverCommandUsernameUID
+auth [success=5 default=ignore] pam_succeed_if.so quiet uid eq backupUsernameUID
+auth [success=6 default=ignore] pam_succeed_if.so quiet uid eq monitorUsernameUID
+
+# Activate OTP request depending on user
+	# Preview user
+auth optional pam_faildelay.so delay=microsecondErrorDelay
+auth [success=9 ignore=ignore default=bad] pam_oath.so usersfile=/home/.oath/previewUsernameOATH.oath try_first_pass window=rfcWindowLength digits=rfcDigitLength
+	# Server command user
+auth optional pam_faildelay.so delay=microsecondErrorDelay
+auth [success=7 ignore=ignore default=bad] pam_oath.so usersfile=/home/.oath/serverCommandUsernameOATH.oath try_first_pass window=rfcWindowLength digits=rfcDigitLength
+	# Backup user
+auth optional pam_faildelay.so delay=microsecondErrorDelay
+auth [success=5 ignore=ignore default=bad] pam_oath.so usersfile=/home/.oath/backupUsernameOATH.oath try_first_pass window=rfcWindowLength digits=rfcDigitLength
+	# Monitor user
+auth optional pam_faildelay.so delay=microsecondErrorDelay
+auth [success=3 ignore=ignore default=bad] pam_oath.so usersfile=/home/.oath/monitorUsernameOATH.oath try_first_pass window=rfcWindowLength digits=rfcDigitLength
+
+# Deny authentication attempt
+auth [default=ignore] pam_faillock.so authfail audit deny=denyTotal fail_interval=denySecondWait even_deny_root unlock_time=unlockSecondWait
+auth required pam_warn.so
+auth requisite pam_deny.so
+
+# Set expected environment variables
+        # Umask enforcement
+session optional pam_umask.so umask=umaskReplace
+        # Enforce strict login limits
+session required pam_limits.so
+        # Read /etc/environment and local environment
+session required pam_env.so readenv=1 user_readenv=0
+        # Clear faillock
+auth required pam_faillock.so authsucc audit deny=denyTotal fail_interval=denySecondWait even_deny_root unlock_time=unlockSecondWait
+        # Record user login
+session required pam_unix.so
+
+# Accept
+auth sufficient pam_permit.so
+session sufficient pam_permit.so

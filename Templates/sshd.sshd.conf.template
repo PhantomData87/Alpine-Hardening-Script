@@ -24,7 +24,7 @@ IgnoreUserKnownHosts no
 IgnoreRhosts yes
 PasswordAuthentication no
 PermitEmptyPasswords no
-#KbdInteractiveAuthentication yes
+KbdInteractiveAuthentication yes
 #KerberosAuthentication no
 #KerberosOrLocalPasswd yes
 #KerberosTicketCleanup yes
@@ -58,6 +58,7 @@ Subsystem sftp internal-sftp
 DisableForwarding yes
 FingerprintHash sha256
 ChannelTimeout session=20m
+AuthenticationMethods publickey,keyboard-interactive:pam
 Ciphers aes256-gcm@openssh.com,aes256-ctr
 KexAlgorithms mlkem768x25519-sha256,sntrup761x25519-sha512,sntrup761x25519-sha512@openssh.com
 MACs hmac-sha2-512-etm@openssh.com

@@ -1,0 +1,58 @@
+# From alpineHarden.sh
+
+# Check for basic auth requirements
+        # Is environment file available?
+auth requisite pam_env.so
+        # A known shell?
+auth requisite pam_shells.so
+        # Login to a user account?
+auth requisite pam_succeed_if.so uid > 999
+        # Login from a user account?
+auth requisite pam_succeed_if.so use_uid uid > 999
+        # Is user logging in through valid interface?
+auth requisite pam_securetty.so
+
+# Check for basic account characteristics
+        # Local user?
+account requisite pam_localuser.so
+        # Account still valid?
+account requisite pam_unix.so
+
+# Make user aware the account has been temporarely locked
+        # Deny 4 bad consecutive attempts in the last 7200 (2 hours) seconds, and wait 14400 (4 hours) seconds
+auth requisite pam_faillock.so preauth audit deny=denyTotal fail_interval=denySecondWait even_deny_root unlock_time=unlockSecondWait
+
+# Root account bypass password check
+auth [success=2 default=ignore] pam_rootok.so
+
+# Check password, and set timeout delay
+auth optional pam_faildelay.so delay=microsecondErrorDelay
+auth required pam_unix.so try_first_pass
+
+# Activate OTP request
+auth [success=3 ignore=ignore default=bad] pam_oath.so usersfile=/root/su.oath try_first_pass window=rfcWindowLength digits=rfcDigitLength
+
+# Deny anything else
+        # Record login failure
+auth [default=ignore] pam_faillock.so authfail audit deny=denyTotal fail_interval=denySecondWait even_deny_root unlock_time=unlockSecondWait
+auth required pam_warn.so
+auth requisite pam_deny.so
+
+# Check for the account's quality in its password
+# password quality check
+# password required pam_unix.so try_first_pass shadow use_authtok
+
+# Set expected environment variables
+        # Umask enforcement
+session optional pam_umask.so umask=umaskReplace
+        # Enforce strict login limits
+session required pam_limits.so
+        # Read /etc/environment
+session required pam_env.so readenv=1 user_readenv=0
+        # Clear faillock
+auth required pam_faillock.so authsucc audit deny=denyTotal fail_interval=denySecondWait even_deny_root unlock_time=unlockSecondWait
+        # Record user login
+session required pam_unix.so
+
+# Accept
+session sufficient pam_permit.so

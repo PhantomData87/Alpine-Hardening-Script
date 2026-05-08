@@ -7,4 +7,4 @@
 # 0       5       1       *       *       run-parts /etc/supercronic/monthly
 # *       *       *       *       *       run-parts /etc/supercronic/unique
 0	*	*	*	*	/bin/sh /etc/supercronic/hourly/logrotate # For logrotate, helper: logPerm
-15	*/3	*	*	*	/bin/sh /etc/supercronic/unique/logFirewallCounter # For logFirewallCounter
+15	*/6	*	*	*	/bin/sh /etc/supercronic/unique/logFirewallCounter # For logFirewallCounter

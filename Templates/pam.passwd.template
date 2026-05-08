@@ -1,0 +1,38 @@
+# From alpineHarden.sh
+
+# Check for basic auth requirements
+        # Is environment file available?
+auth requisite pam_env.so
+        # A known shell?
+auth requisite pam_shells.so
+        # Usage from a system account?
+auth requisite pam_succeed_if.so use_uid uid < 1000
+
+# Check for basic account characteristics
+        # Local user?
+account requisite pam_localuser.so
+        # Account still valid?
+account requisite pam_unix.so
+
+# Root account bypass password check
+auth [success=2 default=ignore] pam_rootok.so
+
+# Authenticate the user's password
+auth optional pam_faildelay.so delay=microsecondErrorDelay
+auth required pam_unix.so
+
+# Pasword strength
+# !!! todo example: password requisite pam_cracklib.so retry=3 minlen=6 difok=3
+# Change try_first_pass to use_first_pass
+
+# Password change auth and update mechanism
+password [success=2 default=ignore] pam_unix.so remember=5 sha512 shadow try_first_pass
+
+# Deny anything else
+password required pam_warn.so
+password requisite pam_deny.so
+
+# Log interaction & clear prior failed attempts & Accept
+session required pam_unix.so
+password sufficient pam_permit.so
+session sufficient pam_permit.so
